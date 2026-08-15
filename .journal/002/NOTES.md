@@ -8,3 +8,10 @@ started: 2026-08-15
 Goal for the session: start implementing imgoci/go from the session 001 artifacts (`.journal/001/ARCHITECTURE.md`, `.journal/001/PLAN.md`).
 Current state of the world: repo is an unrenamed meigma/template-go clone on `master`; no implementation code exists. bigoci v0.2.0 shipped all five upstream asks; go-oci-blob v1.1.1 pinned. Spec is draft (2026-08-11) with conformance fixtures at `~/code/imgoci/spec/conformance/v1/`.
 Plan: begin at PLAN.md slice 0 (rename pass PR: `chore: adopt imgoci/go module identity and library shape`), then proceed through slices in order, one worktree/PR per work item.
+
+## 2026-08-15 13:15 — Slice 0 complete, PR #7 open
+Executed PLAN.md PR0.1 on worktree `chore/slice-0-library-shape` via three parallel programmer agents (module identity / release-CI trim / docs-meta), plus two orchestrator fixups the plan's file list missed: `.golangci.yml` goimports `local-prefixes` → `github.com/imgoci/go`, and deletion of orphaned `.github/scripts/{stage_ghd_release_assets.py,test_stage_ghd_release_assets.py}` (only consumer was the deleted release.yml).
+Result: module `github.com/imgoci/go`, doc-only root `package imgoci` (spec v1 draft 2026-08-11, commit da153d8), zero deps, library-only trim per DELETE_ME.md, moon.yml on the bigoci model (build/test -race, no build-windows yet — PR2.4), Release Please kept (component `go`, manifest 0.0.0), dual licenses copied from bigoci.
+Verified: `moon run root:check` green locally; residue sweep clean outside `.wt/`/`scaffold/`/`.agents/` skills; PR #7 CI green (ci + GitHub Pages build).
+Next: await PR #7 review/merge, then slice 1 PR1.1 (`internal/jcs` + RFC 8785 audit suite).
+Learned: template skills under `.agents/skills/{apko,melange,mise}` still describe deleted release machinery — candidates for cleanup in a later housekeeping pass, out of slice 0 scope.
