@@ -3,7 +3,8 @@
 // stored in OCI registries.
 //
 // The implemented specification is imgoci v1 draft, 2026-08-11
-// (imgoci/spec commit da153d8d11fdf0eb3b4bd3c67393fec190397764).
+// (imgoci/spec commit 5b957102eeda16498fdcb80a738431b83abd4197, the same
+// pin recorded in testdata/conformance/SPEC_COMMIT).
 //
 // This library is under active development. The API is not yet stable
 // (pre-v1).

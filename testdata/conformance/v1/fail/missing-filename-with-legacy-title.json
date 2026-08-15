@@ -1,0 +1,27 @@
+{
+  "annotations": {
+    "io.imgoci.name": "example",
+    "org.opencontainers.image.version": "1"
+  },
+  "artifactType": "application/vnd.imgoci.release.v1",
+  "manifests": [
+    {
+      "annotations": {
+        "io.imgoci.architecture": "amd64",
+        "io.imgoci.compression": "none",
+        "io.imgoci.content.digest": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "io.imgoci.content.size": "0",
+        "io.imgoci.representation": "x-test-format",
+        "io.imgoci.role": "x-test-file",
+        "io.imgoci.target": "x-test-target",
+        "org.opencontainers.image.title": "a"
+      },
+      "artifactType": "application/vnd.imgoci.file.v1",
+      "digest": "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+      "mediaType": "application/vnd.oci.image.manifest.v1+json",
+      "size": 1
+    }
+  ],
+  "mediaType": "application/vnd.oci.image.index.v1+json",
+  "schemaVersion": 2
+}
