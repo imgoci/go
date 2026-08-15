@@ -1,16 +1,9 @@
 ---
-title: template-go Docs
+title: imgoci/go
 slug: /
-description: Starting point for Meigma Go projects.
+description: Canonical Go implementation of the imgoci release format.
 ---
 
-# template-go Docs
+# imgoci/go
 
-This repository is the starting point for Meigma Go projects.
-
-Generated projects should replace this page with project-specific documentation after bootstrapping:
-
-- project summary
-- quick start
-- operating notes
-- support and security paths
+imgoci/go is the canonical Go implementation of the imgoci release format ([spec v1 draft, 2026-08-11](https://github.com/imgoci/spec)). The library is under active development. Related projects include [bigoci](https://github.com/imgoci/bigoci) and [go-oci-blob](https://github.com/imgoci/go-oci-blob).

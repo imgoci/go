@@ -1,8 +1,8 @@
 # Required release app settings:
 # - vars.MEIGMA_RELEASE_APP_ID
 # - secrets.MEIGMA_RELEASE_APP_PRIVATE_KEY
-# - protected-tag ruleset bypass for the release app, because this workflow
-#   creates protected v* tags after the release PR is merged.
+# - protected-tag ruleset bypass for imgoci-release-please, because this
+#   workflow creates protected v* tags after the release PR is merged.
 
 name: Release Please
 
