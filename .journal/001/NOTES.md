@@ -26,3 +26,12 @@ Mapped the three sibling repos with parallel researchers. Key findings:
 
 Full researcher reports: agent://SpecMapper, agent://BlobMapper, agent://BigociMapper (ephemeral).
 Next: awaiting user direction; presumably scaffold rename + starting the canonical Go implementation.
+
+## 2026-08-14 22:45 — Architecture designed and adversarially reviewed (3 rounds)
+Ran a software-architect agent against an architecture-reviewer agent, hard-capped at 3 review rounds. Both agents were primed with an architecture brief plus the three ecosystem research reports; the reviewer verified claims against spec.md and sibling source directly.
+
+Round outcomes: R1 revise (7 blockers — restricted JCS verifier would reject valid extension-bearing indexes; Release/Resolved unbound; bigoci.Push unusable tag-free; bigoci nonconformance can't be "documented around"; missing stored-layer size check + identity-encoding enforcement; single-retry-loop claim impossible; capabilities API inconsistent). R2 revise (5 blockers — identity wrapper opaque to bigoci's inspectable-transport seam; gowebpki/jcs lacks UTF-8 enforcement; local BigOCI producer fallback incomplete; staging-path suffix collisions; Publish reference forms undefined). R3 revise-but-close (3 localized blockers — bigoci external client carries token-realm traffic so identity enforcement needs a provenance predicate; staging key not unique/concurrency-safe; multipart mutable-source guarantee overstated). Architect produced a final document folding in R3 fixes: marker-predicate identity enforcement with an empirical preservation test, per-call MkdirTemp staging + content-addressed locked stored cache keyed by full digest, honest source-immutability precondition.
+
+Final document: .journal/001/ARCHITECTURE.md. Key decisions: root `package imgoci` at module root; CLI as private cli/ submodule; hand-written validator (CUE = test oracle only); proven JCS transform behind utf8.Valid gate + audit; digest-bound Release/Resolved; BigOCI support conformance-gated on upstream bigoci fixes (5 upstream asks catalogued: case-insensitive decode, identity handling, digest publication, seam docs, wire re-hash); two non-nesting retry domains; stage-then-commit with per-file atomicity; delivery in 7 slices starting with rename pass + offline core.
+
+Next: user review of ARCHITECTURE.md; then slice 0 (rename pass).
