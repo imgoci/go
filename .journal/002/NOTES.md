@@ -21,3 +21,8 @@ User flagged release-please. Found and fixed on PR #7 (commit e8c7f7b): workflow
 Repo-side: set repo var `MEIGMA_RELEASE_APP_CLIENT_ID=Iv23lijvp0bzwY9COPTx` (same app as bigoci); app `imgoci-release-please` installed org-wide. Ran `configure_github_repo.py apply` — live repo had NO managed rulesets; now converged (branch ruleset w/ required `ci` check + squash-only, tag ruleset w/ release-please bypass, immutable releases, Pages). First apply hit a Pages cert-provisioning 404; retry after 45s succeeded — known race, note for future repo bootstraps.
 BLOCKED on user: secret `MEIGMA_RELEASE_APP_PRIVATE_KEY` must be set on imgoci/go (not in Bitwarden/1Password; bigoci's copy unreadable). `gh secret set MEIGMA_RELEASE_APP_PRIVATE_KEY -R imgoci/go < key.pem`.
 CI green on PR #7 after the fix.
+
+## 2026-08-15 14:00 — Release app credentials provisioned as IMGOCI_*
+Blocker resolved. Per user: renamed the credential convention MEIGMA_* → IMGOCI_* for this repo, and the private key lives in 1Password (`op`), item `imgoci-release-please`, `Development` vault (SECURE_NOTE: fields app_id/client_id, attachment `key.pem`).
+Provisioned on imgoci/go: secret `IMGOCI_RELEASE_APP_PRIVATE_KEY` (via `op read "op://Development/imgoci-release-please/key.pem" | gh secret set ...`, key never displayed), var `IMGOCI_RELEASE_APP_CLIENT_ID=Iv23lijvp0bzwY9COPTx`; deleted the interim `MEIGMA_RELEASE_APP_CLIENT_ID` var. Workflow updated on PR #7 (e4f7797), CI green.
+Durable: release-app key retrieval path is the op:// URI above. Note bigoci still uses MEIGMA_-prefixed names — cross-repo naming drift, rename there is out of scope here.
