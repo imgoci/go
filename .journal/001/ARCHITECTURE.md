@@ -1,6 +1,6 @@
 # Architecture: `imgoci/go` — canonical Go implementation of the imgoci release format v1
 
-Status: final (reviewed, 3 rounds). Targets spec `imgoci/spec` (draft 2026-08-11), `go-oci-blob v1.1.1`, `bigoci v0.1.0`.
+Status: final (reviewed, 3 rounds; updated 2026-08-15 for bigoci v0.2.0). Targets spec `imgoci/spec` (draft 2026-08-11), `go-oci-blob v1.1.1`, `bigoci v0.2.0`.
 
 ## 1. Goals / non-goals
 
@@ -175,8 +175,7 @@ func FromFile(path string) Source
 
 - pass-1 `stat` (size, mtime) re-checked before upload;
 - **standard path:** the upload reader cryptographically re-hashes the bytes actually streamed to the registry and fails the push at EOF on mismatch with pass 1 — on this path wrong bytes cannot be committed under the declared digest even by a registry that skips commit checks;
-- **multipart via bigoci:** after push, the returned manifest is fetched and its `io.bigoci.file.digest` must equal the pass-1 stored digest (detects mutation before/during hashing vs the manifest, but the wire bytes themselves are re-read by bigoci without re-hashing — the precondition carries this path);
-- **multipart via the local fallback:** each part's wire reader is wrapped in a digest re-verifier (we control this code), giving the standard-path guarantee.
+- **multipart via bigoci (≥ v0.2.0):** bigoci re-hashes each part's bytes as the wire consumes them and fails the part upload on divergence from its hash pass (upstream #59), giving the standard-path guarantee; imgoci additionally fetches the returned manifest by descriptor digest and requires `io.bigoci.file.digest` to equal the pass-1 stored digest.
 
 A conforming registry additionally rejects mismatched commits. All caller-supplied strings (name, version, annotations, filenames) are validated `utf8.ValidString` before encoding (`json.Marshal` otherwise substitutes U+FFFD silently).
 
@@ -204,7 +203,6 @@ imgoci (public root)
  ├─→ internal/transfer   orchestration core; declares ports Manifests/Blobs/Multipart
  │     ├─→ internal/index         index codec + 10-rule validator (pure)
  │     ├─→ internal/filemanifest  standard codec + BigOCI profile reader
- │     │                          (+ BigOCI producer codec if fallback ships)
  │     ├─→ internal/decomp        strict decoders + bounded counting readers/writers
  │     └─→ internal/retry        transient tagging + THE loop for our own adapters
  ├─→ internal/index ─→ internal/jcs   UTF-8 gate + dup-key scan + JCS transform
@@ -221,7 +219,7 @@ Pure core packages import stdlib + `go-digest` (+ codec deps). `transfer` import
 |---|---|
 | `internal/jcs` | **Verify** (rule 10): (1) `utf8.Valid(original)` — mandatory first step; neither `gowebpki/jcs` (copies non-ASCII bytes unvalidated) nor `encoding/json` (silently replaces invalid UTF-8) enforces I-JSON's Unicode requirement, so we do, on the raw input. (2) Token-level scan rejecting duplicate keys **compared after JSON string decoding** (`"\u0061"` duplicates `"a"`). (3) Full-domain RFC 8785 transform of the parsed value, byte-compared with the input — booleans, null, nesting, negative/fractional numbers, canonical exponent forms, full escape and UTF-16 key-sort rules. **Encode** (producer): stdlib `json.Marshal` of our fixed shapes through the same transform; caller strings pre-validated. One canonicalization path for both sides. |
 | `internal/index` | Three seams: `Decode(bytes)` (UTF-8 + shape + duplicate keys; preserves all members incl. unknown values), `Validate(value)` (rules 1–9: structure, syntax, required roles, `incus-vm` target, dup tuples, cross-entry consistency, filename collisions, shared-digest agreement, descriptor order), `VerifyCanonical(bytes)` (rule 10). Producer: `Build` sorts by the five-field UTF-8 tuple and canonical-encodes. Public `ParseIndex` composes all three; no lenient mode. |
-| `internal/filemanifest` | Standard codec: build (fixed members, empty-config constant, canonical bytes) and consumer-validate (§3.1 + canonical bytes, tolerant of extras). BigOCI **profile** reader: ≥2 parts, `io.bigoci.file.{digest,size}` extraction, case-insensitive type checks. BigOCI **producer codec** (only if the §6.4 fallback ships): canonical encoding oracle-tested byte-identical to bigoci's. |
+| `internal/filemanifest` | Standard codec: build (fixed members, empty-config constant, canonical bytes) and consumer-validate (§3.1 + canonical bytes, tolerant of extras). BigOCI **profile** reader: ≥2 parts, `io.bigoci.file.{digest,size}` extraction, case-insensitive type checks. (A local BigOCI producer codec was specified pre-v0.2.0 and retired when `PushByDigest` shipped upstream — §6.4.) |
 | `internal/decomp` | Strict decoders: `gzip` (stdlib `Multistream(false)`; decoder and trailing-byte probe share one `bufio.Reader` so buffered trailing bytes cannot vanish), `xz` (`ulikunitz/xz` single stream, padding rejected), `zstd` (`klauspost/compress`, single non-skippable frame, no dictionary; frame-header inspection spike at slice 4), `none`. `CountingHashWriter` with content-size abort ceiling. `BoundedReader(r, exact)`: errors the moment raw bytes exceed the declared size (a hostile server cannot force an unbounded drain); at exactly the limit it issues one further read on the underlying reader and requires `(0, io.EOF)` — which for go-oci-blob's verified reader also means the digest passed — propagating an extra byte as a size error and a digest mismatch as itself. It never synthesizes EOF, so the underlying verification is always reached. |
 | `internal/transfer` | `Publish`/`Fetch` orchestrators + ports: `Manifests{Get(ctx, ref/digest, accept)(bytes, contentType, error); Put(ctx, digest|tag, mediaType, bytes) error}`, `Blobs{Exists;Push;Pull}` (go-oci-blob shape), `Multipart{Push(ctx, repo, path, partSize)(ocispec.Descriptor, error); PullTo(ctx, repo, dgst, path) error}` (path-typed, tag-free). Owns worker scheduling, plan execution, stage-then-commit sequencing, verification ordering, progress. |
 | `internal/registry` | Manifest-endpoint adapter (neither sibling has one): OCI Distribution manifest GET/PUT, exact `Accept`, `parseContentType`, raw-byte discipline. Owns `identityTransport` (§6.6) and constructs the go-oci-blob client bigoci-style (authenticated registry transport + credential-stripped storage transport, `RetryPolicy{}`, write redirects off). `Docker-Content-Digest` ignored (spec-permitted). |
@@ -353,24 +351,23 @@ Hand-written Go validator; CUE schema and conformance fixtures are test oracles 
 
 `Index` records the SHA-256 of its input bytes; `Resolved` carries it; `FetchFiles` requires equality with `rel.Digest()` (`ErrSelectionMismatch`). Digest identity, not pointer identity: independently parsed copies of the same canonical index interoperate, and the binding survives serialization. This closes the spec's chain: fetch+validate → select from that index → retrieve those descriptors from that repository.
 
-### 6.4 BigOCI integration: conformance-gated, fully specified fallback
+### 6.4 BigOCI integration: prerequisites satisfied by v0.2.0
 
-**Consumer path — upstream prerequisites.** The capability set advertises `application/vnd.bigoci.file.v1` only when the pinned bigoci version provides:
+**Upstream prerequisites: satisfied by bigoci v0.2.0 (released 2026-08-15).** All five asks from the upstream request round landed and were verified in source:
 
-1. **ASCII case-insensitive media-type decoding** (no adapter can cure it — `Client.Pull` refetches and parses the manifest itself).
-2. **Identity-encoding handling on its manifest and part GETs, including redirect hops** — now an upstream ask in its own right (see §6.6 for why a wrapper cannot fully carry it): bigoci should set `Accept-Encoding: identity` and reject non-identity `Content-Encoding` on those requests. The wrapper-marker fallback in §6.6 may substitute if its preservation test passes; otherwise this is hard.
-3. **Docs blessing of the `BigociExternalBase`/`BigociWrapExternal` structural seam** as a stable contract (we implement it either way; coupling to an internal-package convention deserves an upstream docs line).
+1. **ASCII case-insensitive media-type decoding** — `strings.EqualFold` at every decode comparison (`internal/manifest/decode.go` #55); encoder bytes unchanged, so the digest oracle holds.
+2. **Identity coding on manifest and blob reads** (#58) — bigoci itself sends `Accept-Encoding: identity`, parses `Content-Encoding` as an RFC 9110 case-insensitive token list, refuses coded responses before reading the body, and carries the marker across manual redirect hops (`internal/oci/encoding.go`, `redirect.go` allow-list; coded-store-rejection and hop-preservation tests upstream). Token realms remain exempt upstream.
+3. **`Client.PushByDigest(ctx, repo, src, opts...) (ocispec.Descriptor, error)`** (#57) — publishes the manifest by computed digest with **no tag write**; `repo` is a repository-only reference (registry/name, no tag or digest). Same split/hash/retry/ordering guarantees as `Push`.
+4. **The `BigociExternalBase`/`BigociWrapExternal` structural seam is documented as a stable public contract** (#56; `options.go` `WithHTTPClient` doc + docs-site API reference).
+5. **Wire re-hash of part bytes during upload** (#59) — parts are digest-verified as the wire consumes them (see §3.2 source-stability).
 
-Until (1) and (2) hold, `Capabilities()` is standard-only and Resolve never selects BigOCI by default. Standard-only remains fully useful.
+The capability gate is therefore: **pin `bigoci ≥ v0.2.0`** and keep the slice-5 interop fixtures green (case-varied media types; coded-response refusal on all paths; cross-host redirect under default verified mode). `Capabilities()` advertises `application/vnd.bigoci.file.v1` once those fixtures pass against the pinned version.
 
-**Producer path.** No tag is ever passed to bigoci — `bigoci.Client.Push` writes its manifest at the bound tag/digest and the digest is unknowable prospectively (`client.go:17-33`; `internal/oci/manifests.go:103-106`); staging tags rejected (observable mutation, registry-specific deletion). Two options, decided at slice 5:
+**Producer path.** `Multipart.Push` maps directly onto `Client.PushByDigest`: no tag is ever written for a file manifest; the release tag is written exactly once, by our own index PUT. Historical note: pre-v0.2.0 this was impossible through bigoci's public API (`Push` writes its manifest at the bound tag/digest, unknowable prospectively), and revisions 2–3 of this document specified a complete local BigOCI producer fallback (split rule, empty-config blob, canonical codec byte-identical to bigoci's, PUT-by-digest). That fallback is **retired, not needed** — kept in review history only. The ≥2-part imgoci profile check (plan <2 ⇒ standard form) still lives above the port.
 
-1. **Preferred: upstream digest-publication capability** — a bigoci push mode publishing the generated manifest by its computed digest with no tag write, returning the descriptor. Small, same-owner, generally useful.
-2. **Fallback: local BigOCI producer — complete contract:** split per the normative rule (part *i* = `[i·P, min((i+1)·P, size))`, exact last-part size); enforce BigOCI's 1–4096 bound **and** the imgoci ≥2 profile (plan <2 ⇒ standard-form fallback upstream of this code); parts uploaded via go-oci-blob (`Exists`→`Push`, `application/vnd.bigoci.file.part.v1`), **each part's wire reader wrapped in a digest re-verifier**; whole-file and per-part digests cross-checked against pass 1; **empty-config `{}` blob `Exists`→`Push` before the manifest**; manifest built with `schemaVersion` 2, OCI manifest media type, `artifactType application/vnd.bigoci.file.v1`, empty-config descriptor, ordered part layers, `io.bigoci.file.digest`/`io.bigoci.file.size`/`io.bigoci.part.size`, title following bigoci's default (source basename) so the digest oracle holds; canonical encoding byte-identical to bigoci's via `internal/filemanifest`; **all parts + config present, then canonical manifest PUT by digest**. Oracle tests: manifest bytes digest-identical to `bigoci.Client.Push` for the same (file, part size, title); artifacts pullable by the bigoci CLI; graph-completeness test pulling every referenced blob including the config.
+Consumer-side pull delegation is unchanged: `repo@sha256:…` is a valid bigoci pull reference.
 
-Producing a fresh conforming BigOCI manifest is legal ("must not rewrite" prohibits re-encoding an existing one, not implementing the published normative producer format). Consumer-side pull delegation is unaffected: `repo@sha256:…` is a valid bigoci pull reference.
-
-**Port shape:** `Multipart.Push(ctx, repo, path, partSize) (ocispec.Descriptor, error)` — repository-scoped, tag-free, path-typed.
+**Port shape:** `Multipart.Push(ctx, repo, path, partSize) (ocispec.Descriptor, error)` — repository-scoped, tag-free, path-typed; adapter implements it with `PushByDigest`.
 
 ### 6.5 Retry: two domains, never nested
 
@@ -382,17 +379,16 @@ The spec requires `Accept-Encoding: identity` and identity-only `Content-Encodin
 
 1. **Our manifest client (registry transport):** the adapter sets the header and enforces the response rule on manifest/blob-path GETs (`/v2/…/manifests/…`, `/v2/…/blobs/…`); token-exchange and auxiliary requests are untouched — our `internal/auth` routes realm requests outside enforcement by construction. `Content-Encoding` is parsed as a comma-separated, ASCII-case-insensitive token list accepting only `identity`; rejected response bodies are closed.
 2. **go-oci-blob:** its registry transport gets the path-scoped wrapper; its **storage transport** (`WithStorageTransport`) is enforced unconditionally — go-oci-blob's off-origin client carries only redirected blob traffic (auth is the caller's RoundTripper on the registry side), so "external means blob" is actually true there.
-3. **bigoci — the hard case.** `identityTransport` implements bigoci's structural observer seam (`BigociExternalBase() http.RoundTripper` / `BigociWrapExternal(next) http.RoundTripper` — verified at `endpoint.go:77-193`), so bigoci's secure default clones and guards our concrete base and rebuilds the observer around the guarded external transport; default secure off-origin redirects keep working and `WithUnverifiedExternalTransport` is never implied. **But** bigoci's derived external client carries token-realm traffic as well as redirect targets (`repository.go:244-248, 580-584`), so the rebuilt wrapper must not enforce unconditionally. The mechanism is therefore predicate-based: the rebuilt wrapper enforces only requests **already carrying `Accept-Encoding: identity`** — a marker only manifest/part fetches would bear, never token exchanges. That predicate is valid **iff** bigoci's manual redirect path preserves the request header onto the redirect target; a dedicated preservation test (registry 307s part GETs to a second host; assert the marker and enforcement on the hop) decides it at slice 5. If preservation fails, the wrapper cannot carry the invariant on bigoci's path and upstream ask (2) of §6.4 becomes hard — either way the capability gate keeps us honest, and token-realm traffic stays outside the predicate by construction.
+3. **bigoci (≥ v0.2.0): enforced natively upstream.** bigoci sends `Accept-Encoding: identity` on its own manifest/blob GETs, refuses coded responses before reading the body, and carries the marker across its manual redirect hops (#58) — the invariant no longer depends on any wrapper we inject. Revisions 2–3's marker-predicate mechanism and its preservation test are retired; review history retains them. If we inject a policy transport via `WithHTTPClient` for any other reason, it implements the documented-stable `BigociExternalBase`/`BigociWrapExternal` seam (#56) so bigoci's default verified mode can clone and guard the concrete base — `WithUnverifiedExternalTransport` is never implied.
 
-**Tests:** gzipping reverse proxy fails manifest and blob fetches on all enforced paths; cross-host signed-storage redirect succeeds under bigoci's default verified mode with `identityTransport` installed and fails if the second host applies a content coding; a token realm that compresses its responses keeps working; the marker-preservation test above.
+**Tests:** gzipping reverse proxy fails manifest and blob fetches on all enforced paths (ours, go-oci-blob's, and — enforced upstream — bigoci's); cross-host signed-storage redirect succeeds under bigoci's default verified mode and fails if the second host applies a content coding; a token realm that compresses its responses keeps working.
 
 ### 6.7 Delegation boundaries (summary)
 
 | Concern | Where | Why |
 |---|---|---|
 | Blob Exists/Push/Pull | `go-oci-blob` | Proven wire kernel; streaming digest verify at EOF. `RetryPolicy{}`, guarded redirects, identity enforcement per §6.6. |
-| Multipart pull; multipart push option 1 | `bigoci` public API, conformance-gated | Its reason to exist; internals unimported; owns its own retries. |
-| Multipart push option 2 | here (§6.4 checklist) | Only if upstream digest publication doesn't land; byte-identical oracle. |
+| Multipart pull; multipart push (`PushByDigest`) | `bigoci ≥ v0.2.0` public API | Its reason to exist; internals unimported; owns its own retries; identity coding and wire re-hash enforced upstream (#58/#59). |
 | Bounded stored-size read, assembled-file digest/size, strict decode, content verify | here | Spec layers no delegate provides. |
 | Manifest/index GET/PUT | here (`internal/registry`) | Neither sibling exposes manifest endpoints. Rejected: oras-go/go-containerregistry — dependency trees for two verbs that fight original-byte discipline. |
 | Auth | here (bigoci pattern cloned) | bigoci's is internal. |
@@ -417,8 +413,8 @@ The spec requires `Accept-Encoding: identity` and identity-only `Content-Encodin
 
 - Round trips over {standard, bigoci} × {none, gzip, xz, zstd} × {single-role, `linux-netboot`, shared-digest multi-deliverable}.
 - Adversarial: bit-flipped layer; truncated part; wrong-size descriptor; over-long layer stream; non-canonical index PUT; tag mutated between Fetch and FetchFiles; last-role verify failure ⇒ zero committed outputs; injected rename failure ⇒ committed-prefix semantics + retry-overwrites contract; `a`/`a.imgoci-stored` two-role suite; concurrent same-selection fetches (cache lock); pre-planted wrong-content cache entry; staging reuse round trip.
-- Wire invariants: gzipping reverse proxy fails all enforced egress paths; cross-host signed-storage redirect under bigoci default verified mode with `identityTransport`; compressing token realm unaffected; bigoci marker-preservation test (§6.6).
-- BigOCI gate: case-varied media-type interop fixture green before capabilities advertise BigOCI; producer fallback digest-identical to `bigoci.Client.Push` and pullable by the bigoci CLI; graph-completeness pull of every blob including the empty config.
+- Wire invariants: gzipping reverse proxy fails all enforced egress paths (bigoci's enforcement is upstream as of v0.2.0 — our fixture confirms it end-to-end); cross-host signed-storage redirect under bigoci default verified mode; compressing token realm unaffected.
+- BigOCI gate (pin verification against v0.2.0): case-varied media-type interop fixture green before capabilities advertise BigOCI; `PushByDigest` writes no tag (tag list unchanged) and its descriptor round-trips through our consumer path and the bigoci CLI; graph-completeness pull of every blob including the empty config.
 - Auth: htpasswd static creds; anonymous bearer.
 
 ## 8. Delivery plan (agile, vertical slices)
@@ -433,7 +429,7 @@ The spec requires `Accept-Encoding: identity` and identity-only `Content-Encodin
 
 **Slice 4 — full compression:** xz + zstd strict decoders; adversarial suite; zstd frame-inspection spike resolved.
 
-**Slice 5 — BigOCI (conformance-gated):** decision gates per §6.4/§6.6 — upstream case-insensitive decode + identity resolution (upstream or proven marker preservation) unblocks the consumer half; upstream digest publication or the specified local producer unblocks the producer half. `internal/multipart` with the inspectable transport, profile reader, stored cache with locking, ≥2-part rule, redirect and marker-preservation fixtures. Capabilities stay honest whichever half ships first.
+**Slice 5 — BigOCI:** upstream gates cleared by bigoci v0.2.0 (§6.4); remaining work is ours. Pin `bigoci v0.2.0`, build `internal/multipart` on `Pull`/`PushByDigest`, profile reader, stored cache with locking, ≥2-part rule, and the pin-verification interop fixtures (§7). Capabilities advertise BigOCI only when those fixtures are green.
 
 **Slice 6 — polish:** Docker credential store, unified progress end-to-end, reference CLI, mkdocs, first `v0.x` release plumbing.
 
@@ -444,20 +440,21 @@ Each slice ends with its functional tests passing — nothing is "done" on unit 
 1. **Spec is a draft.** Churn localized by the pure-core/adapter split; implemented revision pinned in docs; no `v1.0.0` before the spec promotes.
 2. **zstd/xz strictness mechanics.** Skippable-frame/trailing rejection with `klauspost/compress` likely needs frame-header inspection; `ulikunitz/xz` padding behavior needs verification. Slice 4 spike; the `decomp` contract is fixed regardless.
 3. **JCS pin.** `gowebpki/jcs` v1.0.1 pre-audited 2026-08-14 (§6.2): usable behind the pre-gate + byte-compare; fork-and-fix of the reference port is the floor if the RFC vector corpus fails at slice 1. **Tracked successor:** Go 1.26's `encoding/json/jsontext` (behind `GOEXPERIMENT=jsonv2`) ships `Value.Canonicalize` implementing RFC 8785 with I-JSON-strict defaults (rejects invalid UTF-8 and duplicate names natively). Unusable for v1 — experimental, outside the Go 1 compatibility promise, and every downstream builder of this library would need the experiment flag — but once json/v2 lands in stdlib proper it replaces the dependency, the pre-gate, and the dup-scan in one move. Revisit at each Go minor release.
-4. **Upstream bigoci sequencing.** Five asks: case-insensitive decode (hard, consumer); identity handling on manifest/part GETs (hard unless the §6.6 marker-preservation test passes); digest publication (else local producer fallback); structural-seam documentation; optionally, wire re-hashing on part uploads (would upgrade the multipart source-stability contract to the standard path's guarantee). Design degrades gracefully; slice 5's shape depends on upstream.
-5. **Marker preservation across bigoci's manual redirects** (§6.6) is an empirical question answered by a test at slice 5, not assumed either way here.
-6. **Structural-seam coupling.** Implementing `BigociExternalBase`/`BigociWrapExternal` couples to a convention in bigoci's internal package; the docs ask turns it into a stated contract. Risk accepted with an interop test guarding it.
-7. **Stored-cache retention policy.** Retained on failure, removed on commit is the v1 rule; a size-bounded cache or explicit `Clean` API may be wanted once real usage shows retention patterns.
-8. **Windows staging semantics.** The secure-open/no-follow and close-before-rename patterns are specified from bigoci's precedent; exact Windows behavior (ownership checks, lock semantics) is verified at implementation time, mirroring bigoci's platform splits.
-9. **Shared auth extraction.** Duplicates bigoci's stack; extract on a third consumer.
-10. **Streaming consumer output; producer-side compression convenience.** Both deliberately out of v1; additive later.
-11. **Fixture sync mechanism.** Script-copy pinned to a spec commit; revisit when the spec tags releases.
-12. **Multi-architecture publish ergonomics.** `Selectors []Selector` convenience awaits real-use feedback.
-13. **Commit-phase failure window.** Per-file-atomic sequential commit with committed-prefix semantics and retry-overwrites-all contract (§3.2); a marker-file protocol is possible later if callers need better.
+4. ~~Upstream bigoci sequencing.~~ **Resolved 2026-08-15:** all five asks shipped in bigoci v0.2.0 (#55 case-insensitive decode, #58 identity coding incl. redirect hops, #57 `PushByDigest`, #56 seam docs, #59 wire re-hash) and were verified in source. The local producer fallback and the marker-predicate mechanism are retired; slice 5 reduces to pinning v0.2.0 and passing the interop fixtures.
+5. **Structural-seam coupling.** `BigociExternalBase`/`BigociWrapExternal` is now a documented stable contract (#56). Residual risk is ordinary semver trust; the interop test still guards it. Only relevant if we inject a policy transport at all — bigoci no longer needs one for identity.
+6. **Stored-cache retention policy.** Retained on failure, removed on commit is the v1 rule; a size-bounded cache or explicit `Clean` API may be wanted once real usage shows retention patterns.
+7. **Windows staging semantics.** The secure-open/no-follow and close-before-rename patterns are specified from bigoci's precedent; exact Windows behavior (ownership checks, lock semantics) is verified at implementation time, mirroring bigoci's platform splits.
+8. **Shared auth extraction.** Duplicates bigoci's stack; extract on a third consumer.
+9. **Streaming consumer output; producer-side compression convenience.** Both deliberately out of v1; additive later.
+10. **Fixture sync mechanism.** Script-copy pinned to a spec commit; revisit when the spec tags releases.
+11. **Multi-architecture publish ergonomics.** `Selectors []Selector` convenience awaits real-use feedback.
+12. **Commit-phase failure window.** Per-file-atomic sequential commit with committed-prefix semantics and retry-overwrites-all contract (§3.2); a marker-file protocol is possible later if callers need better.
 
 ## Appendix: review history
 
 Three adversarial review rounds shaped this document.
+
+**Post-review update (2026-08-15):** the five upstream asks were filed with bigoci and all shipped the same day in v0.2.0 (#55 casefold decode, #56 seam docs, #57 `PushByDigest`, #58 identity coding, #59 upload wire-verify). §§3.2, 6.4, 6.6, 6.7, 7, 8 (slice 5), and 9 were updated accordingly: the local BigOCI producer fallback and the §6.6 marker-predicate mechanism are retired, and BigOCI support now gates only on pinning v0.2.0 and passing imgoci's interop fixtures. Round-2/3 text below describes the pre-v0.2.0 state.
 
 - **Round 1 (7 blockers, 7 suggestions):** replaced a restricted hand-rolled JCS verifier with a full-domain proven transform; bound `Resolved` to `Release` by canonical index digest; withdrew an unimplementable tag-bound `bigoci.Push` producer flow in favor of upstream digest publication or a local BigOCI producer; gated BigOCI capability on upstream conformance instead of "documented errors"; added the stored-layer size check and identity-encoding enforcement; replaced the impossible single-retry-loop claim with two explicit non-nesting domains; made the capability set an explicit validated value. Adopted: deep-copy immutability, stage-then-commit, strict-gzip buffering, honest dependency accounting, stored-file reuse-with-reverify, media-type helper split.
 - **Round 2 (5 blockers, 7 suggestions):** made the identity wrapper implement bigoci's structural observer seam (verified at `endpoint.go:77-193`) so secure off-origin redirects keep working; added a mandatory `utf8.Valid` gate and hard audit criteria for the JCS dependency; specified the local BigOCI producer to a complete reachable graph (empty config, bounds, ordering, oracles); replaced suffix-derived staging paths with preflighted plans and private staging; required tag-only Publish references. Adopted: commit-failure semantics, bounded stored reads during transfer, concrete `Source`/`Dest` structs, precise dependency list, scoped identity enforcement, unified retry progress, full destination preflight.

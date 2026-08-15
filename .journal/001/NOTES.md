@@ -52,3 +52,15 @@ Next: user review; then slice 0 (rename pass).
 ## 2026-08-15 09:30 — Upstream request doc placed in bigoci
 Wrote ~/code/imgoci/bigoci/IMGOCI_UPSTREAM_REQUESTS.md (untracked, temporary — another agent will process it, apply the changes, and cut a bigoci release). Contains the 5 asks from ARCHITECTURE.md §6.4/§6.6 with source anchors re-verified against the current bigoci tree: (1) ASCII case-insensitive media-type decoding in internal/manifest/decode.go checkKind/config/layer comparisons [hard blocker]; (2) Accept-Encoding: identity + Content-Encoding rejection on manifest/blob GETs incl. redirect re-issues, token realms exempt [hard blocker]; (3) digest-publication push mode (PushByDigest, no tag write) [unblocks producer, local fallback exists]; (4) docs blessing BigociExternalBase/BigociWrapExternal seam (endpoint.go:82-87) as stable [docs]; (5) optional wire re-hash of part uploads (push.go SectionReader re-read gap) [hardening]. Doc notes: canonical encoder bytes must not change (imgoci digest-identity oracle); ship 1+2 together; suggested minor release.
 Next: bigoci-side agent processes the doc; after release, bump pin in imgoci/go and run interop fixtures.
+
+## 2026-08-15 12:34 — bigoci v0.2.0 shipped all five asks; architecture updated
+bigoci v0.2.0 released 2026-08-15 (v0.1.1 interim also exists). Verified all five requests in source after fetch+pull of the local checkout:
+- #55 casefold decode: strings.EqualFold at all four decode.go comparisons; encoder untouched.
+- #58 identity coding: internal/oci/encoding.go (RFC 9110 token-list parse, refusal before body read), redirect.go copyAllowed carries Accept-Encoding across hops; tests prove marker survives hop, coded store response rejected, token realm exempt. Changelog carries the compatibility note.
+- #57 PushByDigest(ctx, repo, src, opts) with repository-only Reference — exactly the recommended shape; no tag write; same transfer guarantees.
+- #56 seam docs: BigociExternalBase/BigociWrapExternal documented in options.go WithHTTPClient doc + docs/docs/reference/api.md as stable contract.
+- #59 wire re-hash of part bytes during upload (push.go + hardening tests + bench update).
+IMGOCI_UPSTREAM_REQUESTS.md was consumed and deleted by the processing agent.
+ARCHITECTURE.md updated (targets bigoci v0.2.0): §3.2 multipart source-stability upgraded to wire-verified; §6.4 rewritten — prerequisites satisfied, local producer fallback RETIRED, port maps to PushByDigest; §6.6 bigoci case now "enforced natively upstream", marker-predicate mechanism retired; §6.7/§7/slice 5 reduced to pin-v0.2.0 + interop fixtures; §9.4/9.5 resolved and renumbered; appendix post-review update added.
+Net effect: slice 5 no longer depends on upstream; all delivery slices are now purely our work.
+Next: slice 0 (rename pass) whenever the user says go.
