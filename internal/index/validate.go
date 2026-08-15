@@ -362,15 +362,25 @@ func requiredFileAnnotationKeys() []string {
 	}
 }
 
+// Role names the spec requires for particular representations.
+const (
+	// roleDisk is the role every disk-image representation must include.
+	roleDisk = "disk"
+	// roleMetadata is the additional role the incus-vm representation requires.
+	roleMetadata = "metadata"
+	// roleKernel is the role the linux-netboot representation requires.
+	roleKernel = "kernel"
+)
+
 // requiredRoles returns the roles a standard representation must include.
 func requiredRoles(representation string) []string {
 	switch representation {
 	case "raw", "raw-4kn", "qcow2", "iso":
-		return []string{"disk"}
+		return []string{roleDisk}
 	case "incus-vm":
-		return []string{"disk", "metadata"}
+		return []string{roleDisk, roleMetadata}
 	case "linux-netboot":
-		return []string{"kernel"}
+		return []string{roleKernel}
 	default:
 		return nil
 	}
