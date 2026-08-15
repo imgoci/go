@@ -35,3 +35,16 @@ Round outcomes: R1 revise (7 blockers — restricted JCS verifier would reject v
 Final document: .journal/001/ARCHITECTURE.md. Key decisions: root `package imgoci` at module root; CLI as private cli/ submodule; hand-written validator (CUE = test oracle only); proven JCS transform behind utf8.Valid gate + audit; digest-bound Release/Resolved; BigOCI support conformance-gated on upstream bigoci fixes (5 upstream asks catalogued: case-insensitive decode, identity handling, digest publication, seam docs, wire re-hash); two non-nesting retry domains; stage-then-commit with per-file atomicity; delivery in 7 slices starting with rename pass + offline core.
 
 Next: user review of ARCHITECTURE.md; then slice 0 (rename pass).
+
+## 2026-08-15 09:20 — Independently verified the JCS/UTF-8 claims; audit criteria corrected
+Verified §6.2's load-bearing claims with source review (gowebpki/jcs v1.0.1 jcs.go from GitHub) and an executable probe (/tmp/jcs-probe, go1.26.4):
+- CONFIRMED: jcs.Transform round-trips invalid UTF-8 byte-identically (values, keys, overlong encodings) — parseQuotedString copies bytes >=0x20 unvalidated. The utf8.Valid pre-gate is genuinely load-bearing.
+- CONFIRMED: encoding/json Unmarshal/Valid/Decoder.Token/Marshal all silently U+FFFD-substitute invalid UTF-8; Unmarshal keeps last duplicate key silently.
+- CONFIRMED: RFC 8785 §3.1 requires I-JSON (no dup names, Unicode strings, IEEE 754 doubles); §3.2.2.2 requires erroring on lone surrogates.
+- NEW: jcs.Transform ALREADY errors on duplicate keys, incl. decoded-equal ("\u0061" vs "a") — our dup-scan is defense-in-depth, not sole line.
+- NEW: invalid surrogate PAIRS (\ud800\ud800) accepted silently as U+FFFD (RFC violation); lone surrogates error. Safe only via byte-compare.
+- NEW: 2^53+1 silently rounds, -0 → "0", both caught by byte-compare not by transform errors; 1e400/NaN error properly.
+- NEW: Transform is not a grammar validator ([1 2] → [12]); Decode-before-VerifyCanonical is an ordering REQUIREMENT.
+- NEW: Go 1.26 GOEXPERIMENT=jsonv2 ships encoding/json/jsontext with Value.Canonicalize (RFC 8785) + I-JSON-strict defaults — unusable for a library now (experiment flag propagates to downstream builders) but the tracked successor.
+ARCHITECTURE.md updated: §6.2 audit bullet replaced with verified probe results and corrected audit framing ("transform errors OR output != input", not "errors on every violation" — v1.0.1 fails the stricter framing and doesn't need it); §9.3 rewritten with pre-audit result + jsontext successor.
+Next: user review; then slice 0 (rename pass).
