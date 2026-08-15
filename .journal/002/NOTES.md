@@ -15,3 +15,9 @@ Result: module `github.com/imgoci/go`, doc-only root `package imgoci` (spec v1 d
 Verified: `moon run root:check` green locally; residue sweep clean outside `.wt/`/`scaffold/`/`.agents/` skills; PR #7 CI green (ci + GitHub Pages build).
 Next: await PR #7 review/merge, then slice 1 PR1.1 (`internal/jcs` + RFC 8785 audit suite).
 Learned: template skills under `.agents/skills/{apko,melange,mise}` still describe deleted release machinery — candidates for cleanup in a later housekeeping pass, out of slice 0 scope.
+
+## 2026-08-15 13:55 — Release Please fixed + repo settings applied
+User flagged release-please. Found and fixed on PR #7 (commit e8c7f7b): workflow used template's `app-id`/`vars.MEIGMA_RELEASE_APP_ID`; imgoci convention (per bigoci) is `client-id`/`vars.MEIGMA_RELEASE_APP_CLIENT_ID`. Also cleared stale `is_template = true` in repository-settings.toml.
+Repo-side: set repo var `MEIGMA_RELEASE_APP_CLIENT_ID=Iv23lijvp0bzwY9COPTx` (same app as bigoci); app `imgoci-release-please` installed org-wide. Ran `configure_github_repo.py apply` — live repo had NO managed rulesets; now converged (branch ruleset w/ required `ci` check + squash-only, tag ruleset w/ release-please bypass, immutable releases, Pages). First apply hit a Pages cert-provisioning 404; retry after 45s succeeded — known race, note for future repo bootstraps.
+BLOCKED on user: secret `MEIGMA_RELEASE_APP_PRIVATE_KEY` must be set on imgoci/go (not in Bitwarden/1Password; bigoci's copy unreadable). `gh secret set MEIGMA_RELEASE_APP_PRIVATE_KEY -R imgoci/go < key.pem`.
+CI green on PR #7 after the fix.
