@@ -34,6 +34,7 @@ python = "3.14.3"
 "aqua:chainguard-dev/melange" = "0.54.0"
 "aqua:chainguard-dev/apko"    = "1.2.19"
 "aqua:sigstore/cosign"        = "3.1.1"
+"aqua:cue-lang/cue"           = "0.17.1"
 
 [env]
 # Pin the Go toolchain: never auto-download a toolchain other than the one above.

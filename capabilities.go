@@ -1,0 +1,151 @@
+package imgoci
+
+import (
+	"fmt"
+	"strings"
+)
+
+// standardFileMediaType is the imgoci v1 standard file-manifest type. A
+// consumer capability set must include it.
+const standardFileMediaType = "application/vnd.imgoci.file.v1"
+
+// restrictedNameMax is the RFC 6838 maximum length of a type or subtype name
+// (one leading character plus 126 more).
+const restrictedNameMax = 127
+
+// Capabilities is a validated set of file-manifest types a consumer can
+// retrieve. The set is normalized to ASCII-lowercase, parameter-free RFC 6838
+// type/subtype values with duplicates removed.
+//
+// A zero Capabilities means "standard only" wherever it is consumed: offline
+// [Index.Resolve] and, later, the network client treat it as
+// [StandardCapabilities]. BigOCI is never assumed.
+type Capabilities struct {
+	// types holds the normalized, lowercase, unique file-manifest types.
+	types []string
+}
+
+// NewCapabilities validates types as a consumer capability set. The set must
+// include application/vnd.imgoci.file.v1 case-insensitively, must not contain
+// duplicates after ASCII case folding, must not contain parameters, and every
+// value must be an RFC 6838 type/subtype.
+func NewCapabilities(types ...string) (Capabilities, error) {
+	normalized := make([]string, 0, len(types))
+	seen := make(map[string]struct{}, len(types))
+	hasStandard := false
+
+	for _, raw := range types {
+		if strings.Contains(raw, ";") {
+			return Capabilities{}, fmt.Errorf("capability %q: media types must not contain parameters", raw)
+		}
+		if !validRFC6838TypeSubtype(raw) {
+			return Capabilities{}, fmt.Errorf("capability %q: not an RFC 6838 type/subtype", raw)
+		}
+		folded := asciiToLower(raw)
+		if _, ok := seen[folded]; ok {
+			return Capabilities{}, fmt.Errorf("capability %q: duplicate after ASCII case folding", raw)
+		}
+		seen[folded] = struct{}{}
+		normalized = append(normalized, folded)
+		if EqualMediaType(folded, standardFileMediaType) {
+			hasStandard = true
+		}
+	}
+	if !hasStandard {
+		return Capabilities{}, fmt.Errorf("capability set must include %s", standardFileMediaType)
+	}
+
+	return Capabilities{types: normalized}, nil
+}
+
+// StandardCapabilities returns the capability set containing only
+// application/vnd.imgoci.file.v1. This is the zero-value default everywhere.
+func StandardCapabilities() Capabilities {
+	return Capabilities{types: []string{standardFileMediaType}}
+}
+
+// effective returns c, or [StandardCapabilities] when c is the zero value.
+func (c Capabilities) effective() Capabilities {
+	if len(c.types) == 0 {
+		return StandardCapabilities()
+	}
+	return c
+}
+
+// supports reports whether mediaType is in the effective capability set under
+// spec section 4 comparison.
+func (c Capabilities) supports(mediaType string) bool {
+	return supportsType(c.effective().types, mediaType)
+}
+
+// supportsType reports whether mediaType is in types under [EqualMediaType].
+func supportsType(types []string, mediaType string) bool {
+	for _, candidate := range types {
+		if EqualMediaType(candidate, mediaType) {
+			return true
+		}
+	}
+	return false
+}
+
+// validRFC6838TypeSubtype reports whether s is a parameter-free RFC 6838
+// type/subtype (one slash, two restricted names).
+func validRFC6838TypeSubtype(s string) bool {
+	typ, sub, ok := strings.Cut(s, "/")
+	if !ok || sub == "" || strings.Contains(sub, "/") {
+		return false
+	}
+	return validRestrictedName(typ) && validRestrictedName(sub)
+}
+
+// validRestrictedName reports whether s is an RFC 6838 restricted name:
+// 1 to 127 characters, starting with an ASCII letter or digit, followed by
+// letters, digits, or !#$&^_.+-.
+func validRestrictedName(s string) bool {
+	if len(s) == 0 || len(s) > restrictedNameMax {
+		return false
+	}
+	if !isRestrictedNameFirst(s[0]) {
+		return false
+	}
+	for i := 1; i < len(s); i++ {
+		if !isRestrictedNameChar(s[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// isRestrictedNameFirst reports whether c may start an RFC 6838 restricted name.
+func isRestrictedNameFirst(c byte) bool {
+	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+}
+
+// isRestrictedNameChar reports whether c may appear after the first character
+// of an RFC 6838 restricted name.
+func isRestrictedNameChar(c byte) bool {
+	if isRestrictedNameFirst(c) {
+		return true
+	}
+	switch c {
+	case '!', '#', '$', '&', '^', '_', '.', '+', '-':
+		return true
+	default:
+		return false
+	}
+}
+
+// asciiToLower returns s with ASCII letters folded to lowercase. Media types
+// in this format are ASCII, so this is the case folding spec section 4 uses.
+func asciiToLower(s string) string {
+	for i := range len(s) {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			out := []byte(s)
+			for j := i; j < len(s); j++ {
+				out[j] = asciiFold(s[j])
+			}
+			return string(out)
+		}
+	}
+	return s
+}

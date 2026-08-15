@@ -75,10 +75,34 @@ tasks:
       - 'root:build'
       - 'root:test'
       - 'docs:build'
+      - 'root:conformance-cue'
+      - 'root:conformance-drift'
     inputs:
       - '@group(goSources)'
       - '@group(lintConfig)'
       - '@group(releaseConfig)'
+    options:
+      cache: false
+      runInCI: true
+
+  conformance-cue:
+    command: '.github/scripts/cue_crosscheck.sh'
+    inputs:
+      - '.github/scripts/cue_crosscheck.sh'
+      - 'testdata/conformance/**/*'
+      - 'testdata/canonical/**/*'
+      - 'mise.toml'
+      - 'mise.lock'
+    options:
+      cache: false
+      runInCI: true
+
+  conformance-drift:
+    command: '.github/scripts/sync_conformance.sh --check'
+    inputs:
+      - '.github/scripts/sync_conformance.sh'
+      - 'testdata/conformance/SPEC_COMMIT'
+      - 'testdata/conformance/**'
     options:
       cache: false
       runInCI: true
