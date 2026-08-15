@@ -378,7 +378,7 @@ wheels = [
 ]
 
 [[package]]
-name = "template-go-docs"
+name = "imgoci-go-docs"
 version = "0.0.0"
 source = { virtual = "." }
 dependencies = [

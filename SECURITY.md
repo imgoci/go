@@ -1,16 +1,15 @@
 # Security Policy
 
-This template expects generated projects to use GitHub private vulnerability reporting.
-Replace this file with the actual support policy before publishing a generated repository.
+imgoci/go uses GitHub private vulnerability reporting.
 
 ## Supported Versions
 
-Do not claim support windows or release lines until the generated project actually maintains them.
+Do not claim support windows or release lines until the project actually maintains them.
 For a brand-new project, a short policy such as "only the latest release is supported" is usually enough.
 
 ## Reporting a Vulnerability
 
-Report vulnerabilities privately through GitHub's private vulnerability reporting flow when it is enabled for the generated repository.
+Report vulnerabilities privately through GitHub's private vulnerability reporting flow when it is enabled for this repository.
 
 Do not use public GitHub issues, pull requests, discussions, chat channels, or other public forums for vulnerability reports.
 
