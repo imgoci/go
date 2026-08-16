@@ -71,7 +71,7 @@ const (
 	e2eDecodeBombCeiling = 1024
 )
 
-// e2eRegistry is one testcontainers image the core suite runs against.
+// e2eRegistry is one testcontainers image the e2e suite runs against.
 type e2eRegistry struct {
 	// name is the subtest label.
 	name string
@@ -79,8 +79,7 @@ type e2eRegistry struct {
 	image string
 }
 
-// e2eRegistries returns zot and CNCF Distribution, the two registries the
-// slice-2 gate must stay green against.
+// e2eRegistries returns zot and CNCF Distribution.
 func e2eRegistries() []e2eRegistry {
 	return []e2eRegistry{
 		{name: "zot", image: "ghcr.io/project-zot/zot:v2.1.20"},
@@ -180,9 +179,8 @@ func seedHTTP() *http.Client {
 	}
 }
 
-// seedBlob uploads data as a monolithic POST+PUT blob, matching go-oci-blob's
-// startRegistry seed helper. It is a raw primitive for adversarial fixtures
-// a conforming [Client.Publish] cannot emit.
+// seedBlob uploads data as a monolithic POST+PUT blob. It is a raw primitive
+// for adversarial fixtures a conforming [Client.Publish] cannot emit.
 func seedBlob(t *testing.T, registry, repo string, dgst digest.Digest, data []byte, cred e2eCreds) {
 	t.Helper()
 	ctx := t.Context()
@@ -557,8 +555,8 @@ func fileSpecFromSeeded(path string, file seededFile) FileSpec {
 // file manifests reference.
 //
 // [Client.Publish] pushes this blob itself. Raw adversarial seeders that PUT
-// file manifests without Publish still need it present: both gate registries
-// reject a file-manifest PUT whose config digest is missing.
+// file manifests without Publish still need it present: zot and CNCF
+// Distribution reject a file-manifest PUT whose config digest is missing.
 func seedEmptyConfigBlob(t *testing.T, registry, repo string, cred e2eCreds) {
 	t.Helper()
 	seedBlob(t, registry, repo, filemanifest.EmptyConfigDigest, []byte("{}"), cred)
@@ -650,12 +648,9 @@ func seedAlternateIndex(t *testing.T, rel seededRelease) {
 	publishSeededFiles(t, rel.registry, rel.repo, rel.cred, []seededFile{alt, rel.metal, rel.disk, rel.metadata})
 }
 
-// seedOverlongLayer publishes a gzip file manifest whose layer size is short
-// of the stored blob, so BoundedReader must abort.
-//
-// Publish cannot emit this fixture: it records the true stored blob size on
-// the file-manifest layer descriptor, so declared size cannot be short of
-// the bytes it uploaded.
+// seedOverlongLayer publishes a gzip file whose layer descriptor size is short
+// of the stored blob, so BoundedReader must abort. A conforming
+// [Client.Publish] records the true stored size.
 func seedOverlongLayer(t *testing.T, registry, repo string) seededFile {
 	t.Helper()
 	tag := e2eTag
@@ -691,10 +686,8 @@ func seedOverlongLayer(t *testing.T, registry, repo string) seededFile {
 
 // seedTruncatedStored publishes a file whose layer blob is a prefix of a
 // well-formed stored unit. The layer descriptor size matches the truncated
-// blob. Index content digest and size still name the complete payload.
-//
-// Publish cannot emit this fixture: pass 1 reads the source to EOF and
-// records that stored size.
+// blob; index content digest and size still name the complete payload. A
+// conforming [Client.Publish] records stored size from a complete source read.
 func seedTruncatedStored(t *testing.T, registry, repo, compression string) seededFile {
 	t.Helper()
 	tag := e2eTag
@@ -720,11 +713,9 @@ func seedTruncatedStored(t *testing.T, registry, repo, compression string) seede
 	return file
 }
 
-// seedDecodeBombCeiling publishes a high-ratio stored file whose index
-// content size is far below the decoded length, so CountingHashWriter must
-// abort mid-stream.
-//
-// Publish cannot emit this fixture: pass 1 records the true decoded size.
+// seedDecodeBombCeiling publishes a high-ratio stored file whose index content
+// size is far below the decoded length, so CountingHashWriter must abort
+// mid-stream. A conforming [Client.Publish] records the true decoded size.
 func seedDecodeBombCeiling(t *testing.T, registry, repo, compression string) seededFile {
 	t.Helper()
 	tag := e2eTag
@@ -832,11 +823,9 @@ func mustFetch(t *testing.T, client *Client, ref Reference) *Release {
 }
 
 // seedBitflippedLayer publishes a gzip qemu disk whose stored layer is
-// well-formed, but the index content digest names different decoded bytes.
-//
-// Publish cannot emit this fixture: pass 1 hashes decoded bytes and writes
-// that digest onto the index; a conforming producer cannot advertise a
-// different content digest for the same stored layer.
+// well-formed, but the index content digest names different decoded bytes. A
+// conforming [Client.Publish] writes the hashed decoded bytes as the index
+// content digest.
 func seedBitflippedLayer(t *testing.T, registry, repo string) seededFile {
 	t.Helper()
 	tag := e2eTag
@@ -855,11 +844,8 @@ func seedBitflippedLayer(t *testing.T, registry, repo string) seededFile {
 }
 
 // seedCorruptSecondRole publishes an incus-vm pair where metadata's index
-// content digest does not match the stored layer, so the second role fails.
-//
-// Publish cannot emit this fixture: each role's index content digest is
-// computed from that role's decoded source, so metadata cannot name bytes
-// that were never hashed.
+// content digest does not match the stored layer, so the second role fails. A
+// conforming [Client.Publish] hashes each role's decoded source independently.
 func seedCorruptSecondRole(t *testing.T, registry, repo string) (seededFile, seededFile) {
 	t.Helper()
 	tag := e2eTag

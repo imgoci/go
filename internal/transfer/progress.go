@@ -30,16 +30,11 @@ const (
 // Progress is an absolute snapshot of one FetchFiles or Publish call.
 //
 // Snapshots are serialized: a mutex orders every emit. TotalFiles and
-// TotalBytes are fixed up front (TotalBytes is the sum of ContentSize).
-// On Publish, TotalBytes is filled after pass 1. CompletedFiles,
-// CompletedBytes, WireBytes, Retries, and Fallbacks only increase.
-// WireBytes is standard-path blob bytes plus the latest-absolute BigOCI
-// WireBytes of each distinct multipart transfer. Retries is standard-path
-// [retry.Do] attempts after the first plus the latest-absolute BigOCI
-// Retries of each distinct multipart transfer. Repeated snapshots from one
-// transfer replace that transfer's contribution; they are never summed.
-// Fallbacks counts unique blobs that requested multipart publication and
-// used the standard path because the part plan was fewer than two parts.
+// TotalBytes are fixed up front (TotalBytes is the sum of ContentSize). On
+// Publish, TotalBytes is filled after pass 1. CompletedFiles, CompletedBytes,
+// WireBytes, Retries, and Fallbacks only increase. Repeated snapshots from one
+// multipart transfer replace that transfer's contribution; they are never
+// summed.
 type Progress struct {
 	// Direction is [DirectionFetch] or [DirectionPublish].
 	Direction string
@@ -60,10 +55,9 @@ type Progress struct {
 	// Retries is standard-path attempts after the first plus each BigOCI
 	// transfer's latest Retries.
 	Retries int
-	// Fallbacks is how many unique stored blobs planned for BigOCI
-	// publication used the standard path instead because ceil(storedSize /
-	// partSize) was fewer than two parts (spec §8 / ARCHITECTURE.md §5.1).
-	// Absolute; only increases. Zero on fetch.
+	// Fallbacks is how many unique stored blobs planned for BigOCI publication
+	// used the standard path instead because ceil(storedSize / partSize) was fewer
+	// than two parts (spec §8). Absolute; only increases. Zero on fetch.
 	Fallbacks int
 }
 

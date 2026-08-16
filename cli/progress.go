@@ -13,32 +13,28 @@ import (
 const (
 	// progressPrecision is how finely a progress line reports elapsed time.
 	progressPrecision = 100 * time.Millisecond
-	// percentScale turns a fraction of the transfer into the integer a
+	// percentScale turns a completed/total byte fraction into the integer a
 	// progress line prints.
 	percentScale = 100
 )
 
-// lineWriter serializes whole lines onto a writer several goroutines share.
-//
-// It exists because -progress adds the only concurrency this CLI's output has
-// ever had: the renderer writes from its own goroutine while the command and
-// the signal handler may still write diagnostics. [os.Stderr] would serialize
-// them itself, but the tests drive the whole program with a [bytes.Buffer] in
-// its place, and a buffer serializes nothing.
+// lineWriter serializes whole-line writes from the progress renderer, the
+// command, and the signal handler. [os.Stderr] serializes on its own; the
+// [bytes.Buffer] tests inject does not.
 type lineWriter struct {
-	// mu serializes the writes.
+	// mu serializes writes so concurrent emitters cannot interleave a line.
 	mu sync.Mutex
-	// out is the stream the lines go to.
+	// out is the stream the lines are written to.
 	out io.Writer
 }
 
-// newLineWriter returns a writer that hands out whole lines one at a time.
+// newLineWriter wraps out in a lineWriter.
 func newLineWriter(out io.Writer) *lineWriter {
 	return &lineWriter{out: out}
 }
 
-// Write writes p under the lock. Every caller passes one whole line, which is
-// what makes the lock enough.
+// Write writes p under the lock. Callers pass one whole line, so the lock is
+// enough.
 func (w *lineWriter) Write(p []byte) (int, error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -46,37 +42,31 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 	return w.out.Write(p)
 }
 
-// watcher is the CLI's whole progress apparatus: the snapshot the library
-// hands it, and the goroutine that prints one.
+// watcher stores the latest progress snapshot and prints it from a goroutine on
+// its own clock so the library callback never blocks a transfer.
 //
-// The library's callback only stores a snapshot and returns, so nothing this
-// CLI does can slow a transfer down. A goroutine on a clock of its own renders
-// whatever the last stored snapshot was.
-//
-// A nil *watcher is a run that asked for no progress, and its methods do
-// nothing, so no caller has to check.
+// A nil *watcher is a run that asked for no progress; its methods no-op.
 type watcher struct {
 	// mu guards latest and seen.
 	mu sync.Mutex
 	// latest is the last snapshot the library delivered.
 	latest imgoci.Progress
-	// seen says a snapshot has arrived, before which there is nothing to
-	// print and nothing worth printing a placeholder for.
+	// seen is true after the first snapshot. Until then writeLine prints nothing.
 	seen bool
 
-	// out is where the lines go.
+	// out is the stream the progress lines are written to.
 	out io.Writer
-	// now reads the clock the elapsed column is measured on.
+	// now is the clock the elapsed column is measured on.
 	now func() time.Time
-	// started is when the watcher began, the zero of that column.
+	// started is the elapsed-column origin.
 	started time.Time
-	// ticks asks for a line.
+	// ticks fires once per progress line.
 	ticks <-chan time.Time
-	// stopTicks releases whatever produces ticks.
+	// stopTicks releases the ticker, or is a no-op when tests inject ticks.
 	stopTicks func()
-	// quit tells the renderer to leave.
+	// quit stops the renderer.
 	quit chan struct{}
-	// finished closes when the renderer has left.
+	// finished closes after the renderer returns.
 	finished chan struct{}
 	// once keeps stop to a single run however many paths reach it.
 	once sync.Once
@@ -99,8 +89,7 @@ func newWatcher(out io.Writer, ticks <-chan time.Time, stopTicks func(), now fun
 	return w
 }
 
-// record is the callback the library is given. It stores the snapshot and
-// returns, which is the whole of what a progress callback should do.
+// record stores the snapshot and returns; it is the library progress callback.
 func (w *watcher) record(p imgoci.Progress) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -137,8 +126,8 @@ func (w *watcher) render() {
 	}
 }
 
-// writeLine prints one line for the latest snapshot, or nothing at all while
-// none has arrived.
+// writeLine prints one line for the latest snapshot, or nothing until one has
+// arrived.
 func (w *watcher) writeLine() {
 	w.mu.Lock()
 	line, ready := "", w.seen
@@ -152,8 +141,8 @@ func (w *watcher) writeLine() {
 	}
 }
 
-// renderProgress is the progress line: one shape, every field present every
-// time, whatever the transfer is doing.
+// renderProgress formats one progress line. Every field is present on every
+// line.
 func renderProgress(p imgoci.Progress, elapsed time.Duration) string {
 	return fmt.Sprintf(
 		"imgoci: progress %s %s pct=%d files=%d/%d bytes=%s/%s wire=%s retries=%d fallbacks=%d elapsed=%s\n",
@@ -167,8 +156,8 @@ func renderProgress(p imgoci.Progress, elapsed time.Duration) string {
 	)
 }
 
-// progressPercent is how much of the transfer is in place, floored to a whole
-// number. Totals the library has not learned yet read zero.
+// progressPercent is the transfer fraction floored to a whole number. Unknown
+// totals read zero.
 func progressPercent(p imgoci.Progress) int {
 	if p.TotalBytes <= 0 {
 		return 0
@@ -178,8 +167,8 @@ func progressPercent(p imgoci.Progress) int {
 }
 
 // guardStderr returns the writer every diagnostic, progress line, and signal
-// message shares. Wrapping is idempotent so main and run can both ask for a
-// guard without stacking locks.
+// message shares. Wrapping is idempotent so main and run can both ask without
+// stacking locks.
 func guardStderr(stderr io.Writer) io.Writer {
 	if _, ok := stderr.(*lineWriter); ok {
 		return stderr
@@ -188,9 +177,8 @@ func guardStderr(stderr io.Writer) io.Writer {
 	return newLineWriter(stderr)
 }
 
-// startProgress starts the renderer for a transfer, or returns nil when
-// -progress asked for none. Lines go to e.stderr, which run has already
-// guarded, so the renderer and the command serialize on one writer.
+// startProgress starts the renderer, or returns nil when -progress is unset.
+// Lines go to e.stderr, which run has already guarded.
 func startProgress(e env, every time.Duration) *watcher {
 	if every <= 0 {
 		return nil

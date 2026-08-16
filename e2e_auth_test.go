@@ -57,13 +57,9 @@ func TestE2EDockerCredentialsAuthenticatesFromATemporaryConfig(t *testing.T) {
 	})
 }
 
-// useDockerConfig writes the Docker configuration a login to host as the
-// registry's one account would have left behind, and points $DOCKER_CONFIG at
-// the directory holding it for the length of the test.
-//
-// The file is the one `docker login` writes, in the format it writes it, which
-// is the point of the row: what is being tested is that the client reads what
-// a login left behind, not that it reads a shape invented here.
+// useDockerConfig writes a Docker config.json for a login to host as the
+// registry's one account, and points $DOCKER_CONFIG at that directory for the
+// length of the test. The file is the `docker login` auths format.
 func useDockerConfig(t *testing.T, host, password string) {
 	t.Helper()
 

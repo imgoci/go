@@ -8,8 +8,8 @@
 //
 // # Identity-encoding invariant
 //
-// Spec §8 and ARCHITECTURE.md §6.6 require Accept-Encoding: identity and an
-// identity-only Content-Encoding on every manifest and blob GET. Enforcement
+// Spec §7.1 requires Accept-Encoding: identity and an identity-only
+// Content-Encoding on every manifest and blob GET in §7.1 and §8. Enforcement
 // is an [http.RoundTripper] decorator whose scope follows provenance:
 //
 //   - The registry transport wraps only /v2/…/manifests/… and /v2/…/blobs/…
@@ -17,21 +17,21 @@
 //     [github.com/imgoci/go/internal/auth.Transport] issues realm GETs through
 //     RealmClient, which [New] points at the unwrapped base, so a compressing
 //     token issuer keeps working.
-//   - The go-oci-blob storage transport is wrapped unconditionally. That
-//     client carries only redirected blob traffic, so "external means blob"
-//     is actually true there (ARCHITECTURE.md §6.6.2).
+//   - The go-oci-blob storage transport is wrapped unconditionally. That client
+//     carries only redirected blob traffic, so "external means blob" is true
+//     there.
 //
 // # Retry
 //
-// internal/retry.Do with a zero Policy is the only retry domain in this
-// package. go-oci-blob is constructed with RetryPolicy{} (one attempt) so
-// the two loops never nest. Manifest GET and PUT retry under that policy
-// with a replayable body. Blob Push is not retried here, because its reader
-// is consumed once; the reader is wrapped so streamed bytes are re-hashed
-// and counted against the declared digest (ARCHITECTURE.md §3.2).
+// [github.com/imgoci/go/internal/retry.Do] with a zero Policy is the only retry
+// domain in this package. go-oci-blob is constructed with RetryPolicy{} (one
+// attempt) so the two loops never nest. Manifest GET and PUT retry under that
+// policy with a replayable body. Blob Push is not retried here, because its
+// reader is consumed once; the reader is wrapped so streamed bytes are
+// re-hashed and counted against the declared digest.
 //
 // # Docker-Content-Digest
 //
-// The header is ignored (ARCHITECTURE.md §6.8). Identity of retrieved
-// manifests is the returned bytes, hashed by the caller.
+// The header is ignored. Identity of retrieved manifests is the returned bytes,
+// hashed by the caller.
 package registry

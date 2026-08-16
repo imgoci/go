@@ -37,10 +37,10 @@ var (
 
 // Manifests is the OCI Distribution manifest surface of one repository.
 //
-// Get fetches a manifest or index by tag or digest reference with an exact
-// Accept value and returns the original response bytes plus the
-// parameter-free Content-Type. Put publishes bytes at a digest or tag with
-// an exact Content-Type.
+// Get retrieves a manifest or index by tag or digest reference with an exact
+// Accept value and returns the original response bytes plus the parameter-free
+// Content-Type. Put publishes bytes at a digest or tag with an exact
+// Content-Type.
 //
 // Addressing is per call so Fetch can name a tag and later fetches can name
 // a digest. An implementation is still bound to one repository at
@@ -51,9 +51,9 @@ var (
 // orchestrator must not wrap these calls. Every method must be safe for
 // concurrent use.
 type Manifests interface {
-	// Get retrieves the manifest or index at ref, sending Accept as the
-	// request Accept header. It returns the original bytes and the
-	// parameter-stripped Content-Type.
+	// Get retrieves the manifest or index at ref, sending Accept as the request
+	// Accept header. It returns the original bytes and the parameter-free
+	// Content-Type.
 	Get(ctx context.Context, ref, accept string) (raw []byte, contentType string, err error)
 
 	// Put publishes raw at ref (a digest or a tag) with the given mediaType
@@ -87,9 +87,9 @@ type Blobs interface {
 // bound to one repository at construction.
 //
 // Push publishes the file at path into repo as a digest-addressed BigOCI
-// artifact with no tag write (ARCHITECTURE.md §6.4). repo is a
-// repository-only reference (registry/name). partSize is the split size in
-// bytes; zero selects the bigoci default.
+// artifact with no tag write. repo is a repository-only reference
+// (registry/name). partSize is the split size in bytes; zero selects the bigoci
+// default.
 //
 // PullTo downloads the artifact dgst names from repo into path. Resume
 // semantics belong to bigoci: a partial file lives beside the destination.

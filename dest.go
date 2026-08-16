@@ -18,9 +18,8 @@ const (
 	destFiles
 )
 
-// Dest is a path-backed fetch destination. It is a concrete opaque struct
-// built only by [ToDir] and [ToFiles]: there is no destination interface and
-// no substitution point v1 does not offer.
+// Dest is a path-backed fetch destination. It is a concrete opaque struct built
+// only by [ToDir] and [ToFiles]; there is no destination interface.
 //
 // The zero value is invalid and [Client.FetchFiles] reports [ErrInvalidDest]
 // before constructing a registry adapter.

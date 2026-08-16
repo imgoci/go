@@ -20,8 +20,7 @@ const restrictedNameMax = 127
 // retrieve. The set is normalized to ASCII-lowercase, parameter-free RFC 6838
 // type/subtype values with duplicates removed.
 //
-// A zero Capabilities means "standard only" wherever it is consumed: offline
-// [Index.Resolve] and, later, the network client treat it as
+// A zero Capabilities means "standard only": [Index.Resolve] treats it as
 // [StandardCapabilities]. BigOCI is never assumed.
 type Capabilities struct {
 	// types holds the normalized, lowercase, unique file-manifest types.

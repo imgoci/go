@@ -9,13 +9,11 @@ import (
 	"os"
 )
 
-// acquireKeyLock treats exclusive create of path as the lock. There is no
-// flock on this platform (ARCHITECTURE.md §9.7, best-effort). Waiters poll
-// [os.O_CREATE]|[os.O_EXCL] with the same context-cancellable backoff as
-// unix. A crashed holder leaves a stale lock file until it is removed by
-// hand; waiters do not spin forever — they return [context.Context.Err]
-// when ctx is done. That is the conservative fallback, not a claim of
-// unix semantics.
+// acquireKeyLock treats exclusive create of path as the lock. There is no flock
+// on this platform. Waiters poll [os.O_CREATE]|[os.O_EXCL] with the same
+// context-cancellable backoff as unix. A crashed holder leaves a stale lock
+// file until it is removed by hand; waiters return [context.Context.Err] when
+// ctx is done.
 func acquireKeyLock(ctx context.Context, path string) (*lockHandle, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

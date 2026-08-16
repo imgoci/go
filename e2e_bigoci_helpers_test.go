@@ -289,13 +289,13 @@ func sortedTags(tags []string) []string {
 // bigociCLIDir returns the bigoci CLI module directory used by interop
 // tests. Resolution order:
 //
-//  1. IMGOCI_BIGOCI_CLI_DIR, when set (escape hatch).
-//  2. ~/code/imgoci/bigoci/cli, when that checkout exists (dev convenience).
+//  1. IMGOCI_BIGOCI_CLI_DIR, when set.
+//  2. ~/code/imgoci/bigoci/cli, when that checkout exists.
 //  3. A shallow clone of github.com/imgoci/bigoci at the go.mod pin, into
 //     t.TempDir() once per test run.
 //
-// IMGOCI_BIGOCI_FORCE_CLONE=1 skips (1) and (2) and always takes (3), for
-// CI-like local runs. A failed clone is fatal; this helper never skips.
+// IMGOCI_BIGOCI_FORCE_CLONE=1 skips (1) and (2) and always takes (3). A failed
+// clone is fatal; this helper never skips.
 func bigociCLIDir(t *testing.T) string {
 	t.Helper()
 	bigociCLIOnce.Do(func() {

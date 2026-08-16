@@ -52,12 +52,9 @@ func assertNotRetried(t *testing.T, err error) {
 // TestE2EGzippedTokenRealm completes Fetch and FetchFiles when the bearer
 // realm gzips its token document.
 //
-// The registry demand is an in-process 401-challenge reverse proxy in front
-// of an anonymous registry:2. Configuring registry:2's REGISTRY_AUTH_TOKEN_*
-// (self-signed signing cert, JWT issuer, and a container-reachable realm URL)
-// is well past a ~30-line harness, so this test does not drive the
-// distribution token authenticator itself. Realm compression is still
-// black-box: [Client.Fetch] and [Client.FetchFiles] run against the proxy.
+// An in-process 401-challenge reverse proxy fronts an anonymous registry:2. The
+// test does not drive distribution's token authenticator. [Client.Fetch] and
+// [Client.FetchFiles] run against the proxy.
 func TestE2EGzippedTokenRealm(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eDistribution)

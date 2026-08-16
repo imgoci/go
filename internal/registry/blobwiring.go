@@ -31,10 +31,10 @@ type blobAdapter struct {
 	owner *Client
 }
 
-// newBlobAdapter constructs the go-oci-blob client bigoci-style
-// (ARCHITECTURE.md §6.6.2): authenticated path-scoped registry transport,
-// unconditionally identity-wrapped storage transport, RetryPolicy{} (one
-// attempt), write redirects off, and PlainHTTP from cfg.
+// newBlobAdapter constructs the go-oci-blob client with an authenticated
+// path-scoped registry transport, unconditionally identity-wrapped storage
+// transport, RetryPolicy{} (one attempt), write redirects off, and PlainHTTP
+// from cfg.
 func newBlobAdapter(cfg Config, stacks transportStacks, owner *Client) *blobAdapter {
 	return &blobAdapter{
 		inner: blob.New(
@@ -70,13 +70,12 @@ func (b *blobAdapter) Exists(ctx context.Context, dgst digest.Digest) (bool, err
 // source cannot be rewound. A seekable source is wrapped as an
 // [io.ReadSeeker] so go-oci-blob can replay the commit PUT after a 401.
 //
-// The reader is wrapped so bytes actually streamed are hashed and counted.
-// A mismatch with dgst or size fails wrapping [transfer.ErrDigestMismatch]
-// as source-mutation detection (ARCHITECTURE.md §3.2). go-oci-blob and a
-// conforming registry also verify; this wrapper makes wrong bytes under a
-// declared digest impossible even against a registry that skips commit
-// checks. A rewind to offset 0 resets the running hash so a replay is
-// checked independently of the refused attempt.
+// The reader is wrapped so bytes actually streamed are hashed and counted. A
+// mismatch with dgst or size fails wrapping [transfer.ErrDigestMismatch] as
+// source-mutation detection. go-oci-blob and a conforming registry also verify;
+// this wrapper makes wrong bytes under a declared digest impossible even
+// against a registry that skips commit checks. A rewind to offset 0 resets the
+// running hash so a replay is checked independently of the refused attempt.
 func (b *blobAdapter) Push(ctx context.Context, dgst digest.Digest, size int64, r io.Reader) error {
 	return wrapBlobError(b.inner.Push(ctx, b.repo, dgst, size, newVerifyingReader(r, dgst, size)))
 }

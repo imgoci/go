@@ -254,7 +254,8 @@ func requiredDigest(obj map[string]any, key string) (digest.Digest, error) {
 	return dgst, nil
 }
 
-// requireSHA256 reports whether dgst is sha256 plus 64 lowercase hex digits.
+// requireSHA256 reports an error when dgst is not sha256 plus 64 lowercase hex
+// digits.
 func requireSHA256(dgst digest.Digest) error {
 	if dgst.Algorithm() != digest.SHA256 {
 		return fmt.Errorf("must be sha256: followed by %d lowercase hex digits", sha256HexLength)

@@ -46,9 +46,9 @@ func ExampleIndex_Resolve() {
 	// a
 }
 
-// Fetch then FetchFiles is the consumer path: pin a tag to a digest, resolve
-// one deliverable, and write verified files. This example compiles against the
-// public API. It is not executed: it needs a live registry.
+// ExampleClient_Fetch pins a tag to a digest, resolves one deliverable, and
+// writes verified files. It is compiled, not executed: it needs a live
+// registry.
 //
 //nolint:testableexamples // Running would need a live registry; the example exists to be compiled, not executed.
 func ExampleClient_Fetch() {

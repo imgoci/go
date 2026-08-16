@@ -30,8 +30,8 @@ func isNoFollowErr(error) bool {
 }
 
 // syncDir is a no-op where directories cannot be opened and flushed the unix
-// way; the rename in [Plan.Commit] is still atomic, its durability is just
-// left to the filesystem.
+// way; the rename in [Plan.Commit] is still atomic, and durability is left to
+// the filesystem.
 func syncDir(string) error {
 	return nil
 }

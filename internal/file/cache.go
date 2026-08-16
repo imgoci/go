@@ -38,24 +38,19 @@ var ErrCacheVerify = errors.New("cache verify")
 // digest re-hash run before reuse. A pre-planted or poisoned entry only
 // forces a re-pull; it cannot corrupt the bytes the use callback observes.
 //
-// Retention (ARCHITECTURE.md §9.6): a verified entry is retained when a
-// later step fails so the next call can reuse it, and is removed on
-// successful commit via [StoredCache.Remove]. Removal is best-effort:
-// a failure keeps the entry as the documented fallback. A size-bounded
-// cache and a Clean API are deferred until real usage shows retention
-// patterns.
+// A verified entry is retained when a later step fails so the next call can
+// reuse it, and is removed on successful commit via [StoredCache.Remove].
+// Removal is best-effort: a failure keeps the entry as the documented fallback.
 //
-// Locking (ARCHITECTURE.md §9.7): each entry has a sibling `<entry>.lock`.
-// The lock file is created with [os.O_CREATE]|[os.O_EXCL] when absent. On
-// unix, waiters then take [syscall.Flock] LOCK_EX; waiting is
-// context-cancellable by polling LOCK_NB with exponential backoff (chosen
-// over a blocked flock goroutine so cancel cannot leave a waiter holding a
-// lock it no longer wants). On other platforms flock is unavailable;
-// exclusive create of the lock file is the lock, and waiters poll for the
-// name to become creatable, bounded by ctx — a crashed holder leaves a
-// stale lock until it is removed by hand or ctx is canceled. Windows
-// behavior is best-effort. The split mirrors [createSecure]'s unix/other
-// files.
+// Each entry has a sibling `<entry>.lock`. The lock file is created with
+// [os.O_CREATE]|[os.O_EXCL] when absent. On unix, waiters then take
+// [syscall.Flock] LOCK_EX; waiting is context-cancellable by polling LOCK_NB
+// with exponential backoff (chosen over a blocked flock goroutine so cancel
+// cannot leave a waiter holding a lock it no longer wants). On other platforms
+// flock is unavailable; exclusive create of the lock file is the lock, and
+// waiters poll for the name to become creatable, bounded by ctx — a crashed
+// holder leaves a stale lock until it is removed by hand or ctx is canceled.
+// Windows is compile-checked only.
 //
 // The zero value is not usable; [NewStoredCache] returns a ready one.
 type StoredCache struct {
@@ -94,12 +89,12 @@ func NewStoredCache(parent string) (*StoredCache, error) {
 
 // With serializes work on key under the per-entry exclusive lock.
 //
-// Under the lock it securely reopens the entry and re-verifies the full
-// digest. On a match it calls use(path) and does not call fetch. Otherwise
-// it treats the path as absent, calls fetch(dst) to populate it, re-verifies,
-// and then calls use. Fetch-then-verify failure returns an error and removes
-// the unusable entry. use is called only for a verified file; a use error
-// retains that verified entry (ARCHITECTURE.md §9.6).
+// Under the lock it securely reopens the entry and re-verifies the full digest.
+// On a match it calls use(path) and does not call fetch. Otherwise it treats
+// the path as absent, calls fetch(dst) to populate it, re-verifies, and then
+// calls use. Fetch-then-verify failure returns an error and removes the
+// unusable entry. use is called only for a verified file; a use error retains
+// that verified entry.
 //
 // The exclusive lock is held for the whole call, including use, so concurrent
 // With on the same key share one fetch.

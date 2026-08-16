@@ -121,10 +121,9 @@ func TestE2EBigOCIMultipartFallback(t *testing.T) {
 // selection into different dest files that share a parent directory.
 //
 // The stored cache is keyed per destination parent
-// (`<parent>/.imgoci-stage/stored/`), so this is a genuinely contending
-// black-box case: both calls lock the same cache entry. Different dest
-// directories would not share a cache; that once-per-parent lock is
-// unit-covered by internal/file and internal/transfer.
+// (`<parent>/.imgoci-stage/stored/`), so both calls lock the same cache entry.
+// That once-per-parent lock is unit-covered by internal/file and
+// internal/transfer.
 func TestE2EBigOCIConcurrentFetchFiles(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eRegistries()[0].image)
@@ -164,8 +163,8 @@ func TestE2EBigOCIConcurrentFetchFiles(t *testing.T) {
 // TestE2EBigOCITruncatedPart fails FetchFiles when a part blob is corrupted
 // after publish. Content-addressed registries refuse a digest-mismatched
 // overwrite, so a reverse proxy bit-flips the part GET (same length: a short
-// read is retried via Range and would reassemble). The consumer must report
-// [ErrDigestMismatch] (bigoci.ErrDigestMismatch mapped) and commit nothing.
+// read is retried via Range and would reassemble). The consumer reports
+// [ErrDigestMismatch] (bigoci.ErrDigestMismatch mapped) and commits nothing.
 func TestE2EBigOCITruncatedPart(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eRegistries()[0].image)
@@ -195,12 +194,11 @@ func TestE2EBigOCITruncatedPart(t *testing.T) {
 	assertNoFile(t, filepath.Join(dir, filename))
 }
 
-// TestE2EBigOCIWrongFileSize raw-seeds a BigOCI file whose
-// io.bigoci.file.size lies. A numeric lie that remains a valid token fails
-// bigoci Decode with an unmapped split error before decodeStored runs.
-// A negative size is still a lie and is rejected by the imgoci BigOCI
-// profile ([filemanifest.ValidateBigOCI]), which FetchFiles maps to
-// [ErrInvalidIndex].
+// TestE2EBigOCIWrongFileSize raw-seeds a BigOCI file whose io.bigoci.file.size
+// lies. A negative size is rejected by the imgoci BigOCI profile
+// ([filemanifest.ValidateBigOCI]); FetchFiles maps that to [ErrInvalidIndex] or
+// [ErrDigestMismatch]. A numeric lie that remains a valid token fails bigoci
+// Decode with an unmapped split error instead.
 func TestE2EBigOCIWrongFileSize(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eRegistries()[0].image)

@@ -8,10 +8,8 @@ import (
 )
 
 // ghcrChallenge is the challenge GHCR answers an unauthenticated repository
-// request with, copied from the wire. It is the first row of the table
-// because it is the first challenge this package will ever meet, and because
-// the comma inside its quoted scope is what rules out splitting the header on
-// commas.
+// request with, copied from the wire. The comma inside its quoted scope is what
+// rules out splitting the header on commas.
 const ghcrChallenge = `Bearer realm="https://ghcr.io/token",service="ghcr.io",` +
 	`scope="repository:team/artifact:pull,push"`
 

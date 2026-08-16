@@ -93,9 +93,9 @@ func cacheKey(realm, service, scope string) string {
 // absent or unreadable issued_at is treated as now. Absent, zero, and
 // negative expires_in take the spec's 60-second default.
 //
-// The safety skew is half of a short lifetime and thirty seconds of a long
-// one, matching bigoci: a request is authorized when its headers are read,
-// not when its body finishes.
+// The safety skew is half of a short lifetime and thirty seconds of a long one:
+// a request is authorized when its headers are read, not when its body
+// finishes.
 func expiryOf(expiresIn int, issuedAt string, now time.Time) time.Time {
 	lifetime := lifetimeOf(expiresIn)
 	start := now

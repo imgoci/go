@@ -12,10 +12,8 @@ import (
 // rejection, the ten consumer rules of spec section 6 including canonical
 // descriptor order (rule 9), and canonical bytes (rule 10).
 //
-// The three codec seams run in this order: Decode, then Validate, then
-// VerifyCanonical. That order is a correctness requirement. The canonical
-// transform is not a JSON grammar validator, so grammar and duplicate-key
-// checks must happen first.
+// Grammar and duplicate-key checks run before the canonical-bytes check. That
+// order is required: the canonical transform is not a JSON grammar validator.
 //
 // ParseIndex never re-encodes for identity. The returned [Index] records the
 // SHA-256 digest of the input bytes. On any failure the error wraps

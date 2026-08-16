@@ -28,10 +28,8 @@ const (
 	roleMetadata = "metadata"
 )
 
-// The v1 compression tokens are the fixed spec section 5.4 set. Query
-// validation accepts only these values. internal/decomp implements the
-// corresponding decoders in later slices; this list is the spec set, not a
-// build capability.
+// Compression tokens are the fixed spec section 5.4 set. Query validation
+// accepts only these values. This list is the spec set, not a build capability.
 const (
 	// compressionNone is the uncompressed transport encoding.
 	compressionNone = "none"
@@ -86,7 +84,8 @@ func (r *Resolved) Entries() []FileEntry {
 }
 
 // IndexDigest returns the SHA-256 digest of the canonical index bytes this
-// selection was derived from. That digest is the spec section 6.3 binding.
+// selection was derived from. Retrieval binds a [Resolved] to a release by
+// this digest, not by pointer identity.
 func (r *Resolved) IndexDigest() digest.Digest {
 	if r == nil {
 		return ""
@@ -101,9 +100,7 @@ func (r *Resolved) IndexDigest() digest.Digest {
 //
 // Offline selection failures (no deliverable, a selected role absent from that
 // deliverable, or no accepted compression) return a descriptive error without a
-// matchable sentinel in v1. Only the capability filter wraps
-// [ErrUnsupportedType]. A sentinel for the other failures is additive later if
-// callers need it.
+// matchable sentinel. Only the capability filter wraps [ErrUnsupportedType].
 func (x *Index) Resolve(q ResolveQuery) (*Resolved, error) {
 	if x == nil {
 		return nil, errors.New("resolve: nil index")
@@ -180,9 +177,9 @@ func validateResolveQuery(q ResolveQuery) error {
 	return nil
 }
 
-// allowedResolveCompression reports whether s is one of the spec section 5.4
-// v1 tokens {none, gzip, xz, zstd}. This is the spec set, not a probe of
-// whether internal/decomp is linked in this build.
+// allowedResolveCompression reports whether s is one of the spec section 5.4 v1
+// tokens {none, gzip, xz, zstd}. This is the spec set, not a probe of whether a
+// decoder is linked in this build.
 func allowedResolveCompression(s string) bool {
 	switch s {
 	case compressionNone, compressionGzip, compressionXZ, compressionZstd:

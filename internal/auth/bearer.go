@@ -65,9 +65,8 @@ const (
 // Basic credentials, and the resulting bearer token is cached until expiry.
 // The original request is then retried once with the Bearer token.
 //
-// [Transport.RealmClient] is deliberately outside identity enforcement
-// (ARCHITECTURE.md §6.6.1). Realm requests are issued with RealmClient.Do and
-// never through Base.RoundTrip.
+// [Transport.RealmClient] is deliberately outside identity enforcement. Realm
+// requests are issued with RealmClient.Do and never through Base.RoundTrip.
 type Transport struct {
 	// Base is the registry-facing RoundTripper the adapter may wrap with
 	// identity enforcement. Nil is [http.DefaultTransport]. Realm requests
@@ -81,10 +80,9 @@ type Transport struct {
 	// anonymous credential: the bearer exchange still runs.
 	Credentials Credentials
 	// RealmClient is the HTTP client used only for token-realm GETs. It is
-	// deliberately outside identity enforcement (ARCHITECTURE.md §6.6.1): a
-	// compressing token realm keeps working while identity is enforced on
-	// manifest and blob GETs. Nil is a plain [http.Client] that does not
-	// follow redirects.
+	// deliberately outside identity enforcement: a compressing token realm keeps
+	// working while identity is enforced on manifest and blob GETs. Nil is a plain
+	// [http.Client] that does not follow redirects.
 	RealmClient *http.Client
 
 	// now is the clock token expiry is measured against. Nil is [time.Now].
@@ -354,8 +352,8 @@ func (t *Transport) ensure() {
 	})
 }
 
-// remember records the challenge later requests will try to satisfy without
-// waiting for another 401.
+// remember records the challenge later requests reuse without waiting for
+// another 401.
 func (t *Transport) remember(asked challenge) {
 	t.mu.Lock()
 	t.last = asked
@@ -459,9 +457,9 @@ func closeBody(resp *http.Response) {
 	_ = resp.Body.Close()
 }
 
-// refuseRealmRedirect is the default [http.Client.CheckRedirect]: a redirected
-// token endpoint is a shape no measured registry has, and failing loudly beats
-// deciding where a credential goes next on a token server's say-so.
+// refuseRealmRedirect is the default [http.Client.CheckRedirect]. A redirected
+// token endpoint is an error: this package does not follow the redirect, so a
+// token server cannot choose where the credential is sent next.
 func refuseRealmRedirect(*http.Request, []*http.Request) error {
 	return errRealmRedirect
 }

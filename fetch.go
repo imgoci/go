@@ -19,10 +19,10 @@ import (
 // Fetch GETs the index with Accept set to the release-index media type,
 // requires the response Content-Type to identify that same type, hashes the
 // original bytes, checks a digest pin when the reference named one, and runs
-// [ParseIndex]. A Content-Type mismatch is [ErrInvalidIndex]. [Index] has
-// no MediaType accessor: ParseIndex already validated the JSON member
-// against the spec index type (rule 1), and the transfer orchestrator
-// already required the HTTP Content-Type to identify that same type.
+// [ParseIndex]. A Content-Type mismatch is [ErrInvalidIndex]. [Index] has no
+// MediaType accessor: [ParseIndex] already validated the JSON member against
+// the spec index type (rule 1), and the HTTP Content-Type is required to
+// identify that same type.
 func (c *Client) Fetch(ctx context.Context, ref Reference) (*Release, error) {
 	if c == nil {
 		return nil, errors.New("fetch: nil client")

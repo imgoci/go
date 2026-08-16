@@ -57,9 +57,8 @@ func newCommitError(committed []string, role string, err error) *CommitError {
 // The first failure returns a [*CommitError]. Roles not listed in order are
 // left staged.
 //
-// After the last successful rename Commit returns nil. Staging cleanup is
-// the caller's job via [Plan.Cleanup] (transfer defers it best-effort) and
-// is not folded into this result.
+// After the last successful rename Commit returns nil. Staging cleanup is the
+// caller's job via [Plan.Cleanup] and is not folded into this result.
 func (p *Plan) Commit(order []string) error {
 	committed := make([]string, 0, len(order))
 	for _, role := range order {

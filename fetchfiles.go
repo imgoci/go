@@ -13,8 +13,8 @@ import (
 // FetchOption configures one call to [Client.FetchFiles].
 //
 // The interface is sealed by an unexported method: the options are the ones
-// this package ships, so a fetch cannot be handed a knob the library does
-// not know how to honor.
+// this package ships, so a fetch cannot be handed a knob the library does not
+// honor.
 type FetchOption interface {
 	applyFetch(*fetchSettings)
 }
@@ -28,7 +28,7 @@ type fetchSettings struct {
 	// workersSet reports whether [WithWorkers] was named, so a non-positive
 	// count can be rejected before any I/O.
 	workersSet bool
-	// progress receives absolute snapshots, nil when nobody is watching.
+	// progress receives absolute snapshots, nil when omitted.
 	progress func(Progress)
 }
 
@@ -96,14 +96,12 @@ func (o workersOption) applyPublish(s *publishSettings) {
 // by the index rules). [ToFiles] requires every selected role to be present
 // and rejects extras.
 //
-// Errors from the orchestrator are mapped onto the public sentinels:
-// [file.ErrInvalidPlan] becomes [ErrInvalidDest]; [transfer.ErrInvalidDocument]
-// becomes [ErrInvalidIndex]; [transfer.ErrDigestMismatch] and
-// [decomp.ErrSizeExceeded] become [ErrDigestMismatch] (a size bound is
-// digest discipline); [decomp.ErrDecode] becomes [ErrDecode];
-// [transfer.ErrNotFound] and [transfer.ErrUnauthorized] become the matching
-// public sentinels. A [*file.CommitError] is wrapped so the message names the
-// committed roles while [errors.As] still finds the detail.
+// Errors map onto the public sentinels: destination preflight failures wrap
+// [ErrInvalidDest]; invalid retrieved documents wrap [ErrInvalidIndex]; digest
+// or size mismatches wrap [ErrDigestMismatch]; decompression failures wrap
+// [ErrDecode]; missing or unauthorized registry objects wrap [ErrNotFound] and
+// [ErrUnauthorized]. A commit-phase failure names the roles that were
+// committed before it stopped.
 func (c *Client) FetchFiles(
 	ctx context.Context,
 	rel *Release,

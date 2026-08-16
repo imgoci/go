@@ -44,12 +44,9 @@ const (
 // A lookup may execute a credential helper program. The package
 // documentation says what that means and why this package does it.
 type Store struct {
-	// store is oras-go's dynamic store: it reads the configuration file and,
-	// where the file says to, runs the credential helper named there. It is
-	// the one piece of oras-go this package uses, because reading this file
-	// faithfully — the auths keys, the base64 auth field, the helper
-	// protocol, Docker Hub's server address — is a compatibility surface
-	// rather than a feature.
+	// store reads the configuration file and, where the file says to, runs the
+	// credential helper named there. Lookups honour Docker's auths keys, base64
+	// auth field, helper protocol, and Docker Hub server address.
 	store *credentials.DynamicStore
 }
 
@@ -57,11 +54,10 @@ type Store struct {
 // configuration file at path.
 //
 // A file that is not there is not an error: it is a machine nobody has run
-// `docker login` on, which resolves every registry to the anonymous
-// credential. A file that is there and cannot be read as a configuration is
-// an error, and it is worth failing on — a caller who asked this package to
-// use their credentials would otherwise watch it transfer anonymously and
-// fail somewhere less obvious.
+// `docker login` on, which resolves every registry to the anonymous credential.
+// A file that is there and cannot be read as a configuration is an error: a
+// caller who asked this package to use their credentials would otherwise watch
+// it transfer anonymously and fail somewhere less obvious.
 //
 // The store is built with plaintext writes disabled and platform-store
 // detection off. Neither is reachable through the port — it has one read
@@ -169,8 +165,8 @@ func (s *Store) Credential(ctx context.Context, registry string) (Credential, er
 // credential under. Docker Hub is the one registry with history here, and a
 // reference can miss its legacy https://index.docker.io/v1/ key from either
 // direction: a reference usually names the registry docker.io, which only the
-// registry-name mapping knows, while one that spells out the dialed host
-// writes registry-1.docker.io, which only the hostname mapping knows. The
+// registry-name mapping rewrites, while one that spells out the dialed host
+// writes registry-1.docker.io, which only the hostname mapping rewrites. The
 // hostname mapping is tried first and the registry-name mapping where it
 // changed nothing; every other registry passes through untouched.
 func serverAddress(registry string) string {

@@ -8,10 +8,9 @@ import (
 	"unicode/utf8"
 )
 
-// Architecture.md §6.2 negative audit suite. Each case records the mechanism
-// that must reject the input: utf8.Valid pre-gate, duplicate-key scan,
-// transform error, or byte-compare. The transform is not required to error
-// on every violation.
+// Each case records the mechanism that must reject the input: utf8.Valid
+// pre-gate, duplicate-key scan, transform error, or byte-compare. The transform
+// is not required to error on every violation.
 
 func TestAuditInvalidUTF8RejectedByPreGate(t *testing.T) {
 	t.Parallel()
@@ -30,7 +29,7 @@ func TestAuditInvalidUTF8RejectedByPreGate(t *testing.T) {
 			if utf8.Valid(tc.input) {
 				t.Fatal("fixture must fail utf8.Valid")
 			}
-			// Document: the transform alone round-trips these bytes.
+			// The transform alone round-trips these bytes.
 			got, err := transform(tc.input)
 			if err != nil {
 				t.Fatalf("transform alone must succeed; gowebpki copies unvalidated bytes: %v", err)
@@ -205,10 +204,8 @@ func TestAuditGrammarHoleWhitespaceInsideLiterals(t *testing.T) {
 	if json.Valid(input) {
 		t.Fatal("encoding/json must reject [1 2]; that is why Decode precedes Verify")
 	}
-	// Framing: every non-canonical/non-I-JSON input that survives
-	// pre-gate+Decode is rejected because the transform errors or output !=
-	// input. [1 2] does not survive Decode; if it reached the transform,
-	// output != input would still reject it.
+	// [1 2] does not survive Decode. If it reached the transform, output != input
+	// would still reject it.
 	if bytes.Equal(got, input) {
 		t.Fatal("output must differ from input")
 	}

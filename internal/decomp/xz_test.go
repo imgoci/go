@@ -128,9 +128,9 @@ func TestXZCorruptRejected(t *testing.T) {
 func TestXZTruncatedAtIndexRejected(t *testing.T) {
 	t.Parallel()
 
-	// 50% prefix truncation (e2e seedTruncatedStored) still sits inside the
-	// Block; ulikunitz reports a clean EOF when Index+Footer are dropped
-	// after a complete Block. Cut exactly at the Index indicator.
+	// A mid-stream prefix cut still sits inside the Block. ulikunitz reports a
+	// clean EOF when Index+Footer are dropped after a complete Block, so the cut
+	// is the Index indicator.
 	stream := xzStream(t, []byte("hello imgoci xz index cut"))
 	truncated := xzDropIndexAndFooter(t, stream)
 	if len(truncated) == 0 || len(truncated) >= len(stream) {

@@ -5,13 +5,10 @@ import (
 	"os"
 )
 
-// main wires the process to run: the real streams and arguments become an env,
-// the terminating signals become a cancelled context, and the exit code run
-// returns becomes the process status.
-//
-// This is the only function in the package that touches the process itself, so
-// every other line of the CLI is reachable from a test with buffers in place of
-// the real streams.
+// main wires the process to run: streams and arguments become an env,
+// terminating signals cancel the context, and the exit code run returns becomes
+// the process status. This is the only function that touches the process, so
+// the rest of the CLI is reachable from tests with buffers.
 func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 

@@ -36,9 +36,9 @@ const (
 	// headerRetryAfter is the response header a registry asks for a pause in.
 	headerRetryAfter = "Retry-After"
 
-	// headerDockerContentDigest is the registry-computed digest header.
-	// Get ignores it (ARCHITECTURE.md §6.8): a digest a caller verifies
-	// content against cannot come from the same response the content did.
+	// headerDockerContentDigest is the registry-computed digest header. Get
+	// ignores it: a digest a caller verifies content against cannot come from the
+	// same response the content did.
 	headerDockerContentDigest = "Docker-Content-Digest"
 )
 
@@ -47,8 +47,8 @@ const (
 // Content-Type.
 //
 // ref is a tag or "sha256:…" digest within the bound repository. The
-// Docker-Content-Digest header is ignored (ARCHITECTURE.md §6.8). Bytes are
-// returned untouched: Get never re-encodes the body.
+// Docker-Content-Digest header is ignored. Bytes are returned untouched: Get
+// never re-encodes the body.
 //
 // 401 and 403 wrap [transfer.ErrUnauthorized]. 404 wraps
 // [transfer.ErrNotFound]. 429 and 5xx are tagged transient and retried
@@ -90,8 +90,8 @@ func (c *Client) getOnce(ctx context.Context, ref, accept string) ([]byte, strin
 	}
 	defer resp.Body.Close()
 
-	// The header is read so a future reader of this file sees the ignore
-	// is deliberate. The value is discarded: identity is the body bytes.
+	// Read and discarded on purpose, so the deliberate ignore stays visible:
+	// identity is the body bytes, never a digest from the same response.
 	_ = resp.Header.Get(headerDockerContentDigest)
 
 	if err = classifyManifestStatus(resp); err != nil {

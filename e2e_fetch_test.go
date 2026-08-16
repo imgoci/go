@@ -9,8 +9,9 @@ import (
 	"testing"
 )
 
-// TestE2EFetchRoundTrip fetches a seeded release from each gate registry,
-// resolves qemu and metal, and writes files that match the seeded bytes.
+// TestE2EFetchRoundTrip fetches a seeded release from zot and CNCF
+// Distribution, resolves qemu and metal, and writes files that match the seeded
+// bytes.
 func TestE2EFetchRoundTrip(t *testing.T) {
 	t.Parallel()
 	for _, reg := range e2eRegistries() {

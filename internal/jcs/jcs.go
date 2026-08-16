@@ -12,15 +12,12 @@ import (
 
 // Verify reports whether original is already RFC 8785 canonical JSON.
 //
-// parsed is the value produced by decoding original. It is not re-encoded;
-// the parameter records that grammar decoding must run before verification
-// (ARCHITECTURE.md §6.2). The transform runs on original so that [utf8.Valid]
-// remains a load-bearing pre-gate: re-encoding parsed would hide that the
-// pinned transform copies invalid UTF-8 unvalidated.
+// parsed is the value produced by decoding original. It is not re-encoded; the
+// parameter records that grammar decoding must run before verification. The
+// transform runs on original so that [utf8.Valid] remains a pre-gate:
+// re-encoding parsed would hide that the pinned transform copies invalid UTF-8
+// unvalidated.
 func Verify(original []byte, parsed any) error {
-	// parsed is the Decode-first contract (ARCHITECTURE.md §6.2). The
-	// transform must run on original; re-encoding parsed would hide that
-	// gowebpki copies invalid UTF-8 unvalidated.
 	_ = parsed
 	if !utf8.Valid(original) {
 		return errors.New("jcs: input is not valid UTF-8")
@@ -40,10 +37,8 @@ func Verify(original []byte, parsed any) error {
 
 // Encode returns the RFC 8785 canonical JSON encoding of v.
 //
-// Caller strings must already be valid UTF-8 ([utf8.ValidString]); that is a
-// documented precondition. Encode is [json.Marshal] followed by the same
-// transform Verify uses, so producer bytes and consumer verification cannot
-// disagree.
+// Caller strings must already be valid UTF-8 ([utf8.ValidString]). Encode is
+// [json.Marshal] followed by the same transform [Verify] uses.
 func Encode(v any) ([]byte, error) {
 	marshaled, err := json.Marshal(v)
 	if err != nil {
@@ -56,7 +51,7 @@ func Encode(v any) ([]byte, error) {
 	return canonical, nil
 }
 
-// transform is the isolated call to the pinned RFC 8785 implementation.
+// transform calls the pinned RFC 8785 implementation.
 func transform(original []byte) ([]byte, error) {
 	return webpki.Transform(original)
 }

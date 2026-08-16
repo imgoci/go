@@ -154,15 +154,11 @@ func TestE2EBigOCIGraphCompleteness(t *testing.T) {
 }
 
 // TestE2EBigOCIGzippedProxy fails FetchFiles when a reverse proxy gzip-codes
-// blob GETs. The index GET is a manifest and stays identity-coded, so Fetch
-// succeeds; Multipart.PullTo then hits bigoci's own identity enforcement
-// through our adapter.
-//
-// A gzipped *manifest* proxy is intercepted earlier: FetchFiles GETs the
-// file manifest through the identity-wrapped registry adapter before
-// PullTo, so that case never reaches bigoci's manifest path. Upstream
-// bigoci covers gzipped-manifest pulls; this test covers the blob path
-// that our adapter actually forwards.
+// blob GETs. The index GET stays identity-coded, so Fetch succeeds;
+// Multipart.PullTo then hits bigoci's identity enforcement through our adapter.
+// A gzipped file-manifest GET is intercepted by the identity-wrapped registry
+// adapter before PullTo, so this test covers the blob path the adapter
+// forwards.
 func TestE2EBigOCIGzippedProxy(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eRegistries()[0].image)

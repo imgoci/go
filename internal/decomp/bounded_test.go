@@ -20,9 +20,9 @@ func (neverEOFReader) Read(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// phaseReader returns first on the first Read, then rest. It is how the
-// exact-limit probe is isolated from the remaining+1 excess-during-read path:
-// the first Read delivers exactly `exact` bytes, and the next Read is the probe.
+// phaseReader returns first on the first Read, then rest. The first Read
+// delivers exactly `exact` bytes and the next Read is the probe, which
+// separates the exact-limit case from the remaining+1 excess-during-read path.
 type phaseReader struct {
 	first   []byte
 	rest    []byte

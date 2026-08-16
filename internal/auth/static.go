@@ -27,11 +27,10 @@ func (c Credential) Empty() bool {
 
 // Credentials resolves the credential presented to one registry.
 //
-// A registry the resolver knows nothing about is the zero [Credential] and a
+// A registry the resolver has no credential for is the zero [Credential] and a
 // nil error: anonymous is an answer, not a failure. An error means the lookup
-// itself could not be performed and it ends the request, because a request
-// that quietly fell back to anonymous would fail later and somewhere less
-// obvious.
+// itself could not be performed and it ends the request, because a request that
+// quietly fell back to anonymous would fail later and somewhere less obvious.
 //
 // Implementations must be safe for concurrent use and must not retry: a
 // lookup runs inside an attempt the orchestrator is already counting.

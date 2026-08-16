@@ -11,11 +11,11 @@ import (
 )
 
 // TestE2EPublishRoundTrip is the self-hosting matrix: Publish, Fetch, Resolve,
-// and FetchFiles against both gate registries, every v1 compression the
+// and FetchFiles against zot and CNCF Distribution, every v1 compression the
 // producer can emit, and three release shapes.
 //
-// linux-netboot follows spec §5: kernel is required; initramfs and rootfs are
-// optional. Nil Roles applies the default-role rule, which returns every
+// linux-netboot follows spec §5.4: kernel is required; initramfs and rootfs
+// are optional. Nil Roles applies the default-role rule, which returns every
 // present role, so the kernel+initramfs pair is fetched together.
 func TestE2EPublishRoundTrip(t *testing.T) {
 	t.Parallel()

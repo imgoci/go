@@ -102,12 +102,9 @@ func openZstd(r io.Reader) (io.ReadCloser, error) {
 	return &zstdReader{br: br, zr: zr}, nil
 }
 
-// Read decompressed bytes from the single zstd frame.
-//
-// When the frame ends, Read peeks [zstdReader.br] for any further byte.
-// Concatenated frames, skippable frames, or any trailing byte fail wrapping
-// [ErrDecode]. A consumer that reaches [io.EOF] therefore has the
-// single-frame-no-trailing guarantee. Subsequent Reads return the sticky
+// Read decompressed bytes from the single zstd frame. When the frame ends,
+// concatenated frames, skippable frames, or any trailing byte in
+// [zstdReader.br] fail wrapping [ErrDecode]. Subsequent Reads return the sticky
 // error.
 func (z *zstdReader) Read(p []byte) (int, error) {
 	if z.err != nil {

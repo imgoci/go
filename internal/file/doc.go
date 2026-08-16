@@ -1,8 +1,5 @@
-// Package file plans destination paths, stages verified bytes, and commits
-// them with per-file atomic rename.
-//
-// This is ARCHITECTURE.md §5.5: preflight, per-call staging workspaces,
-// secure open/reopen, stage-then-commit, and the content-addressed stored
+// Package file plans destination paths, stages verified bytes, and commits them
+// with per-file atomic rename. It also provides a content-addressed stored
 // cache used by BigOCI fetch.
 //
 // # Preflight
@@ -31,29 +28,23 @@
 // Staging files are created and reopened with no-follow semantics
 // ([syscall.O_NOFOLLOW] on unix) and checked for regular type, ownership, and
 // mode. A mismatch is treated as absent so a planted symlink is never written
-// or published. The unix implementation lives in secure_unix.go; platforms
-// without those syscalls use the conservative fallbacks in secure_other.go so
-// GOOS=windows keeps compiling. Windows behavior is verified best-effort
-// (ARCHITECTURE.md §9.7): this package is compile-checked via the moon
-// `build-windows` task, and the split mirrors bigoci's `sink_unix.go` /
-// `sink_other.go` precedent.
+// or published. Other platforms use conservative fallbacks so GOOS=windows
+// compiles. Windows is compile-checked only, via the moon `build-windows` task.
 //
 // # Stored cache
 //
 // [NewStoredCache] prepares `<parent>/.imgoci-stage/stored/` using the same
 // reserved-directory ownership and mode checks as staging. Entries are
-// `sha256-<full 64-hex>` of the stored digest; the key is the identity of
-// the bytes. [StoredCache.With] takes a per-key lock, reopens securely,
-// re-verifies the full digest, and only then calls use — a miss or a
-// poisoned entry calls fetch and re-verifies before use. A failed
-// re-verification wraps [ErrCacheVerify]. [StoredCache.Remove] deletes an
-// entry and its sibling lock file after a successful commit; waiting for
-// the lock is bounded by the supplied context. Verified entries are
-// retained on failure or when removal cannot complete (ARCHITECTURE.md
-// §9.6). A size-bounded cache and a Clean API are deferred. Lock files
-// are `<entry>.lock`; unix uses flock, other platforms use exclusive
-// create bounded by context. Windows is compile-checked and best-effort
-// (ARCHITECTURE.md §9.7).
+// `sha256-<full 64-hex>` of the stored digest; the key is the identity of the
+// bytes. [StoredCache.With] takes a per-key lock, reopens securely, re-verifies
+// the full digest, and only then calls use — a miss or a poisoned entry calls
+// fetch and re-verifies before use. A failed re-verification wraps
+// [ErrCacheVerify]. [StoredCache.Remove] deletes an entry and its sibling lock
+// file after a successful commit; waiting for the lock is bounded by the
+// supplied context. Verified entries are retained on failure or when removal
+// cannot complete. Lock files are `<entry>.lock`; unix uses flock, other
+// platforms use exclusive create bounded by context. Windows is compile-checked
+// only.
 //
 // # Commit
 //

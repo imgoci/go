@@ -10,7 +10,7 @@ import (
 )
 
 // runFetch parses fetch's command line, selects one deliverable, and writes
-// verified files into dest. Standard output stays empty on success.
+// verified files into dest. Nothing but the help block goes to standard output.
 func runFetch(ctx context.Context, e env, args []string) error {
 	var f fetchFlags
 	fs := newFlagSet(cmdFetch)
