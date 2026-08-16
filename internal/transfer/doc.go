@@ -1,10 +1,11 @@
 // Package transfer orchestrates imgoci fetch and publish of release indexes
-// and standard file manifests.
+// and file manifests.
 //
-// It declares the [Manifests] and [Blobs] ports the registry adapter
-// implements, bundled as [Ports] for [Publish]. PLAN 2.5(b) defers the
-// Multipart port to slice 5 so this package compiles without
-// opencontainers/image-spec; BigOCI pull/push lands with that port.
+// It declares the [Manifests], [Blobs], and [Multipart] ports adapters
+// implement, bundled as [Ports] for [Publish]. Multipart is the BigOCI
+// surface (ARCHITECTURE.md §6.4): path-typed, tag-free, and wired by the
+// root client. A nil Multipart is still valid when every entry takes the
+// standard path (including a <2-part fallback).
 //
 // Destination planning is [github.com/imgoci/go/internal/file.NewPlan]:
 // preflight of ByRole paths happens before any registry Get or Pull. A Plan

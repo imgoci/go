@@ -57,17 +57,18 @@ func TestNewOptionSealing(t *testing.T) {
 	}
 }
 
-func TestClientCapabilitiesAreStandard(t *testing.T) {
+func TestClientCapabilitiesIncludeBigOCI(t *testing.T) {
 	t.Parallel()
 	c, err := New()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !c.Capabilities().supports(standardFileMediaType) {
+	caps := c.Capabilities()
+	if !caps.supports(standardFileMediaType) {
 		t.Fatal("standard file type must be supported")
 	}
-	if c.Capabilities().supports("application/vnd.bigoci.file.v1") {
-		t.Fatal("BigOCI must not be assumed")
+	if !caps.supports(bigociFileMediaType) {
+		t.Fatal("Capabilities must include the BigOCI file type")
 	}
 }
 

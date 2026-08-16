@@ -4,6 +4,7 @@ import (
 	"errors"
 	"testing"
 
+	mpmocks "github.com/imgoci/go/internal/multipart/mocks"
 	regmocks "github.com/imgoci/go/internal/registry/mocks"
 )
 
@@ -23,4 +24,5 @@ func TestMocksSatisfyPorts(t *testing.T) {
 	t.Parallel()
 	var _ Manifests = (*regmocks.MockManifests)(nil)
 	var _ Blobs = (*regmocks.MockBlobs)(nil)
+	var _ Multipart = (*mpmocks.MockMultipart)(nil)
 }

@@ -166,3 +166,122 @@ func hostPortOf(t *testing.T, raw string) string {
 	}
 	return parsed.Host
 }
+
+// startPassthroughProxy fronts backend with an identity reverse proxy.
+func startPassthroughProxy(t *testing.T, backend string) string {
+	t.Helper()
+	return startGzipProxy(t, backend, func(*http.Request) bool { return false })
+}
+
+// startTruncatingBlobProxy fronts backend and corrupts stored-blob GET
+// bodies. Content-addressed registries refuse a digest-mismatched overwrite,
+// so this is the black-box equivalent of truncating or bit-flipping a part
+// after publish.
+//
+// Blob fetches are performed here and returned as 200/206 so a registry 307
+// cannot send the client around the corruption. Redirect Location hosts are
+// rewritten to backend (the mapped host:port) because zot may name an
+// unreachable container address. Bodies are bit-flipped rather than shortened:
+// a short read is transient in bigoci (Range resume reassembles the part);
+// a same-length digest mismatch is terminal. The empty config blob (2 bytes)
+// is left intact so only part payloads are altered.
+func startTruncatingBlobProxy(t *testing.T, backend string) string {
+	t.Helper()
+	target, err := url.Parse("http://" + backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	blobClient := &http.Client{
+		Timeout: e2eHTTPTimeout,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			req.URL.Scheme = "http"
+			req.URL.Host = backend
+			return nil
+		},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !gzipBlobRequest(r) {
+			proxy.ServeHTTP(w, r)
+			return
+		}
+		u := *target
+		u.Path = r.URL.Path
+		u.RawPath = r.URL.RawPath
+		u.RawQuery = r.URL.RawQuery
+		req, reqErr := http.NewRequestWithContext(r.Context(), r.Method, u.String(), nil)
+		if reqErr != nil {
+			http.Error(w, reqErr.Error(), http.StatusBadGateway)
+			return
+		}
+		req.Header = r.Header.Clone()
+		resp, doErr := blobClient.Do(req)
+		if doErr != nil {
+			http.Error(w, doErr.Error(), http.StatusBadGateway)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			http.Error(w, readErr.Error(), http.StatusBadGateway)
+			return
+		}
+		switch resp.StatusCode {
+		case http.StatusOK, http.StatusPartialContent:
+			if len(body) >= 4 {
+				body = bytes.Clone(body)
+				body[0] ^= 0xff
+			}
+		}
+		for key, values := range resp.Header {
+			switch strings.ToLower(key) {
+			case "content-length", "transfer-encoding", "docker-content-digest":
+				continue
+			}
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.WriteHeader(resp.StatusCode)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(server.Close)
+	return hostPortOf(t, server.URL)
+}
+
+// startBlobRedirectFront fronts backend and 307s blob GET/HEAD to storage.
+// Manifest and upload traffic still reverse-proxies to backend. Publish to
+// backend, then Fetch through this front, so only reads are redirected.
+func startBlobRedirectFront(t *testing.T, backend, storage string) string {
+	t.Helper()
+	target, err := url.Parse("http://" + backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if gzipBlobRequest(r) {
+			loc := "http://" + storage + r.URL.RequestURI()
+			w.Header().Set("Location", loc)
+			w.WriteHeader(http.StatusTemporaryRedirect)
+			return
+		}
+		proxy.ServeHTTP(w, r)
+	}))
+	t.Cleanup(server.Close)
+	return hostPortOf(t, server.URL)
+}
+
+// startStorageProxy reverse-proxies backend and optionally gzip-codes blob
+// GET/HEAD responses. It is the second in-process host a 307 Location names.
+func startStorageProxy(t *testing.T, backend string, gzipBlobs bool) string {
+	t.Helper()
+	if gzipBlobs {
+		return startGzipProxy(t, backend, gzipBlobRequest)
+	}
+	return startPassthroughProxy(t, backend)
+}

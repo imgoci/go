@@ -18,6 +18,22 @@ import (
 	"github.com/imgoci/go/internal/index"
 )
 
+const (
+	// defaultBigOCIPartSize is github.com/imgoci/bigoci.DefaultPartSize: 512 MiB.
+	// Copied so this package does not import the adapter library
+	// (ARCHITECTURE.md §4). Zero [MultipartPlan.PartSize] resolves to this
+	// value when counting planned parts; planned parts below two fall back
+	// to the standard path.
+	defaultBigOCIPartSize int64 = 512 << 20
+	// minMultipartParts is the imgoci BigOCI profile floor (spec §8).
+	minMultipartParts int64 = 2
+	// maxBigOCIParts is github.com/imgoci/bigoci/internal/plan.MaxParts: 4096.
+	// Copied so this package does not import the adapter library
+	// (ARCHITECTURE.md §4), matching [defaultBigOCIPartSize]. Planned parts
+	// above this ceiling are a caller-input error before any network I/O.
+	maxBigOCIParts int64 = 4096
+)
+
 // PublishRequest is the input to [Publish]. Root validation (reference form
 // and producer rules 1–8) runs before this is built.
 type PublishRequest struct {
@@ -39,6 +55,11 @@ type PublishRequest struct {
 	Workers int
 	// Progress receives serialized absolute snapshots. It may be nil.
 	Progress func(Progress)
+	// Repo is the repository-only reference (registry/name) passed to
+	// [Multipart.Push]. Required when any entry takes the multipart path.
+	// Manifests and Blobs are already bound to this repository at
+	// construction; Multipart is not.
+	Repo string
 }
 
 // PublishEntry is one file-entry [Publish] hashes, uploads, and indexes.
@@ -54,6 +75,17 @@ type PublishEntry struct {
 	// Annotations are extra descriptor annotations. Selector, content, and
 	// filename fields overwrite the corresponding keys in [index.Build].
 	Annotations map[string]string
+	// Multipart requests BigOCI publication. Nil is the standard form.
+	// A non-nil plan with fewer than two planned parts falls back to the
+	// standard path and increments [Progress.Fallbacks].
+	Multipart *MultipartPlan
+}
+
+// MultipartPlan selects BigOCI part size for one [PublishEntry].
+type MultipartPlan struct {
+	// PartSize is the split size in bytes. Zero selects the bigoci default
+	// ([defaultBigOCIPartSize], 512 MiB).
+	PartSize int64
 }
 
 // hashedFile is pass-1 output for one unique source path.
@@ -93,11 +125,22 @@ type uniqueBlob struct {
 	paths []string
 	// stats are pass-1 stats keyed by path, used for the mutation re-check.
 	stats map[string]hashedFile
-	// entryIdx are request entry indexes that share this blob.
+	// entryIdx are request entry indexes that share this blob and form.
 	entryIdx []int
-	// manifestDigest is the file-manifest digest after BuildStandard.
+	// multipart is the BigOCI plan when this unit takes the multipart path.
+	// Nil means the standard blob+manifest path.
+	multipart *MultipartPlan
+	// mediaType is the index descriptor mediaType after upload. Empty means
+	// [index.MediaTypeManifest].
+	mediaType string
+	// artifactType is the index descriptor artifactType after upload. Empty
+	// means [index.ArtifactTypeFile].
+	artifactType string
+	// manifestDigest is the file-manifest digest after BuildStandard or
+	// multipart Push.
 	manifestDigest digest.Digest
-	// manifestSize is the file-manifest byte length after BuildStandard.
+	// manifestSize is the file-manifest byte length after BuildStandard or
+	// multipart Push.
 	manifestSize int64
 }
 
@@ -132,14 +175,25 @@ func (h *hashCounter) digest() digest.Digest {
 // PUT, even when they came from different paths.
 //
 // Upload uses bounded workers. Each unique stored digest re-checks pass-1
-// stat (size and mtime); a change is [ErrDigestMismatch]. Blobs.Exists
-// skips a push; otherwise Blobs.Push gets a fresh file handle — the
-// adapter's re-verifying reader is the net. The OCI empty-config blob
-// ([filemanifest.EmptyConfigDigest]) is ensured once per call, before any
-// Manifests.Put, because every file manifest references it.
+// stat (size and mtime); a change is [ErrDigestMismatch]. Entries with a
+// non-nil [MultipartPlan] take the BigOCI path when ceil(storedSize /
+// effectivePartSize) is at least two and at most [maxBigOCIParts]:
+// [Multipart.Push] (PushByDigest; no tag), then Manifests.Get of the
+// returned descriptor digest, then [filemanifest.ValidateBigOCI] requiring
+// io.bigoci.file.digest and io.bigoci.file.size to equal the pass-1 stored
+// digest and size (ARCHITECTURE.md §3.2, §5.1). Fewer than two planned
+// parts falls back to the standard path and increments [Progress.Fallbacks].
+// More than [maxBigOCIParts] planned parts is a caller-input error wrapping
+// [index.ErrRule] before any network write.
+//
+// Standard path: Blobs.Exists skips a push; otherwise Blobs.Push gets a
+// fresh file handle — the adapter's re-verifying reader is the net.
 // [filemanifest.BuildStandard] runs after the blob is present, then
-// Manifests.Put of that digest-ref. Manifests always land after their blobs.
-// The index PUT by tag is last, so nothing references the index until every
+// Manifests.Put of that digest-ref. The OCI empty-config blob
+// ([filemanifest.EmptyConfigDigest]) is ensured once, before any standard
+// Manifests.Put. BigOCI pushes its own config; ensureEmptyConfig is
+// standard-path-only. Manifests always land after their blobs. The index
+// PUT by tag is last, so nothing references the index until every
 // manifest and blob has landed.
 //
 // After pass 1, entries that share (architecture, target, representation,
@@ -147,19 +201,14 @@ func (h *hashCounter) digest() digest.Digest {
 // (spec §6 rule 6) before any network write. Unique stored digests that
 // disagree on decoded content or compression fail as [ErrSharedBlob]
 // (spec §6 rule 8) still before upload.
-//
-// [index.Build] already runs [index.Validate] (rules 1–9). Publish then
-// Decode+Validate+VerifyCanonical on the encoded bytes as a cheap
-// self-oracle that the published index would pass the consumer path,
-// including rule 10. A self-oracle failure is a library defect: it does
-// not wrap [index.ErrRule], so the public mapper cannot treat it as
-// caller input.
 func Publish(ctx context.Context, p Ports, req PublishRequest) (digest.Digest, error) {
 	if err := checkPublishPorts(p, req); err != nil {
 		return "", err
 	}
+	if err := checkMultipartPartCeiling(req.Entries, statSize); err != nil {
+		return "", err
+	}
 	progress := newPublishReporter(len(req.Entries), req.Progress)
-
 	hashed, err := hashSources(req.Entries)
 	if err != nil {
 		return "", err
@@ -172,12 +221,15 @@ func Publish(ctx context.Context, p Ports, req PublishRequest) (digest.Digest, e
 		return "", err
 	}
 	progress.setTotalBytes(totalContentBytes(req.Entries, hashed))
+	progress.addFallbacks(applyMultipartFallback(blobs))
 	progress.setPhase(PhaseUpload)
 
-	if err := ensureEmptyConfig(ctx, p.Blobs); err != nil {
-		return "", err
+	if hasStandardUpload(blobs) {
+		if err := ensureEmptyConfig(ctx, p.Blobs); err != nil {
+			return "", err
+		}
 	}
-	if err := uploadBlobs(ctx, p, req.Workers, blobs, progress); err != nil {
+	if err := uploadBlobs(ctx, p, req.Repo, req.Workers, blobs, progress); err != nil {
 		return "", err
 	}
 	return putIndex(ctx, p, req, hashed, blobs, progress)
@@ -322,9 +374,156 @@ func groupBlobs(entries []PublishEntry, hashed map[string]hashedFile) ([]uniqueB
 	}
 	out := make([]uniqueBlob, 0, len(order))
 	for _, dgst := range order {
-		out = append(out, *byDigest[dgst])
+		out = append(out, splitByForm(*byDigest[dgst], entries)...)
 	}
 	return out, nil
+}
+
+// formID distinguishes standard vs BigOCI upload units that share stored bytes.
+type formID struct {
+	// multipart is true when the entry requested BigOCI publication.
+	multipart bool
+	// partSize is [MultipartPlan.PartSize]; ignored when multipart is false.
+	partSize int64
+}
+
+// entryForm is the upload-form identity of one request entry.
+func entryForm(entry PublishEntry) formID {
+	if entry.Multipart == nil {
+		return formID{}
+	}
+	return formID{multipart: true, partSize: entry.Multipart.PartSize}
+}
+
+// splitByForm expands one digest-grouped blob into one upload unit per form.
+// Rule 8 already ran across every path that hashed to the stored digest.
+func splitByForm(blob uniqueBlob, entries []PublishEntry) []uniqueBlob {
+	groups := make(map[formID][]int)
+	order := make([]formID, 0)
+	for _, idx := range blob.entryIdx {
+		id := entryForm(entries[idx])
+		if _, ok := groups[id]; !ok {
+			order = append(order, id)
+		}
+		groups[id] = append(groups[id], idx)
+	}
+	out := make([]uniqueBlob, 0, len(order))
+	for _, id := range order {
+		out = append(out, blobForEntries(blob, groups[id], entries))
+	}
+	return out
+}
+
+// blobForEntries copies src into an upload unit covering idxs.
+func blobForEntries(src uniqueBlob, idxs []int, entries []PublishEntry) uniqueBlob {
+	out := uniqueBlob{
+		storedDigest:  src.storedDigest,
+		storedSize:    src.storedSize,
+		contentDigest: src.contentDigest,
+		contentSize:   src.contentSize,
+		compression:   src.compression,
+		entryIdx:      idxs,
+		stats:         make(map[string]hashedFile, len(idxs)),
+	}
+	if entries[idxs[0]].Multipart != nil {
+		plan := *entries[idxs[0]].Multipart
+		out.multipart = &plan
+	}
+	seen := make(map[string]struct{}, len(idxs))
+	for _, idx := range idxs {
+		path := entries[idx].SourcePath
+		if _, ok := seen[path]; ok {
+			continue
+		}
+		seen[path] = struct{}{}
+		out.paths = append(out.paths, path)
+		out.stats[path] = src.stats[path]
+	}
+	return out
+}
+
+// applyMultipartFallback clears [uniqueBlob.multipart] when planned parts
+// are fewer than [minMultipartParts] and returns how many units fell back.
+func applyMultipartFallback(blobs []uniqueBlob) int {
+	n := 0
+	for i := range blobs {
+		if blobs[i].multipart == nil {
+			continue
+		}
+		if plannedParts(blobs[i].storedSize, blobs[i].multipart.PartSize) >= minMultipartParts {
+			continue
+		}
+		blobs[i].multipart = nil
+		n++
+	}
+	return n
+}
+
+// checkMultipartPartCeiling rejects a multipart entry whose planned part
+// count exceeds [maxBigOCIParts] (bigoci plan.MaxParts). sizeOf supplies
+// the stored size (Publish passes [statSize]); tests inject a synthetic
+// size so an 8 GiB fixture is not materialized. The check runs before
+// pass-1 hashing and before any network write. The error wraps
+// [index.ErrRule] so the public mapper classifies it as caller input.
+func checkMultipartPartCeiling(entries []PublishEntry, sizeOf func(string) (int64, error)) error {
+	for _, entry := range entries {
+		if entry.Multipart == nil {
+			continue
+		}
+		size, err := sizeOf(entry.SourcePath)
+		if err != nil {
+			return fmt.Errorf("stat %s: %w", entry.SourcePath, err)
+		}
+		n := plannedParts(size, entry.Multipart.PartSize)
+		if n > maxBigOCIParts {
+			return fmt.Errorf(
+				"multipart part count %d exceeds %d for stored size %d: %w",
+				n,
+				maxBigOCIParts,
+				size,
+				index.ErrRule,
+			)
+		}
+	}
+	return nil
+}
+
+// statSize returns the on-disk size of path.
+func statSize(path string) (int64, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, err
+	}
+	return fi.Size(), nil
+}
+
+// hasStandardUpload reports whether any unit will use the standard blob path.
+func hasStandardUpload(blobs []uniqueBlob) bool {
+	for _, blob := range blobs {
+		if blob.multipart == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// effectivePartSize resolves a [MultipartPlan.PartSize] of 0 to
+// [defaultBigOCIPartSize] (bigoci.DefaultPartSize, 512 MiB).
+func effectivePartSize(partSize int64) int64 {
+	if partSize > 0 {
+		return partSize
+	}
+	return defaultBigOCIPartSize
+}
+
+// plannedParts is ceil(storedSize / effectivePartSize). A zero stored size
+// is zero parts.
+func plannedParts(storedSize, partSize int64) int64 {
+	size := effectivePartSize(partSize)
+	if storedSize <= 0 {
+		return 0
+	}
+	return (storedSize + size - 1) / size
 }
 
 // accept records one entry onto a unique stored digest, requiring content
@@ -358,8 +557,9 @@ func totalContentBytes(entries []PublishEntry, hashed map[string]hashedFile) int
 }
 
 // ensureEmptyConfig pushes the OCI empty-config blob once when the repository
-// does not already hold it. File manifests reference this digest, so it must
-// exist before any Manifests.Put.
+// does not already hold it. Standard file manifests reference this digest, so
+// it must exist before any standard Manifests.Put. BigOCI pushes its own
+// config; this helper is standard-path-only (ARCHITECTURE.md §5.1).
 func ensureEmptyConfig(ctx context.Context, blobs Blobs) error {
 	exists, err := blobs.Exists(ctx, filemanifest.EmptyConfigDigest)
 	if err != nil {
@@ -384,6 +584,7 @@ func ensureEmptyConfig(ctx context.Context, blobs Blobs) error {
 func uploadBlobs(
 	ctx context.Context,
 	p Ports,
+	repo string,
 	workers int,
 	blobs []uniqueBlob,
 	progress *reporter,
@@ -412,7 +613,7 @@ func uploadBlobs(
 		wg.Go(func() {
 			sem <- struct{}{}
 			defer func() { <-sem }()
-			record(uploadOne(ctx, p, blob, progress))
+			record(uploadOne(ctx, p, repo, blob, progress))
 		})
 	}
 	wg.Wait()
@@ -424,15 +625,24 @@ func uploadBlobs(
 	}
 }
 
-// uploadOne re-checks source stability, pushes the stored blob unless it
-// already exists, then PUTs the standard file manifest at its digest.
-func uploadOne(ctx context.Context, p Ports, blob *uniqueBlob, progress *reporter) error {
+// uploadOne re-checks source stability, then publishes via the multipart or
+// standard path.
+func uploadOne(ctx context.Context, p Ports, repo string, blob *uniqueBlob, progress *reporter) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := checkSourcesStable(blob); err != nil {
 		return err
 	}
+	if blob.multipart != nil {
+		return uploadMultipart(ctx, p, repo, blob, progress)
+	}
+	return uploadStandard(ctx, p, blob, progress)
+}
+
+// uploadStandard pushes the stored blob unless it already exists, then PUTs
+// the standard file manifest at its digest.
+func uploadStandard(ctx context.Context, p Ports, blob *uniqueBlob, progress *reporter) error {
 	exists, err := p.Blobs.Exists(ctx, blob.storedDigest)
 	if err != nil {
 		return fmt.Errorf("blob exists %s: %w", blob.storedDigest, err)
@@ -450,11 +660,64 @@ func uploadOne(ctx context.Context, p Ports, blob *uniqueBlob, progress *reporte
 	if err != nil {
 		return fmt.Errorf("build file manifest: %w", err)
 	}
+	blob.mediaType = index.MediaTypeManifest
+	blob.artifactType = index.ArtifactTypeFile
 	blob.manifestDigest = digest.FromBytes(man)
 	blob.manifestSize = int64(len(man))
 	if err := p.Manifests.Put(ctx, blob.manifestDigest.String(), index.MediaTypeManifest, man); err != nil {
 		return fmt.Errorf("put file manifest %s: %w", blob.manifestDigest, err)
 	}
+	for range blob.entryIdx {
+		progress.entryVerified(blob.contentSize)
+	}
+	return nil
+}
+
+// uploadMultipart publishes via [Multipart.Push] (PushByDigest; no tag) and
+// re-fetches the returned manifest by descriptor digest, requiring the
+// BigOCI whole-file digest and size to equal pass-1 stored identity
+// (ARCHITECTURE.md §3.2).
+func uploadMultipart(ctx context.Context, p Ports, repo string, blob *uniqueBlob, progress *reporter) error {
+	if p.Multipart == nil {
+		return errors.New("publish: multipart adapter is required")
+	}
+	if repo == "" {
+		return errors.New("publish: repository is required for multipart")
+	}
+	desc, err := p.Multipart.Push(ctx, repo, blob.paths[0], blob.multipart.PartSize)
+	if err != nil {
+		return fmt.Errorf("multipart push %s: %w", blob.paths[0], err)
+	}
+	accept := desc.MediaType
+	if accept == "" {
+		accept = index.MediaTypeManifest
+	}
+	raw, _, err := p.Manifests.Get(ctx, desc.Digest.String(), accept)
+	if err != nil {
+		return fmt.Errorf("get bigoci manifest %s: %w", desc.Digest, err)
+	}
+	if digest.FromBytes(raw) != desc.Digest {
+		return fmt.Errorf("bigoci manifest %s: %w", desc.Digest, ErrDigestMismatch)
+	}
+	profile, err := filemanifest.ValidateBigOCI(raw)
+	if err != nil {
+		return fmt.Errorf("bigoci profile %s: %w: %w", desc.Digest, ErrInvalidDocument, err)
+	}
+	if profile.FileDigest != blob.storedDigest || profile.FileSize != blob.storedSize {
+		return fmt.Errorf(
+			"bigoci file digest %s size %d != stored %s size %d: %w",
+			profile.FileDigest,
+			profile.FileSize,
+			blob.storedDigest,
+			blob.storedSize,
+			ErrDigestMismatch,
+		)
+	}
+	blob.mediaType = index.MediaTypeManifest
+	blob.artifactType = index.ArtifactTypeBigOCI
+	blob.manifestDigest = desc.Digest
+	// raw is the verified document; do not trust desc.Size.
+	blob.manifestSize = int64(len(raw))
 	for range blob.entryIdx {
 		progress.entryVerified(blob.contentSize)
 	}
@@ -523,18 +786,32 @@ func putIndex(
 // indexModel fills [index.ModelEntry] values from hashed sources and uploaded
 // manifests.
 func indexModel(req PublishRequest, hashed map[string]hashedFile, blobs []uniqueBlob) *index.Model {
-	manifestOf := make(map[digest.Digest]digest.Digest, len(blobs))
-	manifestSize := make(map[digest.Digest]int64, len(blobs))
+	type uploaded struct {
+		digest       digest.Digest
+		size         int64
+		mediaType    string
+		artifactType string
+	}
+	byEntry := make(map[int]uploaded, len(req.Entries))
 	for _, blob := range blobs {
-		manifestOf[blob.storedDigest] = blob.manifestDigest
-		manifestSize[blob.storedDigest] = blob.manifestSize
+		for _, idx := range blob.entryIdx {
+			byEntry[idx] = uploaded{
+				digest:       blob.manifestDigest,
+				size:         blob.manifestSize,
+				mediaType:    blob.mediaType,
+				artifactType: blob.artifactType,
+			}
+		}
 	}
 	entries := make([]index.ModelEntry, len(req.Entries))
 	for i, entry := range req.Entries {
 		h := hashed[entry.SourcePath]
+		man := byEntry[i]
 		entries[i] = index.ModelEntry{
-			Digest:        manifestOf[h.storedDigest],
-			Size:          manifestSize[h.storedDigest],
+			MediaType:     man.mediaType,
+			ArtifactType:  man.artifactType,
+			Digest:        man.digest,
+			Size:          man.size,
 			Selector:      entry.Selector,
 			ContentDigest: h.contentDigest,
 			ContentSize:   h.contentSize,

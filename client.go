@@ -1,11 +1,13 @@
 package imgoci
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sync"
 
 	"github.com/imgoci/go/internal/auth"
+	"github.com/imgoci/go/internal/multipart"
 	"github.com/imgoci/go/internal/registry"
 	"github.com/imgoci/go/internal/transfer"
 )
@@ -21,7 +23,7 @@ type Client struct {
 	settings clientSettings
 	// mu guards adapters.
 	mu sync.Mutex
-	// adapters caches Manifests and Blobs ports per host+repository.
+	// adapters caches Manifests, Blobs, and Multipart ports per host+repository.
 	adapters map[adapterKey]adapterPorts
 	// newAdapter constructs ports for one repository. Nil means
 	// [defaultAdapter]. Tests assign this unexported field; it is not a
@@ -53,15 +55,18 @@ type adapterKey struct {
 	repository string
 }
 
-// adapterPorts is the Manifests and Blobs pair for one repository.
+// adapterPorts is the Manifests, Blobs, and Multipart triple for one repository.
 type adapterPorts struct {
 	// manifests is the distribution-spec manifest surface.
 	manifests transfer.Manifests
 	// blobs is the distribution-spec blob surface.
 	blobs transfer.Blobs
+	// multipart is the BigOCI surface. Not bound to the repository at
+	// construction; [transfer.Multipart.Push] takes repo per call.
+	multipart transfer.Multipart
 }
 
-// adapterFactory constructs Manifests and Blobs for one host and repository.
+// adapterFactory constructs Manifests, Blobs, and Multipart for one host and repository.
 type adapterFactory func(host, repository string, settings clientSettings) (adapterPorts, error)
 
 // Option configures a [Client] as [New] builds it.
@@ -154,14 +159,17 @@ func WithUnverifiedExternalTransport() Option {
 
 // Capabilities reports what this built client can retrieve conformingly.
 //
-// The set is [StandardCapabilities] until slice-5 fixtures pin BigOCI as a
-// compile-time fact of the dependency. BigOCI is never assumed.
+// The set is the standard file-manifest type plus
+// application/vnd.bigoci.file.v1. BigOCI is advertised because the pinned
+// bigoci version (v0.2.0) passes the slice-5 interop suite
+// (ARCHITECTURE.md §6.4). The e2e wave validates those fixtures before
+// this capability flip ships.
 func (c *Client) Capabilities() Capabilities {
-	return StandardCapabilities()
+	return Capabilities{types: []string{standardFileMediaType, bigociFileMediaType}}
 }
 
-// portsFor returns cached Manifests and Blobs ports for host and repository,
-// constructing them on first use.
+// portsFor returns cached Manifests, Blobs, and Multipart ports for host and
+// repository, constructing them on first use.
 func (c *Client) portsFor(host, repository string) (adapterPorts, error) {
 	key := adapterKey{host: host, repository: repository}
 	c.mu.Lock()
@@ -197,8 +205,39 @@ func defaultAdapter(host, repository string, settings clientSettings) (adapterPo
 		return adapterPorts{}, fmt.Errorf("open registry %s/%s: %w", host, repository, err)
 	}
 
+	mpCfg, err := multipartConfig(host, settings)
+	if err != nil {
+		return adapterPorts{}, fmt.Errorf("open multipart %s/%s: %w", host, repository, err)
+	}
+	mp, err := multipart.New(mpCfg)
+	if err != nil {
+		return adapterPorts{}, fmt.Errorf("open multipart %s/%s: %w", host, repository, err)
+	}
+
 	return adapterPorts{
 		manifests: client.Manifests(),
 		blobs:     client.Blobs(),
+		multipart: mp,
 	}, nil
+}
+
+// multipartConfig maps client settings onto [multipart.Config] the same way
+// [defaultAdapter] maps them onto [registry.Config]: HTTP client, plain HTTP,
+// and static credentials. The unverified-external-transport option is never
+// forwarded (ARCHITECTURE.md §6.6.3).
+func multipartConfig(host string, settings clientSettings) (multipart.Config, error) {
+	cfg := multipart.Config{
+		HTTPClient: settings.httpClient,
+		PlainHTTP:  settings.plainHTTP,
+	}
+	if settings.credentials == nil {
+		return cfg, nil
+	}
+	cred, err := settings.credentials.Credential(context.Background(), host)
+	if err != nil {
+		return multipart.Config{}, err
+	}
+	cfg.Username = cred.Username
+	cfg.Secret = cred.Password
+	return cfg, nil
 }

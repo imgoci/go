@@ -8,6 +8,8 @@ import (
 	"slices"
 	"sync"
 	"testing"
+
+	"github.com/opencontainers/go-digest"
 )
 
 func TestNewPlanPreflight(t *testing.T) {
@@ -114,6 +116,46 @@ func TestNewPlanPreflight(t *testing.T) {
 			t.Parallel()
 			assertNewPlan(t, tc.setup(t), tc.wantErr)
 		})
+	}
+}
+
+func TestPlanParent(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	disk := filepath.Join(dir, "disk.img")
+	kernel := filepath.Join(dir, "sub", "kernel")
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := NewPlan(map[string]string{"disk": disk, "kernel": kernel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := plan.Parent("disk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("disk parent %q, want %q", got, want)
+	}
+	got, err = plan.Parent("kernel")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, err = filepath.EvalSymlinks(filepath.Join(dir, "sub"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Fatalf("kernel parent %q, want %q", got, want)
+	}
+	if _, err := plan.Parent("missing"); err == nil {
+		t.Fatal("expected unknown role error")
 	}
 }
 
@@ -360,6 +402,39 @@ func TestCleanupRemovesWorkspaces(t *testing.T) {
 	}
 	if err := p.Cleanup(); err != nil {
 		t.Fatalf("idempotent cleanup: %v", err)
+	}
+}
+
+func TestCleanupSucceedsAfterStoredCacheRemove(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "disk")
+	p, err := NewPlan(map[string]string{"disk": dest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent, err := p.Parent("disk")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache, err := NewStoredCache(parent)
+	if err != nil {
+		t.Fatal(err)
+	}
+	payload := []byte("bigoci-stored")
+	key := digest.FromBytes(payload)
+	populateCache(t, cache, key, payload)
+	stageWrite(t, p, "disk", "decoded")
+	if err := p.Commit([]string{"disk"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cache.Remove(t.Context(), key); err != nil {
+		t.Fatal(err)
+	}
+	assertStoredDirEmpty(t, cache)
+	if err := p.Cleanup(); err != nil {
+		t.Fatal(err)
 	}
 }
 
