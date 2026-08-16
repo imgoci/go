@@ -592,3 +592,113 @@ Process notes:
 
 Next: Phase 6 (failure injection and concurrency — `FAIL-01`, `RACE-01`,
 `FAIL-02`), which closes the last three coverage gaps.
+
+## 2026-08-16 17:35 — Phase 6 executed
+
+Three `functional-tester` agents: `FAIL01Tester`, `RACE01Tester`, `FAIL02Tester`.
+Modules `$FT/consumer-{fail01,race01,fail02}`, prefixes `ft/retry`,
+`ft/retry-exhaust`, `ft/retry-big`, `ft/race`, `ft/commit`, shim ports
+5160/5161/5162.
+
+Verdicts: **`FAIL-01` PASS, `RACE-01` PASS, `FAIL-02` PASS. No blockers. Phase 6
+stop rule not triggered.** **All eight session-004 coverage gaps are now
+closed**, and six phases have produced zero release blockers.
+
+- `FAIL-01` — publish-side retry injection through a `retry-put` shim that logs
+  every request body's SHA-256:
+  - Success case (first 2 manifest PUTs → `503`): the injected PUT shows
+    **exactly three attempts** `[503, 503, 201]` with **one** body hash across
+    all three (`sha256:1d03aeb0…128ea`, 425 bytes each). Publish succeeded; the
+    terminal `{publish,index}` snapshot reported `Retries: 2`; the blob was
+    uploaded once and `WireBytes` stayed 1048576 across both retry snapshots.
+    Direct fetch from 5100 was byte-exact.
+  - Exhaustion case (first 4 forced): **exactly four attempts**
+    `[503, 503, 503, 503]`, identical bodies, publish failed, **no snapshot ever
+    had `Phase: "index"`** (last was `{publish,upload}` with `Retries: 3`), and
+    `Fetch` matched `ErrNotFound`. I verified the strongest form of this myself:
+    the `ft/retry-exhaust` **repository does not exist at all**
+    (`NAME_UNKNOWN`) — a failed publish left no tag and no repo.
+  - BigOCI case (4 × 256 KiB parts through the same injecting shim): no nested
+    whole-BigOCI retry; parts uploaded once; `Retries: 2` reported once for the
+    single retried manifest PUT. The two retry domains stayed unnested exactly
+    as `explanation/architecture.md` promises.
+- `RACE-01` — concurrent same-tag publication, one `Client`, two goroutines on a
+  closed-channel barrier, **40 iterations total** (20 plain + 20 under `-race`):
+  - 80/80 returned digests matched `^sha256:[0-9a-f]{64}$` and were globally
+    unique; **zero** `Publish` calls returned an error.
+  - Every iteration genuinely overlapped in wall clock (136–228 ms).
+  - The final tag was **exactly one publisher's digest in 40/40** —
+    `wins_other = 0`. Split was A 12 / B 8, then A 10 / B 10. Never a third
+    digest, never a hybrid: the winning index's `Name`+`Version` always matched
+    exactly one side's spec and always agreed with the digest-based winner, and
+    the fetched destination held exactly that side's two filenames.
+  - `-race` run clean: no data race, no panic, no goroutine dump.
+  - I verified the surviving tag independently: `ft/race:current` →
+    `sha256:96e8ee41…fd65`, identity `ft-race-a` / `2.20.2199+a`, 2 entries, both
+    file manifests `200`, all their blobs `200`. No dangling reference.
+- `FAIL-02` — forced commit-phase partial filesystem failure, the most delicate
+  scenario in the campaign:
+  - Canonical role order was read back from the registry's own index bytes, not
+    assumed: producer input was **metadata-first**, and the stored index is
+    position 0 `disk`, position 1 `metadata`. I re-verified this against the
+    live registry.
+  - The fault landed exactly in the commit window. Triggering snapshot:
+    `{fetch, staging, total_files: 2, completed_files: 2, total_bytes: 1048760,
+    completed_bytes: 1048760}` → `chmod(parent B, 0500)`. **Zero** commit-phase
+    snapshots on the failing call.
+  - The error is exactly the promised shape: `commit failed; committed roles
+    [disk]; failing role "metadata": file: commit role "metadata": rename …:
+    permission denied`, with unwrap chain `*fmt.wrapError` → `*file.CommitError`
+    → `*os.LinkError{rename}` → `syscall.EACCES(13)`. All nine imgoci sentinels
+    false; `errors.Is(err, fs.ErrPermission)` true.
+  - Filesystem state captured **before** restoring permissions: `disk` final held
+    verified published bytes; `metadata` final still held its old 60-byte marker;
+    neither final held partial or unverified content.
+  - After restoring `0700`, the `disk` final was **deliberately corrupted** and
+    the fetch retried: the retry restaged and recommitted **both** roles,
+    replacing the corrupted disk with correct bytes — proving the retry does not
+    trust an existing final — and produced exactly one terminal `{fetch,commit}`
+    snapshot. 14/14 in-probe assertions true.
+
+Findings this phase: none new. Notable observations:
+
+1. `FAIL-02-N1` sharpens the known empty-`.imgoci-stage` finding with a precise
+   mechanism: `Plan.Cleanup` successfully removed the staged file and the
+   per-call workspace (both inside the still-writable `.imgoci-stage`), and only
+   `os.Remove(parent-b/.imgoci-stage)` failed — because parent B was `0500` at
+   that instant. No file remained, and the empty directory disappeared on the
+   successful retry. Best-effort cleanup behaving correctly under an injected
+   fault, not a leak.
+2. `FAIL-01` observation — every injected `503` carried `Retry-After: 0` and the
+   client did **not** honor it, applying its own jittered backoff instead
+   (measured gaps: 601.5/1797.5 ms; 447.4/305.9/1165.8 ms; 724.4/985.8 ms). The
+   B-case gaps are not monotonically increasing, i.e. jittered rather than
+   strictly exponential. No shipped document promises `Retry-After` honoring or
+   a specific backoff curve, so there is no contract to violate — recorded only
+   so a future reader is not surprised.
+3. `FAIL-01` also confirmed the documented retry-accounting rule exactly:
+   `Progress.Retries` counts attempts after the first that actually begin (2 for
+   3 attempts, 3 for 4), with no double counting across the standard and BigOCI
+   domains. The known `go-oci-blob` error-flattening finding did **not** recur on
+   the manifest path — the error preserved `after 4 attempts` and the underlying
+   `503` at the top level.
+
+Coverage-gap status: **all eight closed.** TLS/custom CAs, cross-host blob
+redirects, external credential helpers, Bearer/OAuth exchange, multi-GiB BigOCI
+payloads, publish-side retry injection, concurrent same-tag publication, and
+forced commit-phase partial filesystem failure.
+
+Process notes:
+
+- `git -C $REPO status --porcelain` empty before and after all three scenarios;
+  HEAD still `0b4be41`.
+- `FAIL-02` ran unprivileged (euid 501, asserted in-probe — root would have
+  defeated the `0500` fault) and restored every permission at the end; no
+  unwritable directory left behind.
+- Shim ports 5160/5161/5162 released; shared `imgoci-ft-dist` still Up.
+- Verified by hand: all five prefix tag lists (including
+  `ft/retry-exhaust` = `NAME_UNKNOWN`), the `ft/commit:v1` canonical role order,
+  and full reachability of `ft/race:current`'s file manifests and blobs.
+
+Next: Phase 7 (CLI binary — `CLI-01`, `CLI-02`, `CLI-03`), then Phase 8 (release
+machinery and packaging — `REL-01`..`REL-04`).
