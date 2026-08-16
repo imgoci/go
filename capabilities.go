@@ -9,6 +9,9 @@ import (
 // consumer capability set must include it.
 const standardFileMediaType = "application/vnd.imgoci.file.v1"
 
+// bigociFileMediaType is the imgoci BigOCI file-manifest type.
+const bigociFileMediaType = "application/vnd.bigoci.file.v1"
+
 // restrictedNameMax is the RFC 6838 maximum length of a type or subtype name
 // (one leading character plus 126 more).
 const restrictedNameMax = 127

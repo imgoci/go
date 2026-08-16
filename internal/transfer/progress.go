@@ -27,9 +27,12 @@ const (
 // Snapshots are serialized: a mutex orders every emit. TotalFiles and
 // TotalBytes are fixed up front (TotalBytes is the sum of ContentSize).
 // On Publish, TotalBytes is filled after pass 1. CompletedFiles and
-// CompletedBytes only increase. WireBytes counts raw blob bytes read
-// (fetch) or actually pushed (publish; Exists-skip is 0). Retries is 0
-// until slice 6 unifies retry accounting.
+// CompletedBytes only increase. WireBytes counts raw standard-path blob
+// bytes read (fetch) or actually pushed (publish; Exists-skip is 0).
+// BigOCI stored-file wire bytes and retries are unreported until slice 6
+// unifies them (PLAN PR6.2). Retries is 0 until then. Fallbacks counts
+// unique blobs that requested multipart publication and used the standard
+// path because the part plan was fewer than two parts.
 type Progress struct {
 	// Direction is [DirectionFetch] or [DirectionPublish].
 	Direction string
@@ -44,10 +47,16 @@ type Progress struct {
 	TotalBytes int64
 	// CompletedBytes is the sum of ContentSize of verified entries.
 	CompletedBytes int64
-	// WireBytes is the count of raw blob bytes transferred.
+	// WireBytes is the count of raw standard-path blob bytes transferred.
+	// BigOCI transfers are excluded until slice 6 (PLAN PR6.2).
 	WireBytes int64
 	// Retries is 0 in this slice.
 	Retries int
+	// Fallbacks is how many unique stored blobs planned for BigOCI
+	// publication used the standard path instead because ceil(storedSize /
+	// partSize) was fewer than two parts (spec §8 / ARCHITECTURE.md §5.1).
+	// Absolute; only increases. Zero on fetch.
+	Fallbacks int
 }
 
 // reporter serializes absolute progress snapshots.
@@ -171,4 +180,15 @@ func (r *reporter) finishIndex() {
 	r.current.Phase = PhaseIndex
 	r.snapshotLocked()
 	r.terminal = true
+}
+
+// addFallbacks records n unique blobs that fell back from multipart to the
+// standard path. It does not emit; the next snapshot carries the count.
+func (r *reporter) addFallbacks(n int) {
+	if n <= 0 {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.current.Fallbacks += n
 }

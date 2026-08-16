@@ -22,6 +22,7 @@ import (
 	"github.com/imgoci/go/internal/filemanifest"
 	"github.com/imgoci/go/internal/index"
 	"github.com/imgoci/go/internal/jcs"
+	mpmocks "github.com/imgoci/go/internal/multipart/mocks"
 	regmocks "github.com/imgoci/go/internal/registry/mocks"
 )
 
@@ -150,12 +151,16 @@ func TestFetchFilesWorkerHighWater(t *testing.T) { //nolint:gocognit // concurre
 func TestFetchFilesLastRoleVerifyFailureZeroCommits(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	ok := noneFixture(t, "disk", []byte("disk-bytes"))
+	big := bigociNoneFixture(t, "disk", []byte("disk-bytes"))
+	ok := noneFixture(t, "initrd", []byte("initrd-bytes"))
 	bad := noneFixture(t, "kernel", []byte("kernel-bytes"))
 	diskPath := filepath.Join(dir, "disk.img")
+	initrdPath := filepath.Join(dir, "initrd.img")
 	kernelPath := filepath.Join(dir, "kernel.img")
 
 	m := regmocks.NewMockManifests(t)
+	m.EXPECT().Get(mock.Anything, big.entry.Digest.String(), big.entry.MediaType).
+		Return(big.manifest, index.MediaTypeManifest, nil).Maybe()
 	m.EXPECT().Get(mock.Anything, ok.entry.Digest.String(), ok.entry.MediaType).
 		Return(ok.manifest, index.MediaTypeManifest, nil).Maybe()
 	m.EXPECT().Get(mock.Anything, bad.entry.Digest.String(), bad.entry.MediaType).
@@ -164,13 +169,22 @@ func TestFetchFilesLastRoleVerifyFailureZeroCommits(t *testing.T) {
 	blobs := regmocks.NewMockBlobs(t)
 	blobs.EXPECT().Pull(mock.Anything, ok.layer).
 		Return(io.NopCloser(bytes.NewReader(ok.stored)), nil).Maybe()
+	mp := mpmocks.NewMockMultipart(t)
+	mp.EXPECT().PullTo(mock.Anything, testRepo, big.entry.Digest, mock.Anything).
+		RunAndReturn(writePullTo(big.stored)).Maybe()
 
 	err := FetchFiles(t.Context(), FetchFilesRequest{
-		Manifests: m,
-		Blobs:     blobs,
-		Entries:   []Entry{ok.entry, bad.entry},
-		ByRole:    map[string]string{"disk": diskPath, "kernel": kernelPath},
-		Workers:   1,
+		Manifests:  m,
+		Blobs:      blobs,
+		Multipart:  mp,
+		Repository: testRepo,
+		Entries:    []Entry{big.entry, ok.entry, bad.entry},
+		ByRole: map[string]string{
+			"disk":   diskPath,
+			"initrd": initrdPath,
+			"kernel": kernelPath,
+		},
+		Workers: 1,
 	})
 	if err == nil {
 		t.Fatal("expected verify error")
@@ -179,6 +193,7 @@ func TestFetchFilesLastRoleVerifyFailureZeroCommits(t *testing.T) {
 		t.Fatalf("error %v is not ErrDigestMismatch", err)
 	}
 	assertAbsent(t, diskPath)
+	assertAbsent(t, initrdPath)
 	assertAbsent(t, kernelPath)
 }
 

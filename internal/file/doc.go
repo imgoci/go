@@ -1,10 +1,9 @@
 // Package file plans destination paths, stages verified bytes, and commits
 // them with per-file atomic rename.
 //
-// This is the slice-2 half of ARCHITECTURE.md §5.5: preflight, per-call
-// staging workspaces, secure open/reopen, and stage-then-commit. The
-// content-addressed stored cache and its locking are slice 5 and are not
-// implemented here.
+// This is ARCHITECTURE.md §5.5: preflight, per-call staging workspaces,
+// secure open/reopen, stage-then-commit, and the content-addressed stored
+// cache used by BigOCI fetch.
 //
 // # Preflight
 //
@@ -38,6 +37,23 @@
 // (ARCHITECTURE.md §9.7): this package is compile-checked via the moon
 // `build-windows` task, and the split mirrors bigoci's `sink_unix.go` /
 // `sink_other.go` precedent.
+//
+// # Stored cache
+//
+// [NewStoredCache] prepares `<parent>/.imgoci-stage/stored/` using the same
+// reserved-directory ownership and mode checks as staging. Entries are
+// `sha256-<full 64-hex>` of the stored digest; the key is the identity of
+// the bytes. [StoredCache.With] takes a per-key lock, reopens securely,
+// re-verifies the full digest, and only then calls use — a miss or a
+// poisoned entry calls fetch and re-verifies before use. A failed
+// re-verification wraps [ErrCacheVerify]. [StoredCache.Remove] deletes an
+// entry and its sibling lock file after a successful commit; waiting for
+// the lock is bounded by the supplied context. Verified entries are
+// retained on failure or when removal cannot complete (ARCHITECTURE.md
+// §9.6). A size-bounded cache and a Clean API are deferred. Lock files
+// are `<entry>.lock`; unix uses flock, other platforms use exclusive
+// create bounded by context. Windows is compile-checked and best-effort
+// (ARCHITECTURE.md §9.7).
 //
 // # Commit
 //

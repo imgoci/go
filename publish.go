@@ -18,8 +18,6 @@ import (
 const (
 	// reservedAnnotationPrefix is the spec-reserved annotation namespace.
 	reservedAnnotationPrefix = "io.imgoci."
-	// multipartNotSupported is the ErrInvalidSpec detail until slice 5.
-	multipartNotSupported = "multipart publication lands in slice 5"
 )
 
 // ReleaseSpec is the producer input to [Client.Publish].
@@ -49,17 +47,15 @@ type FileSpec struct {
 	// namespace are reserved and rejected; selector, content, and filename
 	// fields are filled by the library.
 	Annotations map[string]string
-	// Multipart requests BigOCI publication. Non-nil is [ErrInvalidSpec]
-	// until slice 5 — the field exists because the spec type is public API;
-	// the behavior is an honest documented error, not a silent scaffold.
+	// Multipart requests BigOCI publication. Nil is the standard form.
 	Multipart *MultipartSpec
 }
 
-// MultipartSpec selects BigOCI part size. Zero means the bigoci default.
-//
-// A non-nil [FileSpec.Multipart] is rejected until slice 5.
+// MultipartSpec selects BigOCI part size. Zero means the bigoci default
+// (512 MiB). A negative PartSize is [ErrInvalidSpec].
 type MultipartSpec struct {
-	// PartSize is the BigOCI part size in bytes. Zero means the bigoci default.
+	// PartSize is the BigOCI part size in bytes. Zero means the bigoci default
+	// (512 MiB). Must not be negative.
 	PartSize int64
 }
 
@@ -100,7 +96,8 @@ type publishSettings struct {
 // source consistency. Content digest/size/filename annotations are computed
 // from Source; two FileSpecs naming the same Source path cannot carry
 // different content annotations in v1 because callers cannot supply those
-// annotations. A non-nil Multipart is [ErrInvalidSpec] until slice 5.
+// annotations. MultipartSpec.PartSize must be >= 0; negative is
+// [ErrInvalidSpec].
 func (c *Client) Publish(
 	ctx context.Context,
 	ref Reference,
@@ -121,7 +118,8 @@ func (c *Client) Publish(
 	dgst, err := transfer.Publish(ctx, transfer.Ports{
 		Manifests: ports.manifests,
 		Blobs:     ports.blobs,
-	}, toPublishRequest(parsed.tag, spec, settings))
+		Multipart: ports.multipart,
+	}, toPublishRequest(parsed.host+"/"+parsed.repository, parsed.tag, spec, settings))
 	return dgst, mapPublishError(err)
 }
 
@@ -281,12 +279,13 @@ func checkReservedAnnotations(spec ReleaseSpec) error {
 	return nil
 }
 
-// checkMultipartAndSources rejects Multipart and inconsistent shared sources.
+// checkMultipartAndSources rejects a negative MultipartSpec.PartSize and
+// inconsistent shared sources.
 func checkMultipartAndSources(spec ReleaseSpec) error {
 	byPath := make(map[string]string)
 	for i, file := range spec.Files {
-		if file.Multipart != nil {
-			return fmt.Errorf("%w: files[%d]: %s", ErrInvalidSpec, i, multipartNotSupported)
+		if file.Multipart != nil && file.Multipart.PartSize < 0 {
+			return fmt.Errorf("%w: files[%d]: multipart part size must be >= 0", ErrInvalidSpec, i)
 		}
 		path := file.Source.path
 		if path == "" {
@@ -358,15 +357,19 @@ func toIndexSelector(s Selector) index.Selector {
 // toPublishRequest maps a validated spec onto the transfer request.
 // Annotation maps are cloned so later mutation of the caller's spec cannot
 // change what was validated.
-func toPublishRequest(tag string, spec ReleaseSpec, settings publishSettings) transfer.PublishRequest {
+func toPublishRequest(repo, tag string, spec ReleaseSpec, settings publishSettings) transfer.PublishRequest {
 	entries := make([]transfer.PublishEntry, len(spec.Files))
 	for i, file := range spec.Files {
-		entries[i] = transfer.PublishEntry{
+		entry := transfer.PublishEntry{
 			SourcePath:  file.Source.path,
 			Selector:    toIndexSelector(file.Selector),
 			Filename:    file.Filename,
 			Annotations: maps.Clone(file.Annotations),
 		}
+		if file.Multipart != nil {
+			entry.Multipart = &transfer.MultipartPlan{PartSize: file.Multipart.PartSize}
+		}
+		entries[i] = entry
 	}
 	return transfer.PublishRequest{
 		Tag:         tag,
@@ -376,6 +379,7 @@ func toPublishRequest(tag string, spec ReleaseSpec, settings publishSettings) tr
 		Entries:     entries,
 		Workers:     settings.workers,
 		Progress:    convertProgress(settings.progress),
+		Repo:        repo,
 	}
 }
 

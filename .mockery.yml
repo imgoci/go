@@ -1,10 +1,11 @@
 # mockery: mock generation for the ports (AGENTS.md T2/T3).
 #
 # Every mock in this repository is generated; none is hand-written. A port is
-# declared by the package that consumes it — internal/transfer for the two
-# registry ports — and its mock lives under the adapter that implements it, in
-# a `mocks` subpackage, so a test importing internal/registry/mocks gets the
-# registry doubles (T3: mocks under the implementing adapter).
+# declared by the package that consumes it — internal/transfer for the
+# registry and multipart ports — and its mock lives under the adapter that
+# implements it, in a `mocks` subpackage, so a test importing
+# internal/registry/mocks or internal/multipart/mocks gets the doubles
+# (T3: mocks under the implementing adapter).
 #
 # Regenerate with `mise x -- mockery` (or `moon run root:mocks`) after changing
 # a port, and commit the result.
@@ -36,3 +37,9 @@ packages:
         config:
           dir: internal/registry/mocks
           filename: manifests.go
+      # Multipart port: implemented by internal/multipart, the public
+      # bigoci.Client adapter.
+      Multipart:
+        config:
+          dir: internal/multipart/mocks
+          filename: multipart.go

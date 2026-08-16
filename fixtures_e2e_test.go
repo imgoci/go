@@ -5,6 +5,7 @@ package imgoci
 import (
 	"bytes"
 	"compress/gzip"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -812,4 +813,95 @@ func assertIdentityError(t *testing.T, err error) {
 		}
 	}
 	t.Fatalf("err = %v, want chain containing %q", err, identityErrorText)
+}
+
+// getManifestRaw GETs a manifest or index at ref with Accept and returns the
+// original response bytes. [getIndexRaw] is the release-index convenience.
+func getManifestRaw(t *testing.T, registry, repo, ref, accept string, cred e2eCreds) []byte {
+	t.Helper()
+	getURL := fmt.Sprintf("http://%s/v2/%s/manifests/%s", registry, repo, ref)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, getURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyCreds(req, cred)
+	req.Header.Set("Accept", accept)
+	resp, err := seedHTTP().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	}()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get manifest %s: status %d body %s", ref, resp.StatusCode, body)
+	}
+	return body
+}
+
+// listTagsRaw GETs /v2/<repo>/tags/list and returns the decoded tag names in
+// registry order. This is the raw distribution-spec endpoint, not a library
+// helper: PushByDigest must not appear here.
+func listTagsRaw(t *testing.T, registry, repo string, cred e2eCreds) []string {
+	t.Helper()
+	listURL := fmt.Sprintf("http://%s/v2/%s/tags/list", registry, repo)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, listURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyCreds(req, cred)
+	resp, err := seedHTTP().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	}()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("tags/list %s: status %d body %s", repo, resp.StatusCode, body)
+	}
+	var parsed struct {
+		Tags []string `json:"tags"`
+	}
+	if err = json.Unmarshal(body, &parsed); err != nil {
+		t.Fatalf("tags/list JSON: %v body %s", err, body)
+	}
+	if parsed.Tags == nil {
+		return []string{}
+	}
+	return parsed.Tags
+}
+
+// headBlob HEADs /v2/<repo>/blobs/<digest> and requires HTTP 200. Used to
+// prove a referenced blob exists without downloading it.
+func headBlob(t *testing.T, registry, repo string, dgst digest.Digest, cred e2eCreds) {
+	t.Helper()
+	headURL := fmt.Sprintf("http://%s/v2/%s/blobs/%s", registry, repo, dgst.String())
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodHead, headURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyCreds(req, cred)
+	resp, err := seedHTTP().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = resp.Body.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("HEAD blob %s: status %d", dgst, resp.StatusCode)
+	}
 }

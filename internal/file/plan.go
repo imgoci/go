@@ -89,6 +89,22 @@ func NewPlan(byRole map[string]string) (*Plan, error) {
 	return plan, nil
 }
 
+// Parent returns the resolved destination parent directory for role.
+//
+// That directory is the argument [NewStoredCache] needs for this role's
+// BigOCI stored cache (`<parent>/.imgoci-stage/stored/`). Unknown roles
+// fail. Parent is safe to call before [Plan.Stage].
+func (p *Plan) Parent(role string) (string, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	rs, ok := p.roles[role]
+	if !ok {
+		return "", fmt.Errorf("file: unknown role %q", role)
+	}
+
+	return rs.parent, nil
+}
+
 // checkRoleName rejects empty names and names that would escape a staging
 // workspace as a path element.
 func checkRoleName(role string) error {

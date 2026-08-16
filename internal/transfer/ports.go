@@ -6,6 +6,7 @@ import (
 	"io"
 
 	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 )
 
 // Sentinel errors the orchestrator and its adapters share. Adapters wrap
@@ -82,10 +83,38 @@ type Blobs interface {
 	Pull(ctx context.Context, dgst digest.Digest) (io.ReadCloser, error)
 }
 
-// Ports is the Manifests and Blobs pair one repository transfer consumes.
+// Multipart is the BigOCI multipart surface: path-typed, tag-free, and not
+// bound to one repository at construction.
+//
+// Push publishes the file at path into repo as a digest-addressed BigOCI
+// artifact with no tag write (ARCHITECTURE.md §6.4). repo is a
+// repository-only reference (registry/name). partSize is the split size in
+// bytes; zero selects the bigoci default.
+//
+// PullTo downloads the artifact dgst names from repo into path. Resume
+// semantics belong to bigoci: a partial file lives beside the destination.
+//
+// Implementations own their own retry budget (bigoci's internal loop);
+// internal/retry must never wrap these calls. Every method must be safe for
+// concurrent use.
+type Multipart interface {
+	// Push publishes path into repo by digest and returns the manifest
+	// descriptor. No tag is written.
+	Push(ctx context.Context, repo, path string, partSize int64) (ocispec.Descriptor, error)
+
+	// PullTo writes the artifact dgst names in repo onto path.
+	PullTo(ctx context.Context, repo string, dgst digest.Digest, path string) error
+}
+
+// Ports is the Manifests, Blobs, and Multipart triple one repository
+// transfer consumes.
 type Ports struct {
 	// Manifests is the OCI Distribution manifest surface. Required.
 	Manifests Manifests
 	// Blobs is the distribution-spec blob surface. Required.
 	Blobs Blobs
+	// Multipart is the BigOCI multipart surface. Required when any entry
+	// takes the multipart path. Nil is valid when every entry uses the
+	// standard path, including a <2-part fallback.
+	Multipart Multipart
 }

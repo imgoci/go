@@ -122,12 +122,14 @@ func (c *Client) FetchFiles(
 	}
 
 	return mapFetchError(transfer.FetchFiles(ctx, transfer.FetchFilesRequest{
-		Manifests: ports.manifests,
-		Blobs:     ports.blobs,
-		Entries:   transferEntries(entries),
-		ByRole:    byRole,
-		Workers:   settings.workers,
-		Progress:  convertProgress(settings.progress),
+		Manifests:  ports.manifests,
+		Blobs:      ports.blobs,
+		Multipart:  ports.multipart,
+		Repository: rel.host + "/" + rel.repository,
+		Entries:    transferEntries(entries),
+		ByRole:     byRole,
+		Workers:    settings.workers,
+		Progress:   convertProgress(settings.progress),
 	}))
 }
 
@@ -215,6 +217,11 @@ func transferEntries(entries []FileEntry) []transfer.Entry {
 
 // mapFetchError maps orchestrator and adapter sentinels onto the public
 // error surface. An error that matches nothing public comes back unchanged.
+//
+// BigOCI profile violations arrive as [transfer.ErrInvalidDocument]
+// (retrieved-document rule, same as a standard-form manifest failure) and
+// stored digest/size mismatches as [transfer.ErrDigestMismatch]. A nil
+// Multipart wiring error is not a sentinel and is returned unchanged.
 func mapFetchError(err error) error {
 	if err == nil {
 		return nil

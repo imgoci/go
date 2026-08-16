@@ -51,7 +51,7 @@ func TestFetchFilesPreconditionsNoAdapter(t *testing.T) {
 		{
 			name: "wrong_capability",
 			setup: func(*Release, *Resolved) (*Release, *Resolved, Dest) {
-				rel, sel := testReleaseAndSelection("application/vnd.bigoci.file.v1")
+				rel, sel := testReleaseAndSelection("application/vnd.example.unsupported.v1")
 
 				return rel, sel, ToDir(t.TempDir())
 			},
@@ -152,7 +152,18 @@ func TestMapFetchError(t *testing.T) {
 		{name: "decode", err: fmt.Errorf("gzip: %w", decomp.ErrDecode), want: ErrDecode},
 		{name: "not_found", err: fmt.Errorf("get: %w", transfer.ErrNotFound), want: ErrNotFound},
 		{name: "unauthorized", err: fmt.Errorf("get: %w", transfer.ErrUnauthorized), want: ErrUnauthorized},
+		{
+			name: "bigoci_profile",
+			err:  fmt.Errorf("role disk: %w", transfer.ErrInvalidDocument),
+			want: ErrInvalidIndex,
+		},
+		{
+			name: "bigoci_stored_digest",
+			err:  fmt.Errorf("role disk: stored file: %w", transfer.ErrDigestMismatch),
+			want: ErrDigestMismatch,
+		},
 		{name: "commit", err: commit},
+		{name: "bigoci_not_configured", err: errors.New("role disk: bigoci retrieval not configured")},
 	}
 
 	for _, tt := range tests {
@@ -162,16 +173,32 @@ func TestMapFetchError(t *testing.T) {
 			if tt.want != nil && !errors.Is(got, tt.want) {
 				t.Fatalf("err = %v, want %v", got, tt.want)
 			}
-			if tt.name == "commit" {
-				if !strings.Contains(got.Error(), "disk") {
-					t.Fatalf("commit error must name committed roles: %v", got)
-				}
-				var gotCommit *file.CommitError
-				if !errors.As(got, &gotCommit) {
-					t.Fatalf("errors.As CommitError failed: %v", got)
-				}
-			}
+			assertMapFetchSpecial(t, tt.name, tt.err, got)
 		})
+	}
+}
+
+// assertMapFetchSpecial checks the two cases with expectations beyond a
+// sentinel match: commit errors keep their type and named roles, and the
+// nil-multipart wiring error stays unmapped.
+func assertMapFetchSpecial(t *testing.T, name string, in, got error) {
+	t.Helper()
+	switch name {
+	case "commit":
+		if !strings.Contains(got.Error(), "disk") {
+			t.Fatalf("commit error must name committed roles: %v", got)
+		}
+		var gotCommit *file.CommitError
+		if !errors.As(got, &gotCommit) {
+			t.Fatalf("errors.As CommitError failed: %v", got)
+		}
+	case "bigoci_not_configured":
+		if errors.Is(got, ErrUnsupportedType) {
+			t.Fatalf("nil multipart must not map to ErrUnsupportedType: %v", got)
+		}
+		if got.Error() != in.Error() {
+			t.Fatalf("plain wiring error remapped: %v", got)
+		}
 	}
 }
 

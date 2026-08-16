@@ -130,9 +130,9 @@ func TestPublishSpecValidation(t *testing.T) {
 			detail: "reserved annotation",
 		},
 		{
-			name:   "multipart",
-			mutate: func(s *ReleaseSpec) { s.Files[0].Multipart = &MultipartSpec{} },
-			detail: multipartNotSupported,
+			name:   "negative_part_size",
+			mutate: func(s *ReleaseSpec) { s.Files[0].Multipart = &MultipartSpec{PartSize: -1} },
+			detail: "multipart part size must be >= 0",
 		},
 		{
 			name:   "invalid_filename",
@@ -260,6 +260,14 @@ func TestMapPublishError(t *testing.T) {
 		{
 			name: "shared_blob",
 			err:  fmt.Errorf("group: %w", transfer.ErrSharedBlob),
+			want: ErrInvalidSpec,
+		},
+		{
+			name: "part_ceiling",
+			err: fmt.Errorf(
+				"multipart part count %d exceeds %d for stored size %d: %w",
+				8192, 4096, int64(8<<30), index.ErrRule,
+			),
 			want: ErrInvalidSpec,
 		},
 	}
