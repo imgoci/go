@@ -386,6 +386,14 @@ func requiredRoles(representation string) []string {
 	}
 }
 
+// EqualMediaType reports whether a and b identify the same parameter-free
+// media type under spec section 4. Comparison is ASCII case-insensitive and
+// allocates nothing. HTTP Content-Type headers, which may carry parameters,
+// must be stripped by the registry adapter before they reach this helper.
+func EqualMediaType(a, b string) bool {
+	return equalMediaType(a, b)
+}
+
 // equalMediaType compares media or artifact types ASCII case-insensitively.
 // Comparison folds only 'A'..'Z' so Unicode look-alikes such as U+017F and
 // U+212A do not match ASCII letters.

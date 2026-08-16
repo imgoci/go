@@ -21,9 +21,9 @@ var (
 	// never return it.
 	ErrUnauthorized = errors.New("unauthorized")
 
-	// ErrInvalidIndex reports that release-index bytes failed a consumer
-	// validation rule from spec section 6. The wrapped error names the failed
-	// decode, structural, or canonical-bytes check.
+	// ErrInvalidIndex reports invalid retrieved imgoci documents: the release
+	// index (spec §6) and file manifests (spec §3.1). The wrapped error names
+	// the failed decode, structural, canonical-bytes, or identity check.
 	ErrInvalidIndex = errors.New("invalid index")
 
 	// ErrInvalidSpec reports a producer-side specification violation, including
