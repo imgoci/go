@@ -17,3 +17,10 @@ Implemented the opt-in Docker credential store, unified standard/BigOCI transfer
 Verification: `mise exec -- moon run root:check` passed, including race tests, real-registry root and CLI e2e suites, Windows build, lint/format, strict docs build, and conformance gates. Release Please 17.1.2 `release-pr --dry-run` against the branch proposed `release 0.1.0`.
 
 No release, tag, release PR, or merge was created. The draft-spec v1.0.0 guard remains in force.
+
+## 2026-08-16 10:05 — Close
+PR #14 merged by squash as `cf70874`; local `master` was cleaned with the user's approval, fast-forwarded to the merged commit, and the `feat/slice-6` Worktrunk was removed.
+
+Session goal met: all planned Slice 6 implementation, verification, review, and documentation work is on `master`. GitHub CI passed. Release Please updated PR #9 to `chore(master): release 0.1.0`; it remains open for a separately reviewed release. No release or tag was created, and the draft-spec v1 guard remains active.
+
+Handoff: the implementation plan is complete through Slice 6. Continue from `.journal/003/SUMMARY.md`; treat PR #9 as the next explicit release decision rather than automatic follow-up work.
