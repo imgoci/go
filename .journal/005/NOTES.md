@@ -226,3 +226,117 @@ Process notes:
   released.
 
 Next: Phase 3 (integrity and adversarial behavior, `ADV-01`..`ADV-04`).
+
+## 2026-08-16 15:20 — Phase 3 executed
+
+Four `functional-tester` agents at the cap: `ADV01Tester`, `ADV02Tester`,
+`ADV03Tester`, `ADV04Tester`. Own modules `$FT/consumer-adv0{1..4}`, prefixes
+`ft/integrity`, `ft/codec`, `ft/spec`, shim ports 5120/5130/5140.
+
+Verdicts: **`ADV-01` PASS, `ADV-02` PASS, `ADV-03` PASS, `ADV-04` NON-BLOCKING
+FINDING. No blockers. Phase 3 stop rule not triggered.**
+
+- `ADV-01` — all 24 canonical fixtures driven through `ParseIndex` from an
+  external module. 13 `pass/` accepted, each `Index.Digest()` equal to the
+  independently computed SHA-256 of the exact input bytes; 11 `fail/` returned a
+  nil index matching **only** `ErrInvalidIndex`. Rule 9 is textually distinct
+  from the rule 10 canonical-bytes check: `spec §6 rule 9: manifests must be
+  ordered by architecture, target, representation, role, and compression in
+  ascending UTF-8 byte order` vs `spec §6 rule 10: jcs: input is not RFC 8785
+  canonical`. No normalized identity leaks: rejected documents return no index
+  at all, and the whitespace-stripped derivative of `pretty-printed.json`
+  produces its own digest, never the pretty document's.
+- `ADV-02` — the integrity centerpiece, all clean:
+  - Tag mutation cannot redirect an in-hand `Release`. A published as
+    `sha256:ed5c432a…`, B republished over `ft/integrity:v1` as
+    `sha256:8ee13396…`; the already-fetched release A still fetched A's bytes
+    (`sha256:9cc5b47a…`), the re-fetched tag yielded B, and both explicit digest
+    references yielded their own bytes.
+  - `corrupt-blob` shim verified as equipment first: `cmp -l` showed exactly one
+    differing byte at offset 100000, `Content-Length` preserved,
+    `Docker-Content-Digest` dropped, untargeted blobs byte-identical.
+  - Flipped `none` blob → `ErrDigestMismatch` only, destination empty.
+  - **No silent fallback**, proven from the request sequence: corrupting the
+    selected gzip alternative while a valid `none` alternative existed gave
+    `decode: role disk: gzip: decode: gzip: invalid checksum` (`ErrDecode` only)
+    and the fetch sequence ends at the corrupted blob — three requests total, no
+    request for the `none` alternative's manifest or blob.
+  - Two-role failure after the other role was fully retrieved: both pre-created
+    marker files byte-identical before and after (23 B and 26 B), no partial
+    commit, no extra file.
+  - `Resolved` from A + `Release` B → `ErrSelectionMismatch` only, zero shim
+    request delta.
+- `ADV-03` — 14 self-confirmed codec fixtures (every zstd fixture validated with
+  `zstd.Header.Decode` for `SingleSegment`/`WindowSize`/`DictionaryID`; xz
+  dictionary size parsed out of the block header; gzip member count via
+  `Multistream(false)`).
+  - All four compressions round-trip byte-for-byte (1048576 B source; stored
+    1048576 / 572267 / 601660 / 641656).
+  - Six structural violations (two-member gzip, padded xz, trailing-garbage xz,
+    concatenated zstd, skippable-first zstd, dictionary-required zstd) all fail
+    with `ErrDecode` only and **zero** registry requests — not merely zero
+    uploads.
+  - Working-set limits reject on header inspection, measured with
+    `/usr/bin/time -l` against a same-probe noop baseline: xz 64 MiB dict
+    +131072 B; zstd 16 MiB window +180200 B; zstd 512 MiB window **+16408 B**
+    against a declared 536870912 B working set. Nothing close to the hostile
+    declared size is ever allocated.
+  - Known finding re-check 1: the single-segment 9 MiB zstd frame still matches
+    `ErrDecode` with +65536 B peak delta. Wording is `zstd: decode:
+    decompressed size exceeds configured limit` — it no longer misdescribes a
+    window, so the session-004 wording complaint is largely moot; still
+    non-blocking either way.
+  - Known finding re-check 2: `x-ft-brotli` fails closed with `decomp: unknown
+    compression "x-ft-brotli": unsupported compression`, zero registry requests,
+    all nine sentinels false, and `ft/codec` tags remain exactly the four valid
+    ones. Non-blocking confirmed on the plan's stated condition.
+- `ADV-04` — runtime grammar is **exactly** spec §5.1/§5.3: name is a 1–128-byte
+  basic token `^[a-z0-9]+([._-][a-z0-9]+)*$`, version is 1–128 printable ASCII
+  with no whitespace/control. 17 invalid cases all matched `ErrInvalidSpec`,
+  showed shim delta 0, and created no tag (verified against fresh tag names —
+  the final `ft/spec` tag list holds exactly the 10 accepted publishes). Both
+  128-byte boundaries publish successfully (name `sha256:cb0f9d3c…`, version
+  `sha256:6812f404…`); 129 bytes rejected on both.
+
+Findings from Phase 3 (both non-blocking; both are documentation defects with
+correct runtime behavior underneath, i.e. the session-004 PR #15 pattern):
+
+1. `ADV-04-F1` — the name/version grammar is enforced but documented nowhere a
+   public API user looks. Verified myself: `go doc ReleaseSpec` says only "Name
+   is io.imgoci.name." / "Version is org.opencontainers.image.version.", and
+   `grep 'a-z0-9\|basic token\|128'` over `docs/docs/reference/api.md` and
+   `cli.md` returns nothing. The constraints live in
+   `internal/index/decode.go:55-56` and `internal/index/validate.go:121,422`.
+   Safe workaround: `Publish` fails deterministically pre-network with
+   `ErrInvalidSpec`, so a producer cannot ship a bad artifact.
+2. `ADV-04-F2` — three `testdata/canonical/README.md` `fail/` rows name the
+   wrong rejection class, not one as session 004 recorded. Verified myself:
+   - `unsorted-keys.json` contains `"schemaVersion"` **twice** (781 bytes,
+     count = 2), so the duplicate-key scan fires first; README claims "Object
+     keys not in RFC 8785 order (rule 10)".
+   - `exponent-1e0.json` / `exponent-1e2.json` put `1e0`/`1e2` in the descriptor
+     `size` position (offset 687), so the size-must-be-a-JSON-integer check
+     fires; README claims rule 10 for both.
+   All three still reject with `ErrInvalidIndex`, which is what keeps this
+   non-blocking. `ADV-01` independently flagged the same three rows.
+
+Candidate pre-release documentation PR (owner's call, not actioned): document
+the name/version grammar on `ReleaseSpec` godoc + `reference/api.md`; correct
+the three `testdata/canonical/README.md` rows; add the tutorial's port-5000
+AirPlay caveat and the missing `cmp` prerequisite; add the spec commit to
+`docs/docs/index.md`.
+
+Process notes:
+
+- `git -C $REPO status --porcelain` empty before and after all four scenarios;
+  HEAD still `0b4be41`. No agent mutated the repository.
+- Shared `imgoci-ft-dist` still Up on 127.0.0.1:5100; shim ports 5120/5130/5140
+  released.
+- Cross-checked by hand rather than trusting agent claims: the three README
+  mislabels (raw bytes), the absent grammar documentation (godoc + grep), the
+  no-fallback request sequence, the RSS deltas, and the `ft/codec` / `ft/spec`
+  tag listings.
+
+Next: Phase 4 (authentication, TLS, and transport boundaries — `NET-01`,
+`NET-02`, `AUTH-01`, `AUTH-02`, `AUTH-03`). Five scenarios against a cap of 4,
+so this one needs a split decision.
