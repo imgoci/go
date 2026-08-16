@@ -340,3 +340,151 @@ Process notes:
 Next: Phase 4 (authentication, TLS, and transport boundaries — `NET-01`,
 `NET-02`, `AUTH-01`, `AUTH-02`, `AUTH-03`). Five scenarios against a cap of 4,
 so this one needs a split decision.
+
+## 2026-08-16 16:15 — Phase 4 executed
+
+User authorized a temporary lift above the 4-agent cap, so all five scenarios
+ran concurrently: `NET01Tester`, `NET02Tester`, `AUTH01Tester`, `AUTH02Tester`,
+`AUTH03Tester`. Own modules `$FT/consumer-{net01,net02,auth01,auth02,auth03}`;
+ports 5443 (TLS registry), 5200/5201 (redirect/storage), 5400 (basic front),
+5300/5301 (bearer front/token realm), 5401 (bare 401).
+
+Verdicts: **`NET-01` PASS, `NET-02` NON-BLOCKING FINDING, `AUTH-01` PASS,
+`AUTH-02` PASS, `AUTH-03` NON-BLOCKING FINDING (pre-classified). No blockers.
+Phase 4 stop rule not triggered.** This phase closed four of the eight coverage
+gaps carried since session 004: TLS/custom CAs, cross-host blob redirects,
+external credential helpers, and Bearer/OAuth exchange.
+
+- `NET-01` — real HTTPS with a one-day local CA (CA `D2:16:7B:E9…`, server
+  `D6:30:81:2D…`, SAN `DNS:localhost, IP:127.0.0.1`, `openssl verify` OK).
+  Controls both ways: `curl --cacert` → 200 with `ssl_verify_result=0`; bare
+  `curl` → exit 60 `unable to get local issuer certificate`.
+  - Default client fails closed: `tls: failed to verify certificate: x509:
+    “localhost” certificate is not trusted`, all nine sentinels false.
+  - **`WithUnverifiedExternalTransport()` does not weaken TLS** — its error is
+    character-for-character identical to the default client's, same
+    `*tls.CertificateVerificationError`. That is the security-critical
+    assertion of the scenario and it held.
+  - `WithPlainHTTP()` against the TLS socket fails (400), and nothing was even
+    routed — zero status-400 records in the registry access log.
+  - The custom-CA client (`x509.NewCertPool` + cloned `http.DefaultTransport` +
+    `TLSClientConfig.RootCAs` via `WithHTTPClient`) published and fetched both a
+    standard release and a **genuine 5-part** BigOCI release over HTTPS,
+    byte-exact. 64/64 access-log records are HTTP/2.0 on the TLS-only listener —
+    zero HTTP fallback.
+- `NET-02` — cross-host redirect and identity coding:
+  - Standard and **genuine 3-part** BigOCI releases both fetched byte-exact
+    across a real `307` to a different host:port. Proof is set-theoretic: the
+    set difference of {front `307` Locations} minus {storage-served 200 URLs} is
+    empty, and the front served `resp_bytes=0` on all 10 blob GETs, so every
+    blob body genuinely crossed the boundary.
+  - `Accept-Encoding: identity` on 22/22 front GETs and 10/10 storage GETs —
+    the header survives the cross-host hop.
+  - Storage saw **zero** `Authorization` headers, including a re-run with
+    `WithCredentials` configured. No off-origin credential.
+  - gzip-coded storage fails before commit, zero final files; the only residue
+    is a provably all-zero preallocated staging partial.
+  - Opaque transport rejected at adapter construction (`opaque HTTP transport
+    requires WithUnverifiedExternalTransport`) with front and storage deltas
+    both 0; after opting in, identity works and **gzip is still rejected**.
+- `AUTH-01` — external helper processes, the largest scenario this phase:
+  - Valid helper credentials completed `Fetch` and `FetchFiles` byte-exact. 22
+    lookups produced **22 distinct pids** — every lookup execs the named helper
+    afresh; `New` itself performs no lookup.
+  - Helper stdin key is exactly `127.0.0.1:5400` on all 16 non-hub calls; the
+    Docker Hub logical host maps to the legacy key
+    `https://index.docker.io/v1/`.
+  - Empty `DOCKER_CONFIG`: helper count unchanged, request carries
+    `authorization_scheme=none`, and a recording decoy named
+    `docker-credential-osxkeychain` placed ahead of the real one stayed 0 bytes
+    — **no default platform helper is ever run**. The request fails with
+    `ErrUnauthorized`.
+  - Wedged helper: background context fails at **10.001340708s** with `the
+    credential helper did not answer within 10s`; a 250 ms caller deadline
+    returns near 250 ms; no orphaned helper or `sleep` survived either case.
+  - Identity-token-only config fails without anonymous downgrade, and the
+    marker `FTMARKER-Q7X2-KRAKEN-9931` appears nowhere. Leak hunt covered
+    `ft-secret`, `ft-token`, the marker, and the base64 of `ft-user:ft-secret`
+    across evidence, harness, and shim logs: all `exit=1` (no match).
+  - `config.json` hash and directory listing identical before and after; CLI
+    `list` succeeded through the Basic front with no credential flag.
+- `AUTH-02` — Bearer/OAuth exchange:
+  - The very first registry request is the real manifest GET, anonymous
+    (`auth_scheme=none`); there is no pre-auth `/v2/` ping.
+  - Challenge realm/service/scope survive verbatim into the realm query
+    (`scope=repository%3Aft%2Fauth%3Apull%2Cpush&service=ft-registry`).
+  - gzip-coded OAuth JSON providing **only** `access_token` (never `token`) is
+    accepted; registry retries carry `Bearer` — per-host tally `{none: 1,
+    Bearer: 10}`, `Basic: 0`.
+  - Token reuse proven numerically: realm hit count goes 0 → 1 and stays flat
+    while **11 registry requests** complete inside `expires_in=300`. Same in
+    the Basic-protected-realm phase.
+  - Static Basic went to the realm only, never to the registry front.
+- `AUTH-03` — bare 401 with no challenge, the pre-classified known finding:
+  all nine sentinels false; detail is exactly `the registry refused the request
+  without saying how to authenticate`; CLI exits `1` with a 218-byte stderr
+  ending `imgoci: no sentinel matched (exit 1)` and 0-byte stdout. Fails closed
+  and finitely: `Fetch` = exactly 1 attempt (not retried), the publish
+  blob-existence probe = exactly 4 attempts with backoff. Hostile peer bytes
+  (ESC, BEL, invalid UTF-8, newlines) render as literal ASCII escapes —
+  verified byte-wise, zero control bytes in captured streams. A client
+  configured with credentials still sent none to a challenge-less server.
+
+New findings this phase (all non-blocking; none is a safety issue):
+
+1. `NET-02-F1` / diagnostics flattening — on the **standard** blob path the
+   identity-coding cause is rendered only as `registry request failed` at the
+   top level; the real cause is intact under `errors.Unwrap` (`*url.Error` →
+   `*registry.contentCodingError` = `the response is not identity coded`). The
+   BigOCI path surfaces it correctly. `NET-01` hit the same shape from another
+   direction: a TLS verification failure through `Publish` renders `after 4
+   attempts: checking blob existence: registry request failed`. Both flatten at
+   the `go-oci-blob v1.1.1` layer (`retryableError`/`requestError`), so the fix
+   is likely upstream or in our wrapper. Operator impact: a gzipping proxy in
+   front of standard blob storage is diagnosed as a generic request failure.
+2. `NET-01-F1` — a successful BigOCI `FetchFiles` into a `ToDir` destination
+   leaves an empty `<dest>/.imgoci-stage/stored/` behind (3/3 BigOCI runs, 0/3
+   standard). Verified against source: `StoredCache.Remove` deletes entries on
+   successful commit (hence 0 files), but `internal/file` contains no directory
+   removal at all, so the two directories persist by design. The real gap is
+   documentation — `grep -rn 'imgoci-stage' docs/docs/` returns **nothing**, so
+   a consumer listing the destination sees an undocumented directory.
+3. `AUTH-03` observation — a bare `401` is retried 4× on the publish
+   blob-existence path (an authentication refusal is not transient), while
+   `Fetch` does not retry it at all. Bounded and harmless, but inconsistent.
+4. `NET-01-F2` observation, not a defect — on darwin the untrusted chain reads
+   `x509: “localhost” certificate is not trusted` rather than Linux's
+   `certificate signed by unknown authority`. Same condition
+   (`*tls.CertificateVerificationError`, server logged `remote error: tls:
+   unknown certificate authority`); the plan's expectation is met in substance.
+
+Docs-PR candidate list now (owner's call, still not actioned): name/version
+grammar on `ReleaseSpec` godoc + `reference/api.md`; three
+`testdata/canonical/README.md` row corrections; tutorial port-5000 AirPlay
+caveat and missing `cmp` prerequisite; spec commit on `docs/docs/index.md`;
+document that a BigOCI `ToDir` destination retains an empty `.imgoci-stage`
+directory.
+
+Process notes:
+
+- `git -C $REPO status --porcelain` empty before and after all five scenarios;
+  HEAD still `0b4be41`.
+- `imgoci-ft-tls` stopped and gone; ports 5200/5201/5300/5301/5400/5401/5443 all
+  released; shared `imgoci-ft-dist` still Up on 5100.
+- `NET-01`'s first probe exited 1 on its own output-listing helper (it tried to
+  hash a directory, triggered by finding F1) *after* the BigOCI fetch had
+  already returned nil and committed byte-exact output. Harness fault; reruns
+  with a directory-aware scanner exit 0.
+- `AUTH-02`'s leak hunt reports one match, in its own `smoke-curl.txt` — that is
+  the token realm's own response body captured by the harness, not
+  library-produced output.
+- Verified by hand rather than trusting agent claims: the identity-coding error
+  type and message (`internal/registry/identity.go:154`), the absence of any
+  directory cleanup in `internal/file`, `StoredCache`'s documented
+  entry-removal-on-commit rule, the absence of `imgoci-stage` from all shipped
+  docs, every `result` file, container/port cleanup, and the leak-hunt outputs.
+
+Next: Phase 5 (BigOCI and scale — `BIG-01`, `BIG-02`). `BIG-02` needs a real
+15 GiB budget; host currently reports 223 GiB free on the data volume, so the
+budgeted run is feasible and its owner-acceptance exception should not be
+needed.
