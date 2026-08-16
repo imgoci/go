@@ -488,3 +488,107 @@ Next: Phase 5 (BigOCI and scale — `BIG-01`, `BIG-02`). `BIG-02` needs a real
 15 GiB budget; host currently reports 223 GiB free on the data volume, so the
 budgeted run is feasible and its owner-acceptance exception should not be
 needed.
+
+## 2026-08-16 16:55 — Phase 5 executed
+
+Two `functional-tester` agents (back inside the 4 cap): `BIG01Tester`,
+`BIG02Tester`. Modules `$FT/consumer-big0{1,2}`, prefixes `ft/big01` and
+`ft/big`, shim port 5150 for BIG-01; BIG-02 talked directly to 127.0.0.1:5100 so
+proxy overhead would not distort a 3 GiB transfer in each direction.
+
+Verdicts: **`BIG-01` PASS (52/52 assertions), `BIG-02` PASS. No blockers. Phase
+5 stop rule not triggered.** `BIG-02` ran for real — the plan's
+owner-acceptance resource exception was not needed (host 222 GiB free, Docker
+overlay 211 GiB).
+
+- `BIG-01` — deterministic 34603008-byte source (fixed-seed xorshift64*,
+  reproducibility proven by regenerate + `cmp`).
+  - Three-part plan (`PartSize: 16 << 20`) published
+    `sha256:e63ba054…5baf`; entry artifact type `application/vnd.bigoci.file.v1`;
+    the raw file manifest fetched **by `FileEntry.Digest`** self-verifies
+    (967 bytes hashing to `sha256:60dc1082…a791`) with no re-encoding.
+  - Full consumer path (`Fetch`/`List`/`Resolve`/`FetchFiles`) returned
+    byte-exact output; terminal snapshots were exactly one `{publish,index}` and
+    one `{fetch,commit}`, each with `WireBytes: 34603008`, `Retries: 0`,
+    `Fallbacks: 0`.
+  - One-part plan (`PartSize: 64 << 20`) fell back to the **standard** artifact
+    type with `Fallbacks == 1` exactly.
+  - `StandardCapabilities()` resolution of the BigOCI-only release →
+    `ErrUnsupportedType`; `Client.Resolve` with zero capabilities → success.
+  - 4097-part plan (`PartSize: 1` over 4097 bytes) → `ErrInvalidSpec` with a
+    **zero** request delta; the 4096-part contrast case published successfully.
+  - I verified all of this independently against the live registry rather than
+    trusting the report: `three` = 3 layers sized 16 MiB/16 MiB/1 MiB summing to
+    34603008 with `io.bigoci.file.size` 34603008; `onepart` = artifact type
+    `application/vnd.imgoci.file.v1`; `cap4096` = 4096 layers / 256 unique
+    blobs; neither file-manifest digest appears in the tag list
+    (`["three","onepart","cap4096"]`).
+- `BIG-02` — the real multi-GiB run, and the last scale gap from session 004:
+  - Source exactly `3221225472` bytes via the plan's `mkfile -n 3g`.
+  - Publish (`PartSize: 256 << 20`, `WithWorkers(2)`): exit 0, wall 4.69 s,
+    **peak memory footprint 10322496 B (9.84 MiB = 0.32% of the file)**.
+  - Fetch: exit 0, wall 5.19 s, **peak footprint 2195840 B (2.09 MiB =
+    0.068%)**. Maximum RSS never exceeded 21.3 MiB in any run. Streaming is
+    proven decisively; nothing approaches buffering.
+  - Raw file manifest self-verifies, 12 layers of `268435456` each,
+    `io.bigoci.file.size` = 3221225472, `io.bigoci.file.digest` = the source
+    SHA-256. Output was exactly 3221225472 bytes, `shasum` equal to the source,
+    `cmp` exit 0.
+  - **The agent caught a real flaw in the plan's own setup and handled it
+    correctly.** The mandated `mkfile -n 3g` source is all zeros, so all 12 part
+    digests collide and the publish path legitimately uploads one 256 MiB blob,
+    reporting `WireBytes: 268435456` — which cannot demonstrate GiB-scale
+    publish traffic. It ran the mandated case unmodified and reported it first,
+    then added a supplementary `ft/big:3g-distinct` run with a unique 21-byte
+    marker at each part offset: 12 **unique** part digests, publish and fetch
+    both `WireBytes: 3221225472`, `Retries: 0`, `Fallbacks: 0`, output
+    byte-identical, peak footprint 2.09 MiB in both directions. I verified the
+    distinct manifest myself: 12 layers, 12 unique digests, 268435456 each.
+  - Registry storage grew 30408 KiB → 3508684 KiB (+3.32 GiB), confirming real
+    bytes moved. Local 3 GiB artifacts were cleaned; registry contents left.
+
+Findings this phase: none new. Two recurrences and two observations:
+
+1. The known empty `<dest>/.imgoci-stage/stored/` directory pair reappeared on
+   every BigOCI `ToDir` fetch (`BIG-01` 1/1, `BIG-02` 2/2). Both agents
+   confirmed `find <dest>/.imgoci-stage -type f` returns nothing — zero cache
+   entries, zero partial content. Correctly recorded as the existing Phase 4
+   non-blocking documentation gap, not re-escalated.
+2. `BIG-01-O1` — write-path requests (blob POST/PUT, 2 of 6 manifest PUTs) carry
+   Go's default `Accept-Encoding: gzip`, and write-path existence HEADs carry
+   none, while **every** read-path request carried `identity`: 11 GET manifest,
+   4100 GET blob, 2 read-path HEAD. `P-WIRE-01` constrains manifest/blob GET
+   responses, so this is correct; recorded so a future reader does not misread
+   the log.
+3. `BIG-01-O2` / `BIG-02-F1` — identical parts deduplicate, so `WireBytes`
+   reflects unique blobs actually transferred (4096 one-byte parts → 256 unique
+   blobs → `WireBytes: 256`). Correct content-addressed behavior; noted so a
+   cheap contrast case is not mistaken for under-transfer.
+4. `BIG-01` incidentally re-proved `ADV-04`'s grammar finding from a different
+   direction: its first publish attempt used `ReleaseSpec.Name` with uppercase
+   and was rejected with `invalid spec: spec §6 rule 3: io.imgoci.name must be a
+   basic token` after **zero** registry requests. The agent had to discover the
+   grammar by hitting it, which is exactly the documentation gap `ADV-04-F1`
+   describes.
+
+Coverage-gap status after Phase 5 — five of the eight session-004 gaps are now
+closed: TLS/custom CAs, cross-host blob redirects, external credential helpers,
+Bearer/OAuth exchange, and multi-GiB BigOCI payloads. Remaining three all land
+in Phase 6: publish-side retry injection (`FAIL-01`), concurrent same-tag
+publication (`RACE-01`), and forced commit-phase partial filesystem failure
+(`FAIL-02`).
+
+Process notes:
+
+- `git -C $REPO status --porcelain` empty before and after both scenarios; HEAD
+  still `0b4be41`.
+- Shim port 5150 released; shared `imgoci-ft-dist` still Up on 5100 with ~3.3
+  GiB of `ft/big` content retained for now (clean up at campaign end, not
+  needed by Phase 6).
+- Verified by hand: `ft/big01` and `ft/big` tag lists, the three-part layer
+  sizes and total, the standard artifact type on the fallback publish, the
+  4096-layer/256-unique-blob cap case, the 12-unique-part distinct manifest, and
+  that no file-manifest digest is ever a tag.
+
+Next: Phase 6 (failure injection and concurrency — `FAIL-01`, `RACE-01`,
+`FAIL-02`), which closes the last three coverage gaps.
