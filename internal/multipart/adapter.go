@@ -52,9 +52,20 @@ func New(cfg Config) (*Client, error) {
 //
 // repo is passed to [bigoci.Client.PushByDigest] unchanged: a repository-only
 // reference, never a tag. partSize zero (or negative) selects the bigoci
-// default. The adapter owns retries; the caller must not wrap this call.
-func (c *Client) Push(ctx context.Context, repo, path string, partSize int64) (ocispec.Descriptor, error) {
-	desc, err := c.inner.PushByDigest(ctx, bigoci.Reference(repo), bigoci.FromFile(path), c.pushOptions(partSize)...)
+// default. report, when non-nil, receives this transfer's latest-absolute
+// wire bytes and retries. The adapter owns retries; the caller must not wrap
+// this call.
+func (c *Client) Push(
+	ctx context.Context,
+	repo, path string,
+	partSize int64,
+	report func(wireBytes int64, retries int),
+) (ocispec.Descriptor, error) {
+	desc, err := c.inner.PushByDigest(
+		ctx,
+		bigoci.Reference(repo),
+		bigoci.FromFile(path),
+		c.pushOptions(partSize, report)...)
 	if err != nil {
 		return ocispec.Descriptor{}, classify(err)
 	}
@@ -64,11 +75,18 @@ func (c *Client) Push(ctx context.Context, repo, path string, partSize int64) (o
 // PullTo writes the artifact dgst names in repo onto path.
 //
 // The pull reference is repo@dgst. Resume semantics are bigoci's: a partial
-// file lives beside path as path+".bigoci-partial". The adapter owns retries;
-// the caller must not wrap this call.
-func (c *Client) PullTo(ctx context.Context, repo string, dgst digest.Digest, path string) error {
+// file lives beside path as path+".bigoci-partial". report, when non-nil,
+// receives this transfer's latest-absolute wire bytes and retries. The
+// adapter owns retries; the caller must not wrap this call.
+func (c *Client) PullTo(
+	ctx context.Context,
+	repo string,
+	dgst digest.Digest,
+	path string,
+	report func(wireBytes int64, retries int),
+) error {
 	ref := bigoci.Reference(repo + "@" + dgst.String())
-	if err := c.inner.Pull(ctx, ref, bigoci.ToFile(path), c.pullOptions()...); err != nil {
+	if err := c.inner.Pull(ctx, ref, bigoci.ToFile(path), c.pullOptions(report)...); err != nil {
 		return classify(err)
 	}
 	return nil
@@ -93,15 +111,22 @@ func clientOptions(cfg Config) []bigoci.Option {
 }
 
 // pushOptions is the per-call option list [Client.Push] hands to bigoci.
-func (c *Client) pushOptions(partSize int64) []bigoci.PushOption {
+func (c *Client) pushOptions(partSize int64, report func(wireBytes int64, retries int)) []bigoci.PushOption {
+	var opts []bigoci.PushOption
 	if partSize > 0 {
-		return []bigoci.PushOption{bigoci.WithPartSize(bigoci.PartSize(partSize))}
+		opts = append(opts, bigoci.WithPartSize(bigoci.PartSize(partSize)))
 	}
-	return nil
+	if fn := convertProgress(report); fn != nil {
+		opts = append(opts, bigoci.WithProgress(fn))
+	}
+	return opts
 }
 
 // pullOptions is the per-call option list [Client.PullTo] hands to bigoci.
-func (c *Client) pullOptions() []bigoci.PullOption {
+func (c *Client) pullOptions(report func(wireBytes int64, retries int)) []bigoci.PullOption {
+	if fn := convertProgress(report); fn != nil {
+		return []bigoci.PullOption{bigoci.WithProgress(fn)}
+	}
 	return nil
 }
 

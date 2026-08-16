@@ -502,6 +502,137 @@ func TestDoHonorsATransportTimeoutThatMatchesDeadlineExceeded(t *testing.T) {
 	}
 }
 
+func TestDoObserverCountsAttemptsAfterTheFirst(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		script      []error
+		attempts    int
+		interrupt   error
+		interruptAt int
+		wantCount   int
+	}{
+		{
+			name:      "first-attempt success is not a retry",
+			script:    []error{nil},
+			wantCount: 0,
+		},
+		{
+			name:      "terminal first failure is not a retry",
+			script:    []error{errors.New("refused")},
+			wantCount: 0,
+		},
+		{
+			name: "one transient then success is one retry",
+			script: []error{
+				Transient(errors.New("unwell"), 0),
+				nil,
+			},
+			wantCount: 1,
+		},
+		{
+			name: "attempts running out still counts each retry",
+			script: []error{
+				Transient(errors.New("unwell"), 0),
+				Transient(errors.New("still unwell"), 0),
+				Transient(errors.New("last"), 0),
+			},
+			attempts:  3,
+			wantCount: 2,
+		},
+		{
+			name: "cancellation during the first backoff is not a retry",
+			script: []error{
+				Transient(errors.New("unwell"), 0),
+			},
+			interrupt:   context.Canceled,
+			interruptAt: 1,
+			wantCount:   0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			recorded := &clock{
+				draw:        halved,
+				interrupt:   tc.interrupt,
+				interruptAt: tc.interruptAt,
+			}
+			policy := recorded.policy()
+			if tc.attempts > 0 {
+				policy.Attempts = tc.attempts
+			}
+
+			var count int
+			ctx := WithObserver(t.Context(), func() { count++ })
+			op, _ := scripted(t, tc.script)
+			_ = Do(ctx, policy, op)
+
+			if count != tc.wantCount {
+				t.Fatalf("retries = %d, want %d", count, tc.wantCount)
+			}
+		})
+	}
+}
+
+func TestDoObserverDoesNotCountWhenContextEndsAfterBackoff(t *testing.T) {
+	t.Parallel()
+
+	errUnwell := errors.New("unwell")
+	ctx, cancel := context.WithCancel(t.Context())
+	recorded := &clock{draw: halved, during: cancel}
+	var count int
+	ctx = WithObserver(ctx, func() { count++ })
+	op, calls := scripted(t, []error{Transient(errUnwell, 0)})
+
+	err := Do(ctx, recorded.policy(), op)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Do = %v, want Canceled", err)
+	}
+	if !errors.Is(err, errUnwell) {
+		t.Fatalf("Do = %v, want failure in hand", err)
+	}
+	if *calls != 1 {
+		t.Fatalf("calls = %d, want 1", *calls)
+	}
+	if count != 0 {
+		t.Fatalf("retries = %d, want 0", count)
+	}
+}
+
+func TestWithObserverNilLeavesContextUnchanged(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	if got := WithObserver(ctx, nil); got != ctx {
+		t.Fatal("nil observer allocated a derived context")
+	}
+}
+
+func TestDoWithoutObserverDoesNotCount(t *testing.T) {
+	t.Parallel()
+
+	recorded := &clock{draw: halved}
+	calls := 0
+	err := Do(t.Context(), recorded.policy(), func(context.Context) error {
+		calls++
+		if calls == 1 {
+			return Transient(errors.New("unwell"), 0)
+		}
+
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("Do = %v", err)
+	}
+	if calls != 2 {
+		t.Fatalf("calls = %d, want 2", calls)
+	}
+}
+
 // halved is the draw the matrix runs under: half of whatever ceiling it is
 // offered. With the default base and cap it makes the schedule exactly
 // 500ms, 1s, 2s.

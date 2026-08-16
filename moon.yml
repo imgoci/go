@@ -112,6 +112,7 @@ tasks:
       - 'docs:build'
       - 'root:conformance-cue'
       - 'root:conformance-drift'
+      - 'cli:check'
     inputs:
       - '@group(goSources)'
       - '@group(lintConfig)'

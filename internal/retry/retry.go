@@ -82,6 +82,34 @@ func Default() Policy {
 	}
 }
 
+// Observer is notified once per retry of [Do]: each attempt after the first
+// that actually begins. Cancellation during backoff is not a retry.
+// A nil Observer is ignored. Implementations must be safe for concurrent use
+// when one Observer is shared across workers of a transfer.
+type Observer func()
+
+// observerContextKey is the [context.Context] value key for a per-operation
+// [Observer]. It is unexported so only [WithObserver] can install one.
+type observerContextKey struct{}
+
+// WithObserver installs observe on ctx so [Do] can report retries without a
+// package-level hook. The last observer wins. A nil observe leaves ctx
+// unchanged so a quiet transfer does not allocate a derived context.
+func WithObserver(ctx context.Context, observe Observer) context.Context {
+	if observe == nil {
+		return ctx
+	}
+
+	return context.WithValue(ctx, observerContextKey{}, observe)
+}
+
+// observerFrom returns the [Observer] installed on ctx, or nil when none is.
+func observerFrom(ctx context.Context) Observer {
+	observe, _ := ctx.Value(observerContextKey{}).(Observer)
+
+	return observe
+}
+
 // Do runs op until it succeeds, until it fails in a way repeating cannot fix,
 // or until the policy runs out of attempts.
 //
@@ -114,7 +142,10 @@ func Default() Policy {
 // it with the count, which is the one thing the caller could not otherwise
 // know. A context that ends between attempts comes back wrapped together
 // with the failure the run was retrying, on one line, and both match under
-// [errors.Is].
+// [errors.Is]. An [Observer] installed with [WithObserver] is notified once
+// per attempt after the first that actually begins, including when later
+// attempts fail or the budget runs out. Cancellation during backoff is not
+// a retry.
 func Do(ctx context.Context, p Policy, op func(ctx context.Context) error) error {
 	p = p.normalized()
 
@@ -125,43 +156,82 @@ func Do(ctx context.Context, p Policy, op func(ctx context.Context) error) error
 			return interrupted(ctxErr, attempt-1, err)
 		}
 
+		notifyRetry(ctx, attempt)
+
 		err = op(ctx)
 		if err == nil {
 			return nil
 		}
 
-		// The guard reads ctx, not the error: a transport timeout matches
-		// context.DeadlineExceeded by design in net and net/http, and only the
-		// context can say whether the transfer itself is over.
-		if ctx.Err() != nil {
-			return err
-		}
-
-		after, transient := IsTransient(err)
-		if !transient {
-			return err
+		if done, terminal := terminalFailure(ctx, err); done {
+			return terminal
 		}
 
 		if attempt == p.Attempts {
 			break
 		}
 
-		// The far end's wait is a floor under the jittered backoff, bounded by
-		// Cap like every other wait: a hostile header cannot park a transfer
-		// for a day, and a modest one cannot send every rate-limited worker
-		// back at the same instant by replacing the escalation.
-		wait := p.backoff(attempt)
-		if after > 0 {
-			wait = max(wait, min(after, p.Cap))
-		}
-
-		if waitErr := p.Sleep(ctx, wait); waitErr != nil {
-			return interrupted(waitErr, attempt, err)
+		if waitErr := waitBeforeRetry(ctx, p, attempt, err); waitErr != nil {
+			return waitErr
 		}
 	}
 
-	if p.Attempts > 1 {
-		return fmt.Errorf("after %d attempts: %w", p.Attempts, err)
+	return exhausted(p.Attempts, err)
+}
+
+// notifyRetry reports a retry to the [Observer] on ctx, if any. The first
+// attempt is not a retry, so it is silent.
+func notifyRetry(ctx context.Context, attempt int) {
+	if attempt <= 1 {
+		return
+	}
+
+	if observe := observerFrom(ctx); observe != nil {
+		observe()
+	}
+}
+
+// terminalFailure reports whether err ends the run without another attempt.
+// Cancellation is read off ctx, not the error: a transport timeout matches
+// [context.DeadlineExceeded] by design in net and net/http, and only the
+// context can say whether the transfer itself is over.
+func terminalFailure(ctx context.Context, err error) (bool, error) {
+	if ctx.Err() != nil {
+		return true, err
+	}
+
+	if _, transient := IsTransient(err); !transient {
+		return true, err
+	}
+
+	return false, nil
+}
+
+// waitBeforeRetry sleeps the jittered backoff, raised to meet a wait the
+// failure carried from the far end. The far end's wait is a floor under the
+// jittered backoff, bounded by Cap like every other wait: a hostile header
+// cannot park a transfer for a day, and a modest one cannot send every
+// rate-limited worker back at the same instant by replacing the escalation.
+// Cancellation during the wait is not a retry.
+func waitBeforeRetry(ctx context.Context, p Policy, attempt int, err error) error {
+	after, _ := IsTransient(err)
+	wait := p.backoff(attempt)
+	if after > 0 {
+		wait = max(wait, min(after, p.Cap))
+	}
+
+	if waitErr := p.Sleep(ctx, wait); waitErr != nil {
+		return interrupted(waitErr, attempt, err)
+	}
+
+	return nil
+}
+
+// exhausted wraps the last failure when attempts ran out. A one-attempt
+// policy never retried, so the failure comes back exactly as op returned it.
+func exhausted(attempts int, err error) error {
+	if attempts > 1 {
+		return fmt.Errorf("after %d attempts: %w", attempts, err)
 	}
 
 	return err

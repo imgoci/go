@@ -209,6 +209,8 @@ func Publish(ctx context.Context, p Ports, req PublishRequest) (digest.Digest, e
 		return "", err
 	}
 	progress := newPublishReporter(len(req.Entries), req.Progress)
+	ctx = progress.bindContext(ctx)
+
 	hashed, err := hashSources(req.Entries)
 	if err != nil {
 		return "", err
@@ -684,7 +686,7 @@ func uploadMultipart(ctx context.Context, p Ports, repo string, blob *uniqueBlob
 	if repo == "" {
 		return errors.New("publish: repository is required for multipart")
 	}
-	desc, err := p.Multipart.Push(ctx, repo, blob.paths[0], blob.multipart.PartSize)
+	desc, err := p.Multipart.Push(ctx, repo, blob.paths[0], blob.multipart.PartSize, progress.multipartReport())
 	if err != nil {
 		return fmt.Errorf("multipart push %s: %w", blob.paths[0], err)
 	}

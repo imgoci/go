@@ -5,7 +5,9 @@
 // implement, bundled as [Ports] for [Publish]. Multipart is the BigOCI
 // surface (ARCHITECTURE.md §6.4): path-typed, tag-free, and wired by the
 // root client. A nil Multipart is still valid when every entry takes the
-// standard path (including a <2-part fallback).
+// standard path (including a <2-part fallback). [Progress] unifies
+// standard-path and BigOCI WireBytes and Retries into one serialized
+// absolute stream.
 //
 // Destination planning is [github.com/imgoci/go/internal/file.NewPlan]:
 // preflight of ByRole paths happens before any registry Get or Pull. A Plan

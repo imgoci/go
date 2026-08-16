@@ -66,7 +66,7 @@ func TestPublishMixedStandardAndMultipart(t *testing.T) {
 	}
 
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().Push(mock.Anything, "example.com/os/example", mpPath, int64(8)).Return(desc, nil)
+	mp.EXPECT().Push(mock.Anything, "example.com/os/example", mpPath, int64(8), mock.Anything).Return(desc, nil)
 
 	var indexBody []byte
 	manifests := regmocks.NewMockManifests(t)
@@ -92,7 +92,7 @@ func TestPublishMixedStandardAndMultipart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.newAdapter = func(string, string, clientSettings) (adapterPorts, error) {
+	c.newAdapter = func(context.Context, string, string, clientSettings) (adapterPorts, error) {
 		return adapterPorts{manifests: manifests, blobs: blobs, multipart: mp}, nil
 	}
 
@@ -158,7 +158,7 @@ func TestPublishMixedStandardAndMultipart(t *testing.T) {
 
 func TestDefaultAdapterWiresMultipart(t *testing.T) {
 	t.Parallel()
-	ports, err := defaultAdapter("example.com", "os/example", clientSettings{})
+	ports, err := defaultAdapter(t.Context(), "example.com", "os/example", clientSettings{})
 	if err != nil {
 		t.Fatal(err)
 	}

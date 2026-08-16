@@ -97,13 +97,30 @@ type Blobs interface {
 // Implementations own their own retry budget (bigoci's internal loop);
 // internal/retry must never wrap these calls. Every method must be safe for
 // concurrent use.
+//
+// report, when non-nil, receives that transfer's latest-absolute wire
+// bytes and retries. A nil report skips progress conversion.
 type Multipart interface {
 	// Push publishes path into repo by digest and returns the manifest
-	// descriptor. No tag is written.
-	Push(ctx context.Context, repo, path string, partSize int64) (ocispec.Descriptor, error)
+	// descriptor. No tag is written. report receives this transfer's
+	// latest-absolute wireBytes and retries; nil skips them.
+	Push(
+		ctx context.Context,
+		repo, path string,
+		partSize int64,
+		report func(wireBytes int64, retries int),
+	) (ocispec.Descriptor, error)
 
-	// PullTo writes the artifact dgst names in repo onto path.
-	PullTo(ctx context.Context, repo string, dgst digest.Digest, path string) error
+	// PullTo writes the artifact dgst names in repo onto path. report
+	// receives this transfer's latest-absolute wireBytes and retries; nil
+	// skips them.
+	PullTo(
+		ctx context.Context,
+		repo string,
+		dgst digest.Digest,
+		path string,
+		report func(wireBytes int64, retries int),
+	) error
 }
 
 // Ports is the Manifests, Blobs, and Multipart triple one repository

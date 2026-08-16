@@ -8,12 +8,14 @@ import "github.com/imgoci/go/internal/transfer"
 // The fields match [transfer.Progress] one-for-one. Snapshots are serialized:
 // a mutex in the orchestrator orders every emit. TotalFiles and TotalBytes
 // are fixed up front (TotalBytes is the sum of ContentSize; on Publish they
-// are filled after pass 1). CompletedFiles and CompletedBytes only increase.
-// WireBytes counts raw standard-path blob bytes transferred. BigOCI
-// stored-file wire bytes and retries are unreported until slice 6 unifies
-// them (PLAN PR6.2). Retries is 0 until then. Fallbacks counts unique
-// blobs that requested multipart publication and used the standard path
-// because the part plan was fewer than two parts.
+// are filled after pass 1). CompletedFiles, CompletedBytes, WireBytes,
+// Retries, and Fallbacks only increase. WireBytes is raw standard-path blob
+// bytes plus each BigOCI transfer's latest WireBytes. Retries is standard-
+// path attempts after the first plus each BigOCI transfer's latest Retries.
+// Repeated snapshots from one transfer replace that transfer's contribution;
+// they are never summed. Fallbacks counts unique blobs that requested
+// multipart publication and used the standard path because the part plan
+// was fewer than two parts.
 //
 // Direction is "fetch" on the consumer path and "publish" on the producer
 // path. Fetch phases are "staging" then "commit". Publish phases are
@@ -37,10 +39,11 @@ type Progress struct {
 	TotalBytes int64
 	// CompletedBytes is the sum of ContentSize of verified entries.
 	CompletedBytes int64
-	// WireBytes is the count of raw standard-path blob bytes transferred.
-	// BigOCI transfers are excluded until slice 6 (PLAN PR6.2).
+	// WireBytes is raw standard-path blob bytes plus each BigOCI transfer's
+	// latest WireBytes.
 	WireBytes int64
-	// Retries is 0 in this slice.
+	// Retries is standard-path attempts after the first plus each BigOCI
+	// transfer's latest Retries.
 	Retries int
 	// Fallbacks is how many unique stored blobs planned for BigOCI
 	// publication used the standard path instead because the part plan was

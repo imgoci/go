@@ -141,7 +141,8 @@ func TestPushUsesRepoOnlyReference(t *testing.T) {
 	fake := &fakeAPI{desc: ocispec.Descriptor{Digest: digest.Digest("sha256:" + strings.Repeat("ab", 32))}}
 	client := &Client{inner: fake}
 	const repo = "registry.example/os/img"
-	got, err := client.Push(t.Context(), repo, "/tmp/file.bin", 0)
+	got, err := client.Push(t.Context(), repo, "/tmp/file.bin", 0, nil)
+
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +165,9 @@ func TestPushPartSizeOption(t *testing.T) {
 	fake := &fakeAPI{}
 	client := &Client{inner: fake}
 	const partSize int64 = 1 << 20
-	if _, err := client.Push(t.Context(), "registry.example/os/img", "/tmp/file.bin", partSize); err != nil {
+	_, err := client.Push(t.Context(), "registry.example/os/img", "/tmp/file.bin", partSize, nil)
+
+	if err != nil {
 		t.Fatal(err)
 	}
 	if fake.pushOpts != 1 {
@@ -175,7 +178,8 @@ func TestPushPartSizeOption(t *testing.T) {
 func TestPushClassifiesSentinel(t *testing.T) {
 	t.Parallel()
 	client := &Client{inner: &fakeAPI{pushErr: bigoci.ErrUnauthorized}}
-	_, err := client.Push(t.Context(), "registry.example/os/img", "/tmp/file.bin", 0)
+	_, err := client.Push(t.Context(), "registry.example/os/img", "/tmp/file.bin", 0, nil)
+
 	if !errors.Is(err, transfer.ErrUnauthorized) {
 		t.Fatalf("got %v, want %v", err, transfer.ErrUnauthorized)
 	}
@@ -186,7 +190,9 @@ func TestPullToDigestReference(t *testing.T) {
 	fake := &fakeAPI{}
 	client := &Client{inner: fake}
 	dgst := digest.FromBytes([]byte("artifact"))
-	if err := client.PullTo(t.Context(), "registry.example/os/img", dgst, "/tmp/out.bin"); err != nil {
+	err := client.PullTo(t.Context(), "registry.example/os/img", dgst, "/tmp/out.bin", nil)
+
+	if err != nil {
 		t.Fatal(err)
 	}
 	want := "registry.example/os/img@" + dgst.String()
@@ -198,9 +204,86 @@ func TestPullToDigestReference(t *testing.T) {
 func TestPullToClassifiesSentinel(t *testing.T) {
 	t.Parallel()
 	client := &Client{inner: &fakeAPI{pullErr: bigoci.ErrNotFound}}
-	err := client.PullTo(t.Context(), "registry.example/os/img", digest.FromBytes([]byte("x")), "/tmp/out.bin")
+	err := client.PullTo(t.Context(), "registry.example/os/img", digest.FromBytes([]byte("x")), "/tmp/out.bin", nil)
+
 	if !errors.Is(err, transfer.ErrNotFound) {
 		t.Fatalf("got %v, want %v", err, transfer.ErrNotFound)
+	}
+}
+
+func TestPushNilReportAddsNoProgressOption(t *testing.T) {
+	t.Parallel()
+	fake := &fakeAPI{}
+	client := &Client{inner: fake}
+	if _, err := client.Push(t.Context(), "registry.example/os/img", "/tmp/file.bin", 0, nil); err != nil {
+		t.Fatal(err)
+	}
+	if fake.pushOpts != 0 {
+		t.Fatalf("nil report passed %d push options, want 0", fake.pushOpts)
+	}
+}
+
+func TestPushReportAddsProgressOption(t *testing.T) {
+	t.Parallel()
+	fake := &fakeAPI{}
+	client := &Client{inner: fake}
+	report := func(int64, int) {}
+	if _, err := client.Push(t.Context(), "registry.example/os/img", "/tmp/file.bin", 0, report); err != nil {
+		t.Fatal(err)
+	}
+	if fake.pushOpts != 1 {
+		t.Fatalf("report passed %d push options, want 1", fake.pushOpts)
+	}
+}
+
+func TestPullToReportAddsProgressOption(t *testing.T) {
+	t.Parallel()
+	fake := &fakeAPI{}
+	client := &Client{inner: fake}
+	report := func(int64, int) {}
+	if err := client.PullTo(
+		t.Context(),
+		"registry.example/os/img",
+		digest.FromBytes([]byte("x")),
+		"/tmp/out.bin",
+		report,
+	); err != nil {
+		t.Fatal(err)
+	}
+	if fake.pullOpts != 1 {
+		t.Fatalf("report passed %d pull options, want 1", fake.pullOpts)
+	}
+}
+
+func TestConvertProgressForwardsLatestAbsolute(t *testing.T) {
+	t.Parallel()
+	var got []struct {
+		wireBytes int64
+		retries   int
+	}
+	fn := convertProgress(func(wireBytes int64, retries int) {
+		got = append(got, struct {
+			wireBytes int64
+			retries   int
+		}{wireBytes, retries})
+	})
+	fn(bigoci.Progress{WireBytes: 10, Retries: 1})
+	fn(bigoci.Progress{WireBytes: 25, Retries: 2})
+	if len(got) != 2 {
+		t.Fatalf("got %d snapshots, want 2", len(got))
+	}
+	if got[0].wireBytes != 10 || got[0].retries != 1 {
+		t.Fatalf("first %+v", got[0])
+	}
+	if got[1].wireBytes != 25 || got[1].retries != 2 {
+		t.Fatalf("second %+v", got[1])
+	}
+}
+
+func TestConvertProgressNilIsNil(t *testing.T) {
+	t.Parallel()
+	if convertProgress(nil) != nil {
+		t.Fatal("nil report must skip conversion")
 	}
 }
 

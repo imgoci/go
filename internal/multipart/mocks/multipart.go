@@ -40,16 +40,16 @@ func (_m *MockMultipart) EXPECT() *MockMultipart_Expecter {
 }
 
 // PullTo provides a mock function for the type MockMultipart
-func (_mock *MockMultipart) PullTo(ctx context.Context, repo string, dgst digest.Digest, path string) error {
-	ret := _mock.Called(ctx, repo, dgst, path)
+func (_mock *MockMultipart) PullTo(ctx context.Context, repo string, dgst digest.Digest, path string, report func(wireBytes int64, retries int)) error {
+	ret := _mock.Called(ctx, repo, dgst, path, report)
 
 	if len(ret) == 0 {
 		panic("no return value specified for PullTo")
 	}
 
 	var r0 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, digest.Digest, string) error); ok {
-		r0 = returnFunc(ctx, repo, dgst, path)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, digest.Digest, string, func(wireBytes int64, retries int)) error); ok {
+		r0 = returnFunc(ctx, repo, dgst, path, report)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -66,11 +66,12 @@ type MockMultipart_PullTo_Call struct {
 //   - repo string
 //   - dgst digest.Digest
 //   - path string
-func (_e *MockMultipart_Expecter) PullTo(ctx any, repo any, dgst any, path any) *MockMultipart_PullTo_Call {
-	return &MockMultipart_PullTo_Call{Call: _e.mock.On("PullTo", ctx, repo, dgst, path)}
+//   - report func(wireBytes int64, retries int)
+func (_e *MockMultipart_Expecter) PullTo(ctx any, repo any, dgst any, path any, report any) *MockMultipart_PullTo_Call {
+	return &MockMultipart_PullTo_Call{Call: _e.mock.On("PullTo", ctx, repo, dgst, path, report)}
 }
 
-func (_c *MockMultipart_PullTo_Call) Run(run func(ctx context.Context, repo string, dgst digest.Digest, path string)) *MockMultipart_PullTo_Call {
+func (_c *MockMultipart_PullTo_Call) Run(run func(ctx context.Context, repo string, dgst digest.Digest, path string, report func(wireBytes int64, retries int))) *MockMultipart_PullTo_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -88,11 +89,16 @@ func (_c *MockMultipart_PullTo_Call) Run(run func(ctx context.Context, repo stri
 		if args[3] != nil {
 			arg3 = args[3].(string)
 		}
+		var arg4 func(wireBytes int64, retries int)
+		if args[4] != nil {
+			arg4 = args[4].(func(wireBytes int64, retries int))
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
+			arg4,
 		)
 	})
 	return _c
@@ -103,14 +109,14 @@ func (_c *MockMultipart_PullTo_Call) Return(err error) *MockMultipart_PullTo_Cal
 	return _c
 }
 
-func (_c *MockMultipart_PullTo_Call) RunAndReturn(run func(ctx context.Context, repo string, dgst digest.Digest, path string) error) *MockMultipart_PullTo_Call {
+func (_c *MockMultipart_PullTo_Call) RunAndReturn(run func(ctx context.Context, repo string, dgst digest.Digest, path string, report func(wireBytes int64, retries int)) error) *MockMultipart_PullTo_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // Push provides a mock function for the type MockMultipart
-func (_mock *MockMultipart) Push(ctx context.Context, repo string, path string, partSize int64) (v1.Descriptor, error) {
-	ret := _mock.Called(ctx, repo, path, partSize)
+func (_mock *MockMultipart) Push(ctx context.Context, repo string, path string, partSize int64, report func(wireBytes int64, retries int)) (v1.Descriptor, error) {
+	ret := _mock.Called(ctx, repo, path, partSize, report)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Push")
@@ -118,16 +124,16 @@ func (_mock *MockMultipart) Push(ctx context.Context, repo string, path string, 
 
 	var r0 v1.Descriptor
 	var r1 error
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, int64) (v1.Descriptor, error)); ok {
-		return returnFunc(ctx, repo, path, partSize)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, int64, func(wireBytes int64, retries int)) (v1.Descriptor, error)); ok {
+		return returnFunc(ctx, repo, path, partSize, report)
 	}
-	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, int64) v1.Descriptor); ok {
-		r0 = returnFunc(ctx, repo, path, partSize)
+	if returnFunc, ok := ret.Get(0).(func(context.Context, string, string, int64, func(wireBytes int64, retries int)) v1.Descriptor); ok {
+		r0 = returnFunc(ctx, repo, path, partSize, report)
 	} else {
 		r0 = ret.Get(0).(v1.Descriptor)
 	}
-	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, int64) error); ok {
-		r1 = returnFunc(ctx, repo, path, partSize)
+	if returnFunc, ok := ret.Get(1).(func(context.Context, string, string, int64, func(wireBytes int64, retries int)) error); ok {
+		r1 = returnFunc(ctx, repo, path, partSize, report)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -144,11 +150,12 @@ type MockMultipart_Push_Call struct {
 //   - repo string
 //   - path string
 //   - partSize int64
-func (_e *MockMultipart_Expecter) Push(ctx any, repo any, path any, partSize any) *MockMultipart_Push_Call {
-	return &MockMultipart_Push_Call{Call: _e.mock.On("Push", ctx, repo, path, partSize)}
+//   - report func(wireBytes int64, retries int)
+func (_e *MockMultipart_Expecter) Push(ctx any, repo any, path any, partSize any, report any) *MockMultipart_Push_Call {
+	return &MockMultipart_Push_Call{Call: _e.mock.On("Push", ctx, repo, path, partSize, report)}
 }
 
-func (_c *MockMultipart_Push_Call) Run(run func(ctx context.Context, repo string, path string, partSize int64)) *MockMultipart_Push_Call {
+func (_c *MockMultipart_Push_Call) Run(run func(ctx context.Context, repo string, path string, partSize int64, report func(wireBytes int64, retries int))) *MockMultipart_Push_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		var arg0 context.Context
 		if args[0] != nil {
@@ -166,11 +173,16 @@ func (_c *MockMultipart_Push_Call) Run(run func(ctx context.Context, repo string
 		if args[3] != nil {
 			arg3 = args[3].(int64)
 		}
+		var arg4 func(wireBytes int64, retries int)
+		if args[4] != nil {
+			arg4 = args[4].(func(wireBytes int64, retries int))
+		}
 		run(
 			arg0,
 			arg1,
 			arg2,
 			arg3,
+			arg4,
 		)
 	})
 	return _c
@@ -181,7 +193,7 @@ func (_c *MockMultipart_Push_Call) Return(descriptor v1.Descriptor, err error) *
 	return _c
 }
 
-func (_c *MockMultipart_Push_Call) RunAndReturn(run func(ctx context.Context, repo string, path string, partSize int64) (v1.Descriptor, error)) *MockMultipart_Push_Call {
+func (_c *MockMultipart_Push_Call) RunAndReturn(run func(ctx context.Context, repo string, path string, partSize int64, report func(wireBytes int64, retries int)) (v1.Descriptor, error)) *MockMultipart_Push_Call {
 	_c.Call.Return(run)
 	return _c
 }

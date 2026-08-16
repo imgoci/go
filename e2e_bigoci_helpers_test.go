@@ -49,11 +49,12 @@ type e2eOCIManifest struct {
 	Annotations  map[string]string  `json:"annotations"`
 }
 
-// progressSink records the latest [Progress] snapshot under a mutex so a
+// progressSink records every [Progress] snapshot under a mutex so a
 // WithProgress callback is safe under -race.
 type progressSink struct {
-	mu   sync.Mutex
-	last Progress
+	mu    sync.Mutex
+	last  Progress
+	snaps []Progress
 }
 
 // fn returns a [WithProgress] callback that stores each snapshot.
@@ -61,6 +62,7 @@ func (s *progressSink) fn() func(Progress) {
 	return func(p Progress) {
 		s.mu.Lock()
 		s.last = p
+		s.snaps = append(s.snaps, p)
 		s.mu.Unlock()
 	}
 }
@@ -70,6 +72,15 @@ func (s *progressSink) snapshot() Progress {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.last
+}
+
+// snapshots returns a copy of every stored snapshot.
+func (s *progressSink) snapshots() []Progress {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make([]Progress, len(s.snaps))
+	copy(out, s.snaps)
+	return out
 }
 
 // randomBytes returns size cryptographically random bytes so gzip cannot

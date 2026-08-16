@@ -15,9 +15,8 @@
 // (`path` + ".bigoci-partial").
 //
 // The adapter owns its retry budget — bigoci's internal loop. internal/retry
-// must never wrap these calls (ARCHITECTURE.md §6.5). Unified progress
-// (WireBytes and Retries, including the latest-absolute merge of concurrent
-// bigoci transfers) is deferred to slice 6 (PLAN PR6.2). Until then BigOCI
-// wire bytes and retries are unreported; [transfer.Progress.Fallbacks]
-// remains the only multipart-related progress field.
+// must never wrap these calls (ARCHITECTURE.md §6.5). A non-nil report
+// callback converts each bigoci snapshot into that transfer's
+// latest-absolute wire bytes and retries. Concurrent transfers are merged
+// by the orchestrator, never here. A nil report skips conversion.
 package multipart

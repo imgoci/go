@@ -93,9 +93,9 @@ type FetchFilesRequest struct {
 // staging parent, then [file.StoredCache.With] keyed by io.bigoci.file.digest.
 // Fetch is [Multipart.PullTo]; use is one read of the stored file hashing
 // raw bytes (digest and size) while feeding [decomp.Decoder] into the staged
-// output with a content digest/size ceiling. Wire bytes and retries for
-// BigOCI stored files are unreported until slice 6 (PLAN PR6.2); this
-// orchestrator does not count them. Cache entries are removed best-effort
+// output with a content digest/size ceiling. BigOCI WireBytes and Retries
+// merge into the same serialized stream as the standard path, latest-
+// absolute per transfer. Cache entries are removed best-effort
 // after a successful commit (ARCHITECTURE.md §9.6 retention fallback) and
 // retained on any failure.
 //
@@ -110,6 +110,7 @@ func FetchFiles(ctx context.Context, req FetchFilesRequest) error {
 	defer func() { _ = plan.Cleanup() }()
 
 	progress := newReporter(req.Entries, req.Progress)
+	ctx = progress.bindContext(ctx)
 	if len(req.Entries) == 0 {
 		if err := plan.Commit(nil); err != nil {
 			return err
@@ -369,9 +370,10 @@ func fetchBigOCI(
 			return roleError(entry.Role, fmt.Errorf("none precheck: %w", ErrDigestMismatch))
 		}
 	}
-	if err = copyStored(ctx, req, plan, caches, entry, profile); err != nil {
+	if err = copyStored(ctx, req, plan, progress, caches, entry, profile); err != nil {
 		return err
 	}
+
 	progress.entryVerified(entry.ContentSize)
 	return nil
 }
@@ -491,6 +493,7 @@ func copyStored(
 	ctx context.Context,
 	req FetchFilesRequest,
 	plan *file.Plan,
+	progress *reporter,
 	caches *storedCaches,
 	entry Entry,
 	profile *filemanifest.BigOCIProfile,
@@ -509,12 +512,13 @@ func copyStored(
 
 	err = cache.With(ctx, profile.FileDigest,
 		func(dst string) error {
-			return req.Multipart.PullTo(ctx, req.Repository, entry.Digest, dst)
+			return req.Multipart.PullTo(ctx, req.Repository, entry.Digest, dst, progress.multipartReport())
 		},
 		func(path string) error {
 			return decodeStored(ctx, plan, entry, profile, path)
 		},
 	)
+
 	if err != nil {
 		return roleError(entry.Role, mapStoredCacheErr(err))
 	}

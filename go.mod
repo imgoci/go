@@ -14,6 +14,7 @@ require (
 	github.com/testcontainers/testcontainers-go v0.44.0
 	github.com/ulikunitz/xz v0.5.16
 	golang.org/x/crypto v0.55.0
+	oras.land/oras-go/v2 v2.6.2
 )
 
 require (
@@ -63,5 +64,4 @@ require (
 	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
-	oras.land/oras-go/v2 v2.6.2 // indirect
 )

@@ -38,7 +38,7 @@ func TestFetchFilesBigOCIHappyGzip(t *testing.T) {
 		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
 	blobs := regmocks.NewMockBlobs(t)
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything).
+	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything, mock.Anything).
 		RunAndReturn(writePullTo(fx.stored)).Once()
 
 	var (
@@ -68,9 +68,91 @@ func TestFetchFilesBigOCIHappyGzip(t *testing.T) {
 	if !bytes.Equal(got, content) {
 		t.Fatalf("dest %q, want %q", got, content)
 	}
-	assertProgressMonotoneTerminal(t, snaps, 1, int64(len(content)))
+	assertProgressMonotoneTerminal(t, snaps, int64(len(content)))
 	assertCacheEntryAbsent(t, filepath.Dir(dest), digest.FromBytes(fx.stored))
 	blobs.AssertNotCalled(t, "Pull", mock.Anything, mock.Anything)
+}
+
+func TestFetchFilesBigOCIReportsLatestAbsoluteProgress(t *testing.T) {
+	t.Parallel()
+	content := []byte("hello imgoci bigoci gzip")
+	fx := bigociGzipFixture(t, "disk", content)
+	dest := filepath.Join(t.TempDir(), "disk.img")
+
+	m := regmocks.NewMockManifests(t)
+	m.EXPECT().Get(mock.Anything, fx.entry.Digest.String(), fx.entry.MediaType).
+		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
+	blobs := regmocks.NewMockBlobs(t)
+	mp := mpmocks.NewMockMultipart(t)
+	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ string, _ digest.Digest, path string, report func(int64, int)) error {
+			if report != nil {
+				report(11, 1)
+				report(17, 3)
+			}
+			return writePullTo(fx.stored)(context.Background(), testRepo, fx.entry.Digest, path, report)
+		}).Once()
+
+	var (
+		mu    sync.Mutex
+		snaps []Progress
+	)
+	err := FetchFiles(t.Context(), FetchFilesRequest{
+		Manifests:  m,
+		Blobs:      blobs,
+		Multipart:  mp,
+		Repository: testRepo,
+		Entries:    []Entry{fx.entry},
+		ByRole:     map[string]string{"disk": dest},
+		Progress: func(p Progress) {
+			mu.Lock()
+			snaps = append(snaps, p)
+			mu.Unlock()
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertProgressMonotoneTerminal(t, snaps, int64(len(content)))
+	last := snaps[len(snaps)-1]
+	if last.WireBytes != 17 {
+		t.Fatalf("WireBytes = %d, want latest 17 not a sum", last.WireBytes)
+	}
+	if last.Retries != 3 {
+		t.Fatalf("Retries = %d, want latest 3 not a sum", last.Retries)
+	}
+}
+
+func TestFetchFilesNilProgressSkipsMultipartReport(t *testing.T) {
+	t.Parallel()
+	content := []byte("quiet-bigoci")
+	fx := bigociNoneFixture(t, "disk", content)
+	dest := filepath.Join(t.TempDir(), "disk.img")
+
+	m := regmocks.NewMockManifests(t)
+	m.EXPECT().Get(mock.Anything, fx.entry.Digest.String(), fx.entry.MediaType).
+		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
+	blobs := regmocks.NewMockBlobs(t)
+	mp := mpmocks.NewMockMultipart(t)
+	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ string, _ digest.Digest, path string, report func(int64, int)) error {
+			if report != nil {
+				t.Error("nil Progress must not install a multipart report")
+			}
+			return writePullTo(fx.stored)(context.Background(), testRepo, fx.entry.Digest, path, report)
+		}).Once()
+
+	err := FetchFiles(t.Context(), FetchFilesRequest{
+		Manifests:  m,
+		Blobs:      blobs,
+		Multipart:  mp,
+		Repository: testRepo,
+		Entries:    []Entry{fx.entry},
+		ByRole:     map[string]string{"disk": dest},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestFetchFilesBigOCIWrongStoredDigest(t *testing.T) {
@@ -83,7 +165,7 @@ func TestFetchFilesBigOCIWrongStoredDigest(t *testing.T) {
 		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
 	blobs := regmocks.NewMockBlobs(t)
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything).
+	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything, mock.Anything).
 		RunAndReturn(writePullTo([]byte("wrong-stored-bytes"))).Once()
 
 	err := FetchFiles(t.Context(), FetchFilesRequest{
@@ -132,7 +214,8 @@ func TestFetchFilesBigOCIOnePartProfile(t *testing.T) {
 	if !errors.Is(err, ErrInvalidDocument) {
 		t.Fatalf("error %v is not ErrInvalidDocument", err)
 	}
-	mp.AssertNotCalled(t, "PullTo", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	mp.AssertNotCalled(t, "PullTo", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+
 	assertAbsent(t, dest)
 }
 
@@ -153,7 +236,7 @@ func TestFetchFilesBigOCISharedFileDigestSequential(t *testing.T) {
 		Return(disk.manifest, index.MediaTypeManifest, nil).Times(2)
 	blobs := regmocks.NewMockBlobs(t)
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().PullTo(mock.Anything, testRepo, disk.entry.Digest, mock.Anything).
+	mp.EXPECT().PullTo(mock.Anything, testRepo, disk.entry.Digest, mock.Anything, mock.Anything).
 		RunAndReturn(writePullTo(disk.stored)).Once()
 
 	err := FetchFiles(t.Context(), FetchFilesRequest{
@@ -184,10 +267,10 @@ func TestFetchFilesBigOCIConcurrentSameSelection(t *testing.T) {
 		Return(fx.manifest, index.MediaTypeManifest, nil).Times(2)
 	blobs := regmocks.NewMockBlobs(t)
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ string, _ digest.Digest, path string) error {
+	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ string, _ digest.Digest, path string, _ func(int64, int)) error {
 			time.Sleep(settleWorkers)
-			return writePullTo(fx.stored)(context.Background(), testRepo, fx.entry.Digest, path)
+			return writePullTo(fx.stored)(context.Background(), testRepo, fx.entry.Digest, path, nil)
 		}).Once()
 
 	var verified atomic.Int32
@@ -249,9 +332,9 @@ func TestFetchFilesBigOCIFilenamesLookLikeCacheEntries(t *testing.T) {
 		Return(stored.manifest, index.MediaTypeManifest, nil).Once()
 	blobs := regmocks.NewMockBlobs(t)
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().PullTo(mock.Anything, testRepo, a.entry.Digest, mock.Anything).
+	mp.EXPECT().PullTo(mock.Anything, testRepo, a.entry.Digest, mock.Anything, mock.Anything).
 		RunAndReturn(writePullTo(a.stored)).Once()
-	mp.EXPECT().PullTo(mock.Anything, testRepo, stored.entry.Digest, mock.Anything).
+	mp.EXPECT().PullTo(mock.Anything, testRepo, stored.entry.Digest, mock.Anything, mock.Anything).
 		RunAndReturn(writePullTo(stored.stored)).Once()
 
 	err := FetchFiles(t.Context(), FetchFilesRequest{
@@ -286,7 +369,7 @@ func TestFetchFilesBigOCIPreplantedWrongCacheRepulled(t *testing.T) {
 		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
 	blobs := regmocks.NewMockBlobs(t)
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything).
+	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything, mock.Anything).
 		RunAndReturn(writePullTo(fx.stored)).Once()
 
 	err := FetchFiles(t.Context(), FetchFilesRequest{
@@ -357,7 +440,8 @@ func TestFetchFilesBigOCINonePrecheckMismatch(t *testing.T) {
 	if !errors.Is(err, ErrDigestMismatch) {
 		t.Fatalf("error %v is not ErrDigestMismatch", err)
 	}
-	mp.AssertNotCalled(t, "PullTo", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	mp.AssertNotCalled(t, "PullTo", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+
 	assertAbsent(t, dest)
 }
 
@@ -373,7 +457,7 @@ func TestFetchFilesBigOCICommitSucceedsWhenCacheLockHeld(t *testing.T) {
 		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
 	blobs := regmocks.NewMockBlobs(t)
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything).
+	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything, mock.Anything).
 		RunAndReturn(writePullTo(fx.stored)).Once()
 
 	key := digest.FromBytes(fx.stored)
@@ -428,7 +512,7 @@ func TestFetchFilesBigOCICommitSucceedsWhenCacheLockHeld(t *testing.T) {
 		t.Fatalf("committed fetch failed while cache lock held: %v", err)
 	}
 	assertFileBytes(t, dest, content)
-	assertProgressMonotoneTerminal(t, snaps, 1, int64(len(content)))
+	assertProgressMonotoneTerminal(t, snaps, int64(len(content)))
 	close(release)
 	if holdErr := <-holderDone; holdErr != nil {
 		t.Fatal(holdErr)
@@ -449,8 +533,8 @@ func TestFetchFilesBigOCIDecodeCanceled(t *testing.T) {
 		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
 	blobs := regmocks.NewMockBlobs(t)
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ string, _ digest.Digest, path string) error {
+	mp.EXPECT().PullTo(mock.Anything, testRepo, fx.entry.Digest, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ string, _ digest.Digest, path string, _ func(int64, int)) error {
 			if err := os.WriteFile(path, fx.stored, 0o600); err != nil {
 				return err
 			}
@@ -492,8 +576,8 @@ func TestFetchFilesBigOCIFirstErrorAbortsStoredDecode(t *testing.T) {
 
 	blobs := regmocks.NewMockBlobs(t)
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().PullTo(mock.Anything, testRepo, good.entry.Digest, mock.Anything).
-		RunAndReturn(func(ctx context.Context, _ string, _ digest.Digest, path string) error {
+	mp.EXPECT().PullTo(mock.Anything, testRepo, good.entry.Digest, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, _ string, _ digest.Digest, path string, _ func(int64, int)) error {
 			if err := os.WriteFile(path, good.stored, 0o600); err != nil {
 				return err
 			}
@@ -618,8 +702,8 @@ func mustJSONManifest(t *testing.T, v any) []byte {
 	return raw
 }
 
-func writePullTo(payload []byte) func(context.Context, string, digest.Digest, string) error {
-	return func(_ context.Context, _ string, _ digest.Digest, path string) error {
+func writePullTo(payload []byte) func(context.Context, string, digest.Digest, string, func(int64, int)) error {
+	return func(_ context.Context, _ string, _ digest.Digest, path string, _ func(int64, int)) error {
 		return os.WriteFile(path, payload, 0o600)
 	}
 }
