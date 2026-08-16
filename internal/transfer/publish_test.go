@@ -611,17 +611,24 @@ func publishProgressPhases(t *testing.T, snaps []Progress) ([]string, int) {
 	t.Helper()
 	var files int
 	var completed int64
+	var wire int64
+	var retries int
+	var fallbacks int
 	var phases []string
 	indexN := 0
 	for i, s := range snaps {
 		if s.Direction != DirectionPublish {
 			t.Fatalf("snap %d direction %q", i, s.Direction)
 		}
-		if s.CompletedFiles < files || s.CompletedBytes < completed {
+		if s.CompletedFiles < files || s.CompletedBytes < completed ||
+			s.WireBytes < wire || s.Retries < retries || s.Fallbacks < fallbacks {
 			t.Fatalf("snap %d not monotone: %+v", i, s)
 		}
 		files = s.CompletedFiles
 		completed = s.CompletedBytes
+		wire = s.WireBytes
+		retries = s.Retries
+		fallbacks = s.Fallbacks
 		if len(phases) == 0 || phases[len(phases)-1] != s.Phase {
 			phases = append(phases, s.Phase)
 		}

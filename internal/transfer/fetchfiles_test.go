@@ -170,7 +170,7 @@ func TestFetchFilesLastRoleVerifyFailureZeroCommits(t *testing.T) {
 	blobs.EXPECT().Pull(mock.Anything, ok.layer).
 		Return(io.NopCloser(bytes.NewReader(ok.stored)), nil).Maybe()
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().PullTo(mock.Anything, testRepo, big.entry.Digest, mock.Anything).
+	mp.EXPECT().PullTo(mock.Anything, testRepo, big.entry.Digest, mock.Anything, mock.Anything).
 		RunAndReturn(writePullTo(big.stored)).Maybe()
 
 	err := FetchFiles(t.Context(), FetchFilesRequest{
@@ -372,7 +372,7 @@ func TestFetchFilesHappyGzip(t *testing.T) {
 	if !bytes.Equal(got, content) {
 		t.Fatalf("dest %q, want %q", got, content)
 	}
-	assertProgressMonotoneTerminal(t, snaps, 1, int64(len(content)))
+	assertProgressMonotoneTerminal(t, snaps, int64(len(content)))
 	if snaps[len(snaps)-1].WireBytes != int64(len(fx.stored)) {
 		t.Fatalf("WireBytes %d, want %d", snaps[len(snaps)-1].WireBytes, len(fx.stored))
 	}
@@ -571,11 +571,13 @@ func assertAbsent(t *testing.T, path string) {
 	}
 }
 
-func assertProgressMonotoneTerminal(t *testing.T, snaps []Progress, files int, bytes int64) {
+func assertProgressMonotoneTerminal(t *testing.T, snaps []Progress, bytes int64) {
 	t.Helper()
+	const files = 1
 	if len(snaps) < 3 {
 		t.Fatalf("got %d snapshots, want at least initial+verified+terminal", len(snaps))
 	}
+
 	if snaps[0].Phase != PhaseStaging || snaps[0].CompletedFiles != 0 || snaps[0].TotalFiles != files ||
 		snaps[0].TotalBytes != bytes {
 		t.Fatalf("initial %+v", snaps[0])
@@ -583,21 +585,23 @@ func assertProgressMonotoneTerminal(t *testing.T, snaps []Progress, files int, b
 	commitN := 0
 	var prevFiles int
 	var prevBytes int64
+	var prevWire int64
+	var prevRetries int
 	for i, s := range snaps {
 		if s.Direction != DirectionFetch {
 			t.Fatalf("snap %d direction %q", i, s.Direction)
 		}
-		if s.Retries != 0 {
-			t.Fatalf("snap %d retries %d", i, s.Retries)
-		}
 		if s.TotalFiles != files || s.TotalBytes != bytes {
 			t.Fatalf("snap %d totals changed: %+v", i, s)
 		}
-		if s.CompletedFiles < prevFiles || s.CompletedBytes < prevBytes {
+		if s.CompletedFiles < prevFiles || s.CompletedBytes < prevBytes ||
+			s.WireBytes < prevWire || s.Retries < prevRetries {
 			t.Fatalf("snap %d not monotone: %+v", i, s)
 		}
 		prevFiles = s.CompletedFiles
 		prevBytes = s.CompletedBytes
+		prevWire = s.WireBytes
+		prevRetries = s.Retries
 		if s.Phase == PhaseCommit {
 			commitN++
 		}

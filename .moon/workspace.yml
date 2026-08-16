@@ -7,7 +7,7 @@ projects:
   sources:
     root: '.'
     docs: 'docs'
-
+    cli: 'cli'
   # Uncomment to auto-discover more projects as the repository grows.
   # globs:
   #   - 'apps/*'

@@ -116,7 +116,7 @@ func (c *Client) FetchFiles(
 		return err
 	}
 
-	ports, err := c.portsFor(rel.host, rel.repository)
+	ports, err := c.portsFor(ctx, rel.host, rel.repository)
 	if err != nil {
 		return err
 	}

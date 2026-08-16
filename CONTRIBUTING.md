@@ -46,3 +46,15 @@ moon run root:test
 
 Release Please reads Conventional Commit subjects to build changelogs and release PRs.
 Keep release-impacting commits clear; routine docs, CI, and maintenance commits should use the appropriate non-release type.
+
+Do not merge a `v1.0.0` proposal while the imgoci spec is still a draft.
+Review the first release as `v0.1.0`.
+The private CLI submodule is intentionally unreleased.
+
+## Maintenance
+
+Reevaluate the JCS implementation in `internal/jcs` when Go's
+`encoding/json/jsontext` successor is no longer experimental.
+The tracked replacement is `encoding/json/jsontext.Value.Canonicalize` once
+json/v2 leaves `GOEXPERIMENT` and enters the Go 1 compatibility promise.
+Check this at each Go minor release.

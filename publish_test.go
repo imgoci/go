@@ -454,7 +454,7 @@ func clientWithTransferPorts(
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.newAdapter = func(string, string, clientSettings) (adapterPorts, error) {
+	c.newAdapter = func(context.Context, string, string, clientSettings) (adapterPorts, error) {
 		if constructed != nil {
 			*constructed++
 		}

@@ -63,7 +63,7 @@ func TestPublishMultipartPushGetAndIndex(t *testing.T) {
 	}
 
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().Push(mock.Anything, publishRepo, path, int64(8)).Return(desc, nil).Once()
+	mp.EXPECT().Push(mock.Anything, publishRepo, path, int64(8), mock.Anything).Return(desc, nil).Once()
 
 	var puts []string
 	manifests := regmocks.NewMockManifests(t)
@@ -92,6 +92,86 @@ func TestPublishMultipartPushGetAndIndex(t *testing.T) {
 	}
 }
 
+func TestPublishMultipartReportsLatestAbsoluteProgress(t *testing.T) {
+	t.Parallel()
+	stdData := []byte("standard-bytes")
+	mpData := []byte("0123456789abcdef")
+	stdPath := writeTemp(t, "std.bin", stdData)
+	mpPath := writeTemp(t, "mix.bin", mpData)
+	storedMP := digest.FromBytes(mpData)
+	raw := bigOCIManifest(t, storedMP, int64(len(mpData)))
+	desc := ocispec.Descriptor{
+		MediaType: index.MediaTypeManifest,
+		Digest:    digest.FromBytes(raw),
+		Size:      int64(len(raw)),
+	}
+
+	mp := mpmocks.NewMockMultipart(t)
+	mp.EXPECT().Push(mock.Anything, publishRepo, mpPath, int64(8), mock.Anything).
+		RunAndReturn(func(_ context.Context, _, _ string, _ int64, report func(int64, int)) (ocispec.Descriptor, error) {
+			if report != nil {
+				report(9, 1)
+				report(16, 2)
+			}
+			return desc, nil
+		})
+
+	manifests := regmocks.NewMockManifests(t)
+	manifests.EXPECT().Get(mock.Anything, desc.Digest.String(), index.MediaTypeManifest).
+		Return(raw, index.MediaTypeManifest, nil)
+	manifests.EXPECT().Put(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	blobs := regmocks.NewMockBlobs(t)
+	blobs.EXPECT().Exists(mock.Anything, mock.Anything).Return(false, nil)
+	blobs.EXPECT().Push(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ digest.Digest, _ int64, r io.Reader) error {
+			_, _ = io.Copy(io.Discard, r)
+			return nil
+		})
+
+	var snaps []Progress
+	_, err := Publish(t.Context(), Ports{Manifests: manifests, Blobs: blobs, Multipart: mp}, PublishRequest{
+		Tag:     publishTag,
+		Name:    "example",
+		Version: "1",
+		Repo:    publishRepo,
+		Entries: []PublishEntry{
+			publishEntry(stdPath, "file-a", compressionNone, "a"),
+			multipartEntry(mpPath, "file-b", 8),
+		},
+		Progress: func(p Progress) { snaps = append(snaps, p) },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snaps) == 0 {
+		t.Fatal("expected progress snapshots")
+	}
+	phases, indexN := publishProgressPhases(t, snaps)
+	last := snaps[len(snaps)-1]
+	if last.Phase != PhaseIndex || last.CompletedFiles != 2 {
+		t.Fatalf("terminal %+v", last)
+	}
+	if indexN != 1 {
+		t.Fatalf("index-phase snapshots %d, want 1", indexN)
+	}
+	if last.WireBytes != int64(len(stdData))+16 {
+		t.Fatalf("WireBytes = %d, want standard plus latest multipart", last.WireBytes)
+	}
+	if last.Retries != 2 {
+		t.Fatalf("Retries = %d, want latest multipart 2", last.Retries)
+	}
+	wantPhases := []string{PhaseHashing, PhaseUpload, PhaseIndex}
+	if len(phases) != len(wantPhases) {
+		t.Fatalf("phases %v, want %v", phases, wantPhases)
+	}
+	for i, phase := range wantPhases {
+		if phases[i] != phase {
+			t.Fatalf("phases %v, want %v", phases, wantPhases)
+		}
+	}
+}
+
 func TestPublishMultipartDigestMismatchNoIndexPut(t *testing.T) {
 	t.Parallel()
 	data := []byte("0123456789abcdef")
@@ -104,7 +184,7 @@ func TestPublishMultipartDigestMismatchNoIndexPut(t *testing.T) {
 	}
 
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().Push(mock.Anything, publishRepo, path, int64(8)).Return(desc, nil)
+	mp.EXPECT().Push(mock.Anything, publishRepo, path, int64(8), mock.Anything).Return(desc, nil)
 
 	var puts []string
 	manifests := regmocks.NewMockManifests(t)
@@ -147,7 +227,7 @@ func TestPublishMultipartSizeMismatchNoIndexPut(t *testing.T) {
 	}
 
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().Push(mock.Anything, publishRepo, path, int64(8)).Return(desc, nil)
+	mp.EXPECT().Push(mock.Anything, publishRepo, path, int64(8), mock.Anything).Return(desc, nil)
 
 	var puts []string
 	manifests := regmocks.NewMockManifests(t)
@@ -198,7 +278,8 @@ func TestPublishMultipartFallbackUnderTwoParts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mp.AssertNotCalled(t, "Push", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	mp.AssertNotCalled(t, "Push", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+
 	stored := digest.FromBytes(data)
 	pushed := false
 	for _, op := range log.snapshot() {
@@ -237,7 +318,8 @@ func TestPublishMultipartZeroPartSizeUsesDefaultForPlanning(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	mp.AssertNotCalled(t, "Push", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	mp.AssertNotCalled(t, "Push", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+
 	if plannedParts(int64(len(data)), 0) >= minMultipartParts {
 		t.Fatal("fixture must be smaller than two default parts")
 	}
@@ -258,7 +340,7 @@ func TestPublishMixedStandardAndMultipartIndexLast(t *testing.T) {
 	}
 
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().Push(mock.Anything, publishRepo, mpPath, int64(8)).Return(desc, nil)
+	mp.EXPECT().Push(mock.Anything, publishRepo, mpPath, int64(8), mock.Anything).Return(desc, nil)
 
 	log := &callLog{}
 	manifests := regmocks.NewMockManifests(t)
@@ -331,7 +413,8 @@ func TestPublishMultipartSkipsEmptyConfig(t *testing.T) {
 	}
 
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().Push(mock.Anything, publishRepo, path, int64(8)).Return(desc, nil)
+	mp.EXPECT().Push(mock.Anything, publishRepo, path, int64(8), mock.Anything).Return(desc, nil)
+
 	manifests := regmocks.NewMockManifests(t)
 	manifests.EXPECT().Get(mock.Anything, desc.Digest.String(), index.MediaTypeManifest).
 		Return(raw, index.MediaTypeManifest, nil)
@@ -365,7 +448,7 @@ func TestPublishMultipartIgnoresWrongDescriptorSize(t *testing.T) {
 	}
 
 	mp := mpmocks.NewMockMultipart(t)
-	mp.EXPECT().Push(mock.Anything, publishRepo, path, int64(8)).Return(desc, nil).Once()
+	mp.EXPECT().Push(mock.Anything, publishRepo, path, int64(8), mock.Anything).Return(desc, nil).Once()
 
 	var indexRaw []byte
 	manifests := regmocks.NewMockManifests(t)
@@ -433,7 +516,7 @@ func TestPublishMultipartPartCeilingBeforeNetwork(t *testing.T) {
 	if plannedParts(eightGiB, oneMiB) <= maxBigOCIParts {
 		t.Fatalf("fixture must exceed the part ceiling")
 	}
-	mp.AssertNotCalled(t, "Push", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	mp.AssertNotCalled(t, "Push", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	manifests.AssertNotCalled(t, "Get", mock.Anything, mock.Anything, mock.Anything)
 	manifests.AssertNotCalled(t, "Put", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	blobs.AssertNotCalled(t, "Exists", mock.Anything, mock.Anything)

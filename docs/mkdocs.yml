@@ -35,6 +35,19 @@ theme:
 
 nav:
   - Home: index.md
+  - Tutorial:
+      - Publish and fetch your first release: tutorials/first-release.md
+  - How-to guides:
+      - Resolve deliverables: how-to/resolve-deliverables.md
+      - Verify a release: how-to/verify-a-release.md
+      - Use Docker credentials: how-to/use-docker-credentials.md
+  - Reference:
+      - Go API: reference/api.md
+      - Errors: reference/errors.md
+      - CLI: reference/cli.md
+      - Capabilities: reference/capabilities.md
+  - Explanation:
+      - Architecture: explanation/architecture.md
 
 plugins:
   - search

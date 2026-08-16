@@ -111,7 +111,7 @@ func (c *Client) Publish(
 	if err != nil {
 		return "", err
 	}
-	ports, err := c.portsFor(parsed.host, parsed.repository)
+	ports, err := c.portsFor(ctx, parsed.host, parsed.repository)
 	if err != nil {
 		return "", err
 	}

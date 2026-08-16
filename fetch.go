@@ -39,7 +39,7 @@ func (c *Client) Fetch(ctx context.Context, ref Reference) (*Release, error) {
 		)
 	}
 
-	ports, err := c.portsFor(parsed.host, parsed.repository)
+	ports, err := c.portsFor(ctx, parsed.host, parsed.repository)
 	if err != nil {
 		return nil, err
 	}

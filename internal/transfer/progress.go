@@ -1,6 +1,11 @@
 package transfer
 
-import "sync"
+import (
+	"context"
+	"sync"
+
+	"github.com/imgoci/go/internal/retry"
+)
 
 const (
 	// DirectionFetch is Progress.Direction for consumer retrieval.
@@ -26,13 +31,15 @@ const (
 //
 // Snapshots are serialized: a mutex orders every emit. TotalFiles and
 // TotalBytes are fixed up front (TotalBytes is the sum of ContentSize).
-// On Publish, TotalBytes is filled after pass 1. CompletedFiles and
-// CompletedBytes only increase. WireBytes counts raw standard-path blob
-// bytes read (fetch) or actually pushed (publish; Exists-skip is 0).
-// BigOCI stored-file wire bytes and retries are unreported until slice 6
-// unifies them (PLAN PR6.2). Retries is 0 until then. Fallbacks counts
-// unique blobs that requested multipart publication and used the standard
-// path because the part plan was fewer than two parts.
+// On Publish, TotalBytes is filled after pass 1. CompletedFiles,
+// CompletedBytes, WireBytes, Retries, and Fallbacks only increase.
+// WireBytes is standard-path blob bytes plus the latest-absolute BigOCI
+// WireBytes of each distinct multipart transfer. Retries is standard-path
+// [retry.Do] attempts after the first plus the latest-absolute BigOCI
+// Retries of each distinct multipart transfer. Repeated snapshots from one
+// transfer replace that transfer's contribution; they are never summed.
+// Fallbacks counts unique blobs that requested multipart publication and
+// used the standard path because the part plan was fewer than two parts.
 type Progress struct {
 	// Direction is [DirectionFetch] or [DirectionPublish].
 	Direction string
@@ -47,10 +54,11 @@ type Progress struct {
 	TotalBytes int64
 	// CompletedBytes is the sum of ContentSize of verified entries.
 	CompletedBytes int64
-	// WireBytes is the count of raw standard-path blob bytes transferred.
-	// BigOCI transfers are excluded until slice 6 (PLAN PR6.2).
+	// WireBytes is raw standard-path blob bytes plus each BigOCI transfer's
+	// latest WireBytes.
 	WireBytes int64
-	// Retries is 0 in this slice.
+	// Retries is standard-path attempts after the first plus each BigOCI
+	// transfer's latest Retries.
 	Retries int
 	// Fallbacks is how many unique stored blobs planned for BigOCI
 	// publication used the standard path instead because ceil(storedSize /
@@ -61,14 +69,30 @@ type Progress struct {
 
 // reporter serializes absolute progress snapshots.
 type reporter struct {
-	// mu guards current and terminal.
+	// mu guards current, terminal, and the accounting fields below.
 	mu sync.Mutex
-	// emit is the caller callback; nil means no snapshots.
+	// emit is the caller callback; nil means no snapshots and no optional
+	// accounting.
 	emit func(Progress)
 	// current is the last committed snapshot state.
 	current Progress
 	// terminal reports whether the terminal snapshot has been emitted.
 	terminal bool
+	// standardWire is raw standard-path blob bytes transferred.
+	standardWire int64
+	// standardRetries is [retry.Do] attempts after the first.
+	standardRetries int
+	// nextMultipartID is the next distinct BigOCI transfer identifier.
+	nextMultipartID uint64
+	// multipart is the latest-absolute wire and retry counts of each
+	// distinct transfer.
+	multipart map[uint64]multipartLatest
+}
+
+// multipartLatest is one transfer's latest-absolute WireBytes and Retries.
+type multipartLatest struct {
+	wireBytes int64
+	retries   int
 }
 
 // newReporter builds a staging snapshot with totals fixed and emits it.
@@ -105,6 +129,38 @@ func newPublishReporter(files int, emit func(Progress)) *reporter {
 	return r
 }
 
+// watching reports whether a caller callback is installed.
+func (r *reporter) watching() bool {
+	return r.emit != nil
+}
+
+// bindContext installs a [retry.Observer] on ctx so standard-path [retry.Do]
+// calls count as Retries. A quiet reporter leaves ctx unchanged.
+func (r *reporter) bindContext(ctx context.Context) context.Context {
+	if !r.watching() {
+		return ctx
+	}
+
+	return retry.WithObserver(ctx, r.addRetry)
+}
+
+// multipartReport returns a callback bound to one distinct BigOCI transfer.
+// A quiet reporter returns nil so the adapter skips conversion.
+func (r *reporter) multipartReport() func(wireBytes int64, retries int) {
+	if !r.watching() {
+		return nil
+	}
+
+	r.mu.Lock()
+	r.nextMultipartID++
+	id := r.nextMultipartID
+	r.mu.Unlock()
+
+	return func(wireBytes int64, retries int) {
+		r.mergeMultipart(id, wireBytes, retries)
+	}
+}
+
 // snapshot emits a copy of current. The caller must not hold mu unless it
 // is snapshotLocked.
 func (r *reporter) snapshot() {
@@ -121,18 +177,67 @@ func (r *reporter) snapshotLocked() {
 	r.emit(r.current)
 }
 
-// addWire records n raw blob bytes read off the wire.
+// recomputeLocked writes WireBytes and Retries from the standard counters
+// plus each transfer's latest snapshot. r.mu must be held.
+func (r *reporter) recomputeLocked() {
+	wire := r.standardWire
+	retries := r.standardRetries
+	for _, snap := range r.multipart {
+		wire += snap.wireBytes
+		retries += snap.retries
+	}
+	r.current.WireBytes = wire
+	r.current.Retries = retries
+}
+
+// addWire records n raw standard-path blob bytes.
 func (r *reporter) addWire(n int64) {
-	if n <= 0 {
+	if n <= 0 || !r.watching() {
 		return
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.current.WireBytes += n
+	r.standardWire += n
+	r.recomputeLocked()
+}
+
+// addRetry records one standard-path attempt after the first and emits
+// so callers observe registry backoff immediately. WireBytes stay silent
+// per chunk; retries are bounded and must surface while a wait is in
+// progress.
+func (r *reporter) addRetry() {
+	if !r.watching() {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.standardRetries++
+	r.recomputeLocked()
+	r.snapshotLocked()
+}
+
+// mergeMultipart records the latest-absolute counts of one BigOCI
+// transfer and emits so WireBytes and Retries appear in the same stream as
+// standard-path progress.
+func (r *reporter) mergeMultipart(id uint64, wireBytes int64, retries int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.terminal {
+		return
+	}
+	if r.multipart == nil {
+		r.multipart = make(map[uint64]multipartLatest)
+	}
+	r.multipart[id] = multipartLatest{wireBytes: wireBytes, retries: retries}
+	r.recomputeLocked()
+	r.snapshotLocked()
 }
 
 // entryVerified records one fully verified entry and emits a snapshot.
 func (r *reporter) entryVerified(contentSize int64) {
+	if !r.watching() {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.current.CompletedFiles++
@@ -154,6 +259,9 @@ func (r *reporter) finish() {
 
 // setTotalBytes records the decoded-content total after pass 1. It does not emit.
 func (r *reporter) setTotalBytes(n int64) {
+	if !r.watching() {
+		return
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.current.TotalBytes = n
@@ -185,7 +293,7 @@ func (r *reporter) finishIndex() {
 // addFallbacks records n unique blobs that fell back from multipart to the
 // standard path. It does not emit; the next snapshot carries the count.
 func (r *reporter) addFallbacks(n int) {
-	if n <= 0 {
+	if n <= 0 || !r.watching() {
 		return
 	}
 	r.mu.Lock()

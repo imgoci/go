@@ -48,8 +48,8 @@ type Credentials interface {
 //
 // Every registry is deliberate. A Static credential goes to whatever host the
 // caller named, so the caller — who chose both the secret and the reference
-// — is the one deciding who sees it. A Docker store (slice 6) is the other
-// shape: it answers only for the host a credential was stored under.
+// — is the one deciding who sees it. [Store] is the other shape: it answers
+// only for the host a credential was stored under.
 type Static struct {
 	// cred is what every lookup answers with.
 	cred Credential

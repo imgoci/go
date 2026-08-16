@@ -16,7 +16,10 @@
 // transient when the method returns true, with an optional RetryAfter()
 // [time.Duration] hint. The second half is the loop that acts on the mark,
 // [Do], together with the [Policy] that says how many attempts it makes and
-// how the waits between them grow.
+// how the waits between them grow. A transfer that wants a retry count
+// installs a per-operation [Observer] on the context with [WithObserver];
+// [Do] notifies it once per attempt after the first that actually begins.
+// There is no package-level hook.
 //
 // A mark is produced by whichever layer diagnosed the failure. In practice
 // that is an adapter: only the code that spoke to the far end can tell a
