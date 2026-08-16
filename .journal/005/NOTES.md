@@ -702,3 +702,116 @@ Process notes:
 
 Next: Phase 7 (CLI binary — `CLI-01`, `CLI-02`, `CLI-03`), then Phase 8 (release
 machinery and packaging — `REL-01`..`REL-04`).
+
+## 2026-08-16 18:15 — Phase 7 executed
+
+Three `functional-tester` agents: `CLI01Tester`, `CLI02Tester`, `CLI03Tester`.
+Modules `$FT/consumer-cli0{1,2,3}`, prefixes `ft/cli2` and `ft/cli3`, ports 5169,
+5170/5171, 5180–5185. Every command ran as a real OS process with argv, stdout,
+stderr, and `$?` captured separately — no in-process test seams, and
+`cli/run_test.go` was never opened.
+
+Verdicts: **`CLI-01` PASS (69 invocations), `CLI-02` PASS, `CLI-03` PASS (all 13
+reachable exit rows). No blockers. Phase 7 stop rule not triggered.**
+
+- `CLI-01` — grammar and stream discipline. Bare invocation exits `2` with empty
+  stdout and stderr beginning exactly `imgoci: no command given; run "imgoci
+  help" for the commands`, with exactly **one** `imgoci: `-prefixed line and an
+  unprefixed usage block. `version` stdout is byte-exact 31 bytes. `-h`/`-help`/
+  `--help` are byte-identical to `help`; `-version`/`--version` to `version`;
+  each `<cmd> -h` to `help <cmd>`. All 51 usage rows exit `2` with 0-byte
+  stdout. Flag-after-operand gives the relocation hint: `imgoci: list: flags
+  must come before the operands; move "-plain-http" before "…"`. Per-command
+  flag sets diffed **empty** against the verified table, with `resolve`
+  correctly lacking `-workers`/`-progress`. Zero registry contact across the
+  whole matrix (witness shim: 2 log lines before, 2 after — both from its own
+  curl smoke).
+- `CLI-02` — real-registry data path. `publish` stdout is exactly one 72-byte
+  digest line and **0 bytes** on every failure; `list` is 6-field TSV and
+  `resolve` 9-field, both audited mechanically with `awk -F'\t'` (rows with the
+  wrong field count: 0, order predicate true for every row); a no-match filter
+  exits `0` with empty stdout; `fetch` stdout is always empty. **All 420
+  progress lines** matched the documented shape exactly, and an `od` scan of all
+  86 captured streams found **zero** `0x1b` and **zero** `0x0d` — no color, no
+  carriage-return rewriting. Relative spec paths resolve against the **spec
+  directory**, proven the hard way: a decoy `src/disk.img` in the run CWD was
+  ignored and the digest was identical when run from `/`. All 13 JSON typo cases
+  failed closed with zero registry I/O. Helper-backed `list` succeeded with no
+  credential flag. `-timeout 100ms` through `stall` cancelled in 0.118 s with
+  `timed out after 100ms:`. The CLI JSON spec expresses multipart natively
+  (`"multipart": {"partSize": N}`), so no auxiliary publisher was needed.
+- `CLI-03` — the exit-code matrix, every row as a real process:
+  `0` version/list/fetch · `1` malformed ref and bare-401 · `2` missing selector
+  · `3` `ErrNotFound` · `4` `ErrUnauthorized` · `5` `ErrInvalidIndex` · `6`
+  `ErrInvalidSpec` (digest-only ref **and** bad producer spec) · `7`
+  `ErrInvalidDest` (final path is a directory) · `8` `ErrDigestMismatch`
+  (corrupt-blob) · `9` `ErrUnsupportedType` (BigOCI-only vs standard capability)
+  · `11` `ErrDecode` (two-member gzip declared gzip) · `130` SIGINT · `143`
+  SIGTERM. Every non-usage failure ended with exactly the two-line terminal
+  report, and stdout was 0 bytes on every failure row.
+  - Signals: SIGINT exited `130` in 0.027 s, SIGTERM `143` in 0.032 s, each
+    logging `imgoci: interrupted (SIG…), stopping; press Ctrl-C again to force
+    quit` then the sentinel line. The **second** signal path was also proven:
+    with stderr blocked on an unread FIFO the process survived the first signal
+    5.000 s, and the second killed it via the restored OS default
+    (`WIFSIGNALED=True`, `WTERMSIG=2`/`15`). Destinations empty in every case.
+  - Exit `10` recorded as unreachable-by-design with the source mapping quoted
+    (`cli/run.go:43-44`, `:291`; sole producer `fetchfiles.go:159`;
+    `cli/fetch.go` derives release and selection in one closure). Not faked, not
+    silently skipped — residual risk, as the plan requires.
+
+Findings this phase (both non-blocking):
+
+1. `CLI-02-F1` — `cli/doc.go:61-62` states "Each file requires path, filename,
+   and the five selector fields", but `cli/spec.go` has explicit `is required`
+   checks for name, version, files, path, architecture, target, representation,
+   role, and compression — **not** `filename`. I verified this in source myself.
+   Omitting `filename` therefore skips the adapter's usage path and falls through
+   to library validation: exit `6` with `spec §6 rule 3: manifests[0]
+   io.imgoci.filename must match the filename grammar` instead of the usage exit
+   `2` the documented adapter contract implies. Fails closed with zero registry
+   requests and an accurate sentinel line, so this is presentational
+   classification only — and a one-line fix.
+2. `CLI-01-F1` — the binary's top-level usage renders `imgoci help [command]`
+   and hints `Run "imgoci help publish" (or list, resolve, fetch)`, omitting
+   `version`, while `cli/doc.go` and `reference/cli.md` both render
+   `help [publish|list|resolve|fetch|version]`. The accepted topic set is
+   identical (all five exit `0`; anything else exits `2`), so this is cosmetic
+   help/doc drift.
+
+Positive observations worth keeping:
+
+- **Peer response bodies never reach diagnostics at all.** A hostile `400` whose
+  body carried a forged `imgoci:` log record, ESC CSI sequences, and invalid
+  UTF-8 produced only `imgoci: fetch index: manifest: registry returned status
+  400` — `classifyManifestStatus` (`internal/registry/get.go:130-146`) maps
+  status codes without echoing bytes. The tester then had to *manufacture* two
+  extra vectors (a peer-controlled `Content-Type`, and raw argv bytes) to
+  exercise the escaping path at all; both rendered as one escaped line with
+  exactly 3 × `0x0a`, 0 × `0x1b`, 0 × `0xff` in captured stderr.
+- Failure runs left no partial or committed output anywhere, including both
+  signal-killed runs.
+- Known findings reproduced through the CLI without change: bare-401 unclassified
+  (`exit 1`, no credential disclosed) and the empty `.imgoci-stage/stored` pair
+  after a BigOCI `ToDir` fetch.
+
+Process notes:
+
+- `git -C $REPO status --porcelain` empty before and after all three scenarios;
+  HEAD still `0b4be41`. Ports 5169–5171 and 5180–5185 all released; shared
+  registry Up.
+- Verified by hand rather than trusting reports: `cli/doc.go` vs `cli/spec.go`
+  required-member asymmetry, and a direct spot-run of the binary — bare → `2`
+  with the exact text, `version` → 31 exact bytes, unknown flag → `2`,
+  flag-after-operand → `2` with relocation guidance, nonexistent tag → `3`.
+
+Docs-PR candidate list (owner's call, still not actioned): name/version grammar
+on `ReleaseSpec` godoc + `reference/api.md`; three
+`testdata/canonical/README.md` row corrections; tutorial port-5000 AirPlay
+caveat and missing `cmp` prerequisite; spec commit on `docs/docs/index.md`;
+document the retained empty `.imgoci-stage` directory; add the missing
+`filename` required-check in `cli/spec.go` (or soften `cli/doc.go`); align the
+`help` placeholder wording.
+
+Next: Phase 8 (release machinery and packaging — `REL-01`..`REL-04`), the final
+phase.
