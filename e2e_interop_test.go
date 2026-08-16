@@ -77,8 +77,13 @@ func TestE2EBigOCIPushByDigestWritesNoTag(t *testing.T) {
 // TestE2EBigOCICLIInterop round-trips a file through the bigoci CLI in both
 // directions: our Publish then `bigoci pull` by descriptor digest, and
 // `bigoci push` then our FetchFiles via a raw-seeded index.
+//
+// The CLI directory is resolved once on this parent so a cloned checkout
+// outlives the parallel subtests. See [bigociCLIDir] for IMGOCI_BIGOCI_CLI_DIR
+// and IMGOCI_BIGOCI_FORCE_CLONE.
 func TestE2EBigOCICLIInterop(t *testing.T) {
 	t.Parallel()
+	_ = bigociCLIDir(t)
 	host := startRegistry(t, e2eRegistries()[0].image)
 	client := newE2EClient(t, e2eCreds{})
 

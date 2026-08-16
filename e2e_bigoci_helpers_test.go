@@ -275,18 +275,101 @@ func sortedTags(tags []string) []string {
 	return out
 }
 
-// bigociCLIDir is ~/code/imgoci/bigoci/cli, the CLI's own module.
+// bigociCLIDir returns the bigoci CLI module directory used by interop
+// tests. Resolution order:
+//
+//  1. IMGOCI_BIGOCI_CLI_DIR, when set (escape hatch).
+//  2. ~/code/imgoci/bigoci/cli, when that checkout exists (dev convenience).
+//  3. A shallow clone of github.com/imgoci/bigoci at the go.mod pin, into
+//     t.TempDir() once per test run.
+//
+// IMGOCI_BIGOCI_FORCE_CLONE=1 skips (1) and (2) and always takes (3), for
+// CI-like local runs. A failed clone is fatal; this helper never skips.
 func bigociCLIDir(t *testing.T) string {
 	t.Helper()
+	bigociCLIOnce.Do(func() {
+		bigociCLIPath, bigociCLISource, bigociCLIFail = resolveBigociCLI(t)
+	})
+	if bigociCLIFail != "" {
+		t.Fatalf("bigoci CLI: %s", bigociCLIFail)
+	}
+	t.Logf("bigoci CLI source: %s (%s)", bigociCLISource, bigociCLIPath)
+	return bigociCLIPath
+}
+
+var (
+	bigociCLIOnce   sync.Once
+	bigociCLIPath   string
+	bigociCLISource string
+	bigociCLIFail   string
+)
+
+func resolveBigociCLI(t *testing.T) (dir, source, fail string) {
+	t.Helper()
+	if os.Getenv("IMGOCI_BIGOCI_FORCE_CLONE") == "1" {
+		return cloneBigociCLI(t)
+	}
+	if override := os.Getenv("IMGOCI_BIGOCI_CLI_DIR"); override != "" {
+		if _, err := os.Stat(override); err != nil {
+			return "", "", "IMGOCI_BIGOCI_CLI_DIR " + override + ": " + err.Error()
+		}
+		return override, "IMGOCI_BIGOCI_CLI_DIR", ""
+	}
+	if local, version, ok := localBigociCLI(); ok {
+		return local, "local sibling " + version, ""
+	}
+	return cloneBigociCLI(t)
+}
+
+func localBigociCLI() (dir, version string, ok bool) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		t.Fatal(err)
+		return "", "", false
 	}
-	dir := filepath.Join(home, "code", "imgoci", "bigoci", "cli")
+	root := filepath.Join(home, "code", "imgoci", "bigoci")
+	dir = filepath.Join(root, "cli")
 	if _, err = os.Stat(dir); err != nil {
-		t.Fatalf("bigoci CLI directory %s: %v", dir, err)
+		return "", "", false
 	}
-	return dir
+	out, err := exec.Command("git", "-C", root, "describe", "--tags").Output()
+	version = strings.TrimSpace(string(out))
+	if err != nil || version == "" {
+		version = "unknown"
+	}
+	return dir, version, true
+}
+
+func cloneBigociCLI(t *testing.T) (dir, source, fail string) {
+	t.Helper()
+	ver, fail := pinnedBigociVersion(t)
+	if fail != "" {
+		return "", "", fail
+	}
+	dest := filepath.Join(t.TempDir(), "bigoci")
+	cmd := exec.CommandContext(t.Context(), "git", "clone", "--depth", "1", "--branch", ver,
+		"https://github.com/imgoci/bigoci", dest)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", "", "git clone github.com/imgoci/bigoci@" + ver + ": " + err.Error() + "\n" + string(out)
+	}
+	dir = filepath.Join(dest, "cli")
+	if _, err := os.Stat(dir); err != nil {
+		return "", "", "cloned bigoci CLI directory " + dir + ": " + err.Error()
+	}
+	return dir, "clone " + ver, ""
+}
+
+func pinnedBigociVersion(t *testing.T) (string, string) {
+	t.Helper()
+	cmd := exec.CommandContext(t.Context(), "go", "list", "-m", "-f", "{{.Version}}", "github.com/imgoci/bigoci")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", "go list -m github.com/imgoci/bigoci: " + err.Error() + "\n" + string(out)
+	}
+	ver := strings.TrimSpace(string(out))
+	if ver == "" {
+		return "", "go list -m github.com/imgoci/bigoci returned an empty version"
+	}
+	return ver, ""
 }
 
 // runBigociCLI runs `go run .` in the bigoci CLI module with args and
