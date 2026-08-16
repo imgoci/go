@@ -33,3 +33,37 @@ Current state of the world:
 Plan: prime this session, then dispatch a planner agent with full repo and
 prior-session context to produce the functional test plan document. Store it as
 `.journal/005/FUNCTIONAL_TEST_PLAN.md` and present it for review.
+
+## 2026-08-16 13:25 — Plan delivered
+
+Correction to the kickoff entry: `master` is at `0b4be41` ("docs: remove plan
+references and over-dense comments (#16)"), not `b4b5921`. PR #16 landed after
+session 004's follow-up. The plan is written against `0b4be41`.
+
+Planner agent `ReleaseTestPlanner` produced
+`.journal/005/FUNCTIONAL_TEST_PLAN.md` (998 lines): 24 promises, 28 scenarios,
+8 phases, verdict criteria, residual risk, execution notes.
+
+Groundedness spot-checks I ran against the working tree before accepting it:
+
+- Exported root surface in the plan matches `go doc -short .` exactly (types,
+  functions, options, `Client`/`Index`/`Release`/`Resolved` methods, nine
+  sentinels).
+- CLI exit mapping 0-11/130/143 matches the `exit*` constants and
+  `sentinelExits()` in `cli/run.go`.
+- Per-command flag sets match `commonFlags.register`, `registerWorkers`,
+  `registerProgress`, `queryFlags.registerList`, and `registerResolve`
+  (`resolve` has no workers/progress; `fetch` and `publish` do).
+- `imgoci version` line matches `versionLine` in `cli/run.go:100`.
+- Progress line format matches `cli/progress.go:148`.
+- Empty-command stderr text matches `cli/run.go:143`.
+
+All eight coverage gaps from `TECH_NOTES.md` have concrete scenarios: NET-01
+(TLS/custom CA), NET-02 (cross-host redirect), AUTH-01 (external credential
+helper), AUTH-02/AUTH-03 (Bearer/OAuth, bare 401), FAIL-01 (publish-side retry
+injection), BIG-02 (multi-GiB BigOCI, with a stated 15 GiB budget exception),
+RACE-01 (concurrent same-tag publication), FAIL-02 (forced commit-phase partial
+filesystem failure). The plan declares CLI exit `10` unreachable through the
+shipped grammar and records it as residual risk rather than faking it.
+
+Next: user review of the plan, then execute it.
