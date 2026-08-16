@@ -18,3 +18,7 @@ Cleanup verified by the agent: disposable registries stopped, scratch probes rem
 ## 2026-08-16 10:38 — Functional-test follow-up PR
 Opened PR #15 (`docs: clarify release retention and decode limits`) from `docs/release-rehearsal-followup` at `699c043`. It qualifies the tutorial's digest-retention claim against registry garbage collection and documents the 8 MiB zstd window and xz LZMA2 dictionary ceilings, including encoder guidance and `ErrDecode` behavior.
 Verification: `mise exec -- moon run docs:build` passed in strict mode. A local MkDocs preview rendered both changed pages; browser checks confirmed the retention caveat and decode-limit reference appeared on the actual site surface.
+
+## 2026-08-16 10:41 — Close
+PR #15 merged by squash as `b4b5921`; local `master` was fast-forwarded and the `docs/release-rehearsal-followup` worktree was removed. The manual release rehearsal found no release-blocking implementation defect, and the required retention and decoder-limit documentation is now on `master`.
+Handoff: release PR #9 remains open for the first v0.1.0 release. The deferred manual coverage and non-blocking findings are recorded in `SUMMARY.md` and `TECH_NOTES.md`.
