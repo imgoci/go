@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// lockPollMin is the first sleep between non-blocking lock attempts.
-const lockPollMin = time.Millisecond
+// lockPollFloor is the first sleep between non-blocking lock attempts.
+const lockPollFloor = time.Millisecond
 
 // lockPollMax caps the exponential backoff between lock attempts.
 const lockPollMax = 50 * time.Millisecond

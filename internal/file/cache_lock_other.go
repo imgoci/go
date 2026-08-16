@@ -20,7 +20,7 @@ func acquireKeyLock(ctx context.Context, path string) (*lockHandle, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	delay := lockPollMin
+	delay := lockPollFloor
 	for {
 		f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_EXCL, stagedPerm)
 		if err == nil {

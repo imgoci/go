@@ -24,7 +24,7 @@ func acquireKeyLock(ctx context.Context, path string) (*lockHandle, error) {
 	if err != nil {
 		return nil, err
 	}
-	delay := lockPollMin
+	delay := lockPollFloor
 	for {
 		err = flock(f, syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
