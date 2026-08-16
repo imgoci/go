@@ -25,9 +25,10 @@
 //
 // internal/retry.Do with a zero Policy is the only retry domain in this
 // package. go-oci-blob is constructed with RetryPolicy{} (one attempt) so
-// the two loops never nest. Manifest PUT is a documented slice-3 stub;
-// blob Push is wired and is not retried here, because its reader is consumed
-// once.
+// the two loops never nest. Manifest GET and PUT retry under that policy
+// with a replayable body. Blob Push is not retried here, because its reader
+// is consumed once; the reader is wrapped so streamed bytes are re-hashed
+// and counted against the declared digest (ARCHITECTURE.md §3.2).
 //
 // # Docker-Content-Digest
 //

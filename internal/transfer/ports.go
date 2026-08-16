@@ -27,6 +27,11 @@ var (
 	// ErrInvalidDocument reports that a retrieved release index or file
 	// manifest failed a consumer identity or validation check.
 	ErrInvalidDocument = errors.New("invalid document")
+
+	// ErrSharedBlob reports that sources hashed to the same stored digest
+	// but disagreed on decoded content or compression. On the producer path
+	// that is spec §6 rule 8, before a file-manifest digest exists.
+	ErrSharedBlob = errors.New("shared blob disagreement")
 )
 
 // Manifests is the OCI Distribution manifest surface of one repository.
@@ -75,4 +80,12 @@ type Blobs interface {
 	// returned reader and must close it. A missing blob is an error matching
 	// [ErrNotFound].
 	Pull(ctx context.Context, dgst digest.Digest) (io.ReadCloser, error)
+}
+
+// Ports is the Manifests and Blobs pair one repository transfer consumes.
+type Ports struct {
+	// Manifests is the OCI Distribution manifest surface. Required.
+	Manifests Manifests
+	// Blobs is the distribution-spec blob surface. Required.
+	Blobs Blobs
 }

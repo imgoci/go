@@ -1,6 +1,7 @@
 package index
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -389,6 +390,9 @@ func assertRule(t *testing.T, err error, rule int) {
 	t.Helper()
 	if err == nil {
 		t.Fatalf("want spec §6 rule %d, got success", rule)
+	}
+	if !errors.Is(err, ErrRule) {
+		t.Fatalf("error %v does not wrap ErrRule", err)
 	}
 	want := "spec §6 rule " + strconv.Itoa(rule)
 	if !strings.Contains(err.Error(), want) {

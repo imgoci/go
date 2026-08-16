@@ -12,7 +12,9 @@ func TestSentinelsDistinct(t *testing.T) {
 	if errors.Is(ErrNotFound, ErrUnauthorized) ||
 		errors.Is(ErrNotFound, ErrDigestMismatch) ||
 		errors.Is(ErrNotFound, ErrInvalidDocument) ||
-		errors.Is(ErrDigestMismatch, ErrInvalidDocument) {
+		errors.Is(ErrNotFound, ErrSharedBlob) ||
+		errors.Is(ErrDigestMismatch, ErrInvalidDocument) ||
+		errors.Is(ErrSharedBlob, ErrInvalidDocument) {
 		t.Fatal("sentinels must be distinct")
 	}
 }

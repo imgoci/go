@@ -1,5 +1,9 @@
 // Package filemanifest implements the imgoci standard file-manifest codec.
 //
+// [BuildStandard] is the producer half of spec §3.1: the fixed member set, the
+// OCI empty-config constant, one application/octet-stream layer, and RFC 8785
+// canonical bytes via [github.com/imgoci/go/internal/jcs.Encode].
+//
 // [ValidateStandard] is the consumer half of spec §3.1: grammar decode first,
 // then [github.com/imgoci/go/internal/jcs.Verify] on the original bytes, then
 // the defined-member checks. Extra members are tolerated wherever spec §3.1

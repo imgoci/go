@@ -1,7 +1,6 @@
 package registry
 
 import (
-	"errors"
 	"net/http"
 	"strings"
 	"testing"
@@ -19,17 +18,6 @@ func TestNewRequiresHostAndRepository(t *testing.T) {
 	if _, err := New(Config{Host: "registry.example"}); err == nil {
 		t.Fatal("expected error for empty repository")
 	}
-}
-
-func TestPutIsSliceThreeStub(t *testing.T) {
-	t.Parallel()
-
-	client := mustClient(t, Config{
-		Host:       "registry.example",
-		Repository: testRepo,
-	})
-	err := client.Put(t.Context(), testTag, testAccept, []byte("{}"))
-	requireErrorIs(t, err, errors.ErrUnsupported)
 }
 
 func TestClientImplementsManifests(t *testing.T) {

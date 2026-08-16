@@ -1,9 +1,7 @@
 package registry
 
 import (
-	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
 
@@ -60,9 +58,9 @@ type Client struct {
 	http *http.Client
 	// blobs is the go-oci-blob adapter bound to the same repository.
 	blobs transfer.Blobs
-	// retry is the policy [retry.Do] uses for Get, Exists, and Pull. The
-	// zero value is [retry.Default]. Tests replace Sleep and Rand so waits
-	// do not block.
+	// retry is the policy [retry.Do] uses for Get, Put, Exists, and Pull.
+	// The zero value is [retry.Default]. Tests replace Sleep and Rand so
+	// waits do not block.
 	retry retry.Policy
 }
 
@@ -109,13 +107,6 @@ func (c *Client) Manifests() transfer.Manifests {
 // Blobs returns the go-oci-blob adapter bound to this repository.
 func (c *Client) Blobs() transfer.Blobs {
 	return c.blobs
-}
-
-// Put is not implemented in slice 2. Manifest writes land in slice 3.
-func (*Client) Put(_ context.Context, ref, mediaType string, raw []byte) error {
-	_, _, _ = ref, mediaType, raw
-
-	return fmt.Errorf("manifest writes land in slice 3: %w", errors.ErrUnsupported)
 }
 
 // transportStacks is the pair of RoundTrippers [New] hands to the manifest

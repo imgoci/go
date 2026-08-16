@@ -7,10 +7,12 @@ import (
 	"compress/gzip"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -170,7 +172,8 @@ func seedHTTP() *http.Client {
 }
 
 // seedBlob uploads data as a monolithic POST+PUT blob, matching go-oci-blob's
-// startRegistry seed helper.
+// startRegistry seed helper. It is a raw primitive for adversarial fixtures
+// a conforming [Client.Publish] cannot emit.
 func seedBlob(t *testing.T, registry, repo string, dgst digest.Digest, data []byte, cred e2eCreds) {
 	t.Helper()
 	ctx := t.Context()
@@ -226,6 +229,8 @@ func seedBlob(t *testing.T, registry, repo string, dgst digest.Digest, data []by
 }
 
 // seedManifest PUTs a manifest or index at ref with the given Content-Type.
+// It is a raw primitive for adversarial fixtures a conforming [Client.Publish]
+// cannot emit.
 func seedManifest(t *testing.T, registry, repo, ref, mediaType string, data []byte, cred e2eCreds) {
 	t.Helper()
 	ctx := t.Context()
@@ -249,6 +254,36 @@ func seedManifest(t *testing.T, registry, repo, ref, mediaType string, data []by
 	default:
 		t.Fatalf("put manifest %s: status %d", ref, resp.StatusCode)
 	}
+}
+
+// getIndexRaw GETs the index document at ref (tag or sha256:…) and returns
+// the original response bytes. Accept is the release-index media type.
+func getIndexRaw(t *testing.T, registry, repo, ref string, cred e2eCreds) []byte {
+	t.Helper()
+	getURL := fmt.Sprintf("http://%s/v2/%s/manifests/%s", registry, repo, ref)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, getURL, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	applyCreds(req, cred)
+	req.Header.Set("Accept", index.MediaTypeIndex)
+	resp, err := seedHTTP().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			t.Fatal(closeErr)
+		}
+	}()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get index %s: status %d body %s", ref, resp.StatusCode, body)
+	}
+	return body
 }
 
 // applyCreds attaches basic credentials when they are non-empty.
@@ -343,6 +378,16 @@ func canonicalFileManifest(t *testing.T, layer digest.Digest, size int64) []byte
 	return raw
 }
 
+// writeTempBytes writes data at dir/name and returns the path.
+func writeTempBytes(t *testing.T, dir, name string, data []byte) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
 // gzipBytes compresses p as a single gzip member with a zero mtime so the
 // stored digest is a function of p alone.
 func gzipBytes(t *testing.T, p []byte) []byte {
@@ -391,10 +436,10 @@ type seededRelease struct {
 	metadata seededFile
 }
 
-// seedCanonicalRelease pushes empty config, file layers, file manifests, and
-// a canonical index built by internal/index.Build. qemu is a few MiB gzip
-// disk; metal is a smaller uncompressed disk. The incus-vm pair is two roles
-// in one deliverable for commit-order tests.
+// seedCanonicalRelease publishes the production-representative fixture through
+// [Client.Publish]. qemu is a few MiB gzip disk; metal is a smaller
+// uncompressed disk. The incus-vm pair is two roles in one deliverable for
+// commit-order tests.
 func seedCanonicalRelease(t *testing.T, registry, repo string, cred e2eCreds) seededRelease {
 	t.Helper()
 	tag := e2eTag
@@ -407,15 +452,11 @@ func seedCanonicalRelease(t *testing.T, registry, repo string, cred e2eCreds) se
 	metadata := buildSeededFile(t, []byte("incus-metadata-bytes\n"),
 		"none", "incus.meta", "incus", "incus-vm", "metadata")
 
-	empty := []byte("{}")
-	seedBlob(t, registry, repo, filemanifest.EmptyConfigDigest, empty, cred)
-	pushFile(t, registry, repo, qemu, cred)
-	pushFile(t, registry, repo, metal, cred)
-	pushFile(t, registry, repo, disk, cred)
-	pushFile(t, registry, repo, metadata, cred)
-
-	idx := buildCanonicalIndex(t, []seededFile{qemu, metal, disk, metadata})
-	seedManifest(t, registry, repo, tag, index.MediaTypeIndex, idx, cred)
+	dgst := publishSeededFiles(t, registry, repo, cred, []seededFile{qemu, metal, disk, metadata})
+	idx := getIndexRaw(t, registry, repo, tag, cred)
+	if digest.FromBytes(idx) != dgst {
+		t.Fatalf("tagged index digest %s, want published %s", digest.FromBytes(idx), dgst)
+	}
 
 	return seededRelease{
 		registry:    registry,
@@ -423,12 +464,64 @@ func seedCanonicalRelease(t *testing.T, registry, repo string, cred e2eCreds) se
 		tag:         tag,
 		cred:        cred,
 		index:       idx,
-		indexDigest: digest.FromBytes(idx),
+		indexDigest: dgst,
 		qemu:        qemu,
 		metal:       metal,
 		disk:        disk,
 		metadata:    metadata,
 	}
+}
+
+// fileSpecFromSeeded maps a seeded file onto a [FileSpec] whose Source is path.
+func fileSpecFromSeeded(path string, file seededFile) FileSpec {
+	return FileSpec{
+		Source: FromFile(path),
+		Selector: Selector{
+			Architecture:   file.architecture,
+			Target:         file.target,
+			Representation: file.representation,
+			Role:           file.role,
+			Compression:    file.compression,
+		},
+		Filename: file.filename,
+	}
+}
+
+// seedEmptyConfigBlob uploads the OCI empty-config blob `{}` that standard
+// file manifests reference.
+//
+// [Client.Publish] pushes this blob itself. Raw adversarial seeders that PUT
+// file manifests without Publish still need it present: both gate registries
+// reject a file-manifest PUT whose config digest is missing.
+func seedEmptyConfigBlob(t *testing.T, registry, repo string, cred e2eCreds) {
+	t.Helper()
+	seedBlob(t, registry, repo, filemanifest.EmptyConfigDigest, []byte("{}"), cred)
+}
+
+// publishSeededFiles writes each file's stored bytes and publishes them with
+// [Client.Publish] at e2eTag. Consumer-subject tests seed this way so the
+// producer is the only conforming writer.
+func publishSeededFiles(t *testing.T, registry, repo string, cred e2eCreds, files []seededFile) digest.Digest {
+	t.Helper()
+	dir := t.TempDir()
+	specs := make([]FileSpec, 0, len(files))
+	for i, file := range files {
+		name := fmt.Sprintf("%d-%s", i, file.filename)
+		if file.compression == "gzip" {
+			name += ".gz"
+		}
+		specs = append(specs, fileSpecFromSeeded(writeTempBytes(t, dir, name, file.stored), file))
+	}
+	client := newE2EClient(t, cred)
+	dgst, err := client.Publish(t.Context(), tagRef(registry, repo), ReleaseSpec{
+		Name:    "e2e",
+		Version: "1",
+		Files:   specs,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dgst
 }
 
 // pushFile uploads the layer blob and the file manifest by digest.
@@ -491,13 +584,15 @@ func seedAlternateIndex(t *testing.T, rel seededRelease) {
 	t.Helper()
 	alt := buildSeededFile(t, []byte("mutated-qemu-content\n"),
 		"gzip", "disk.qcow2", "qemu", "qcow2", "disk")
-	pushFile(t, rel.registry, rel.repo, alt, rel.cred)
-	idx := buildCanonicalIndex(t, []seededFile{alt, rel.metal, rel.disk, rel.metadata})
-	seedManifest(t, rel.registry, rel.repo, rel.tag, index.MediaTypeIndex, idx, rel.cred)
+	publishSeededFiles(t, rel.registry, rel.repo, rel.cred, []seededFile{alt, rel.metal, rel.disk, rel.metadata})
 }
 
 // seedOverlongLayer publishes a gzip file manifest whose layer size is short
 // of the stored blob, so BoundedReader must abort.
+//
+// Publish cannot emit this fixture: it records the true stored blob size on
+// the file-manifest layer descriptor, so declared size cannot be short of
+// the bytes it uploaded.
 func seedOverlongLayer(t *testing.T, registry, repo string) seededFile {
 	t.Helper()
 	tag := e2eTag
@@ -523,8 +618,7 @@ func seedOverlongLayer(t *testing.T, registry, repo string) seededFile {
 		manifestDigest: digest.FromBytes(manifest),
 	}
 
-	empty := []byte("{}")
-	seedBlob(t, registry, repo, filemanifest.EmptyConfigDigest, empty, e2eCreds{})
+	seedEmptyConfigBlob(t, registry, repo, e2eCreds{})
 	seedBlob(t, registry, repo, file.layerDigest, file.stored, e2eCreds{})
 	seedManifest(t, registry, repo, file.manifestDigest.String(), index.MediaTypeManifest, file.manifest, e2eCreds{})
 	idx := buildCanonicalIndex(t, []seededFile{file})
@@ -625,13 +719,16 @@ func mustFetch(t *testing.T, client *Client, ref Reference) *Release {
 
 // seedBitflippedLayer publishes a gzip qemu disk whose stored layer is
 // well-formed, but the index content digest names different decoded bytes.
+//
+// Publish cannot emit this fixture: pass 1 hashes decoded bytes and writes
+// that digest onto the index; a conforming producer cannot advertise a
+// different content digest for the same stored layer.
 func seedBitflippedLayer(t *testing.T, registry, repo string) seededFile {
 	t.Helper()
 	tag := e2eTag
 	content := repeatingBytes(qemuPattern, e2eSmallSize)
 	file := buildSeededFile(t, content, "gzip", "disk.qcow2", "qemu", "qcow2", "disk")
-	empty := []byte("{}")
-	seedBlob(t, registry, repo, filemanifest.EmptyConfigDigest, empty, e2eCreds{})
+	seedEmptyConfigBlob(t, registry, repo, e2eCreds{})
 	pushFile(t, registry, repo, file, e2eCreds{})
 
 	flipped := slices.Clone(content)
@@ -645,6 +742,10 @@ func seedBitflippedLayer(t *testing.T, registry, repo string) seededFile {
 
 // seedCorruptSecondRole publishes an incus-vm pair where metadata's index
 // content digest does not match the stored layer, so the second role fails.
+//
+// Publish cannot emit this fixture: each role's index content digest is
+// computed from that role's decoded source, so metadata cannot name bytes
+// that were never hashed.
 func seedCorruptSecondRole(t *testing.T, registry, repo string) (seededFile, seededFile) {
 	t.Helper()
 	tag := e2eTag
@@ -652,8 +753,7 @@ func seedCorruptSecondRole(t *testing.T, registry, repo string) (seededFile, see
 		"none", "incus.img", "incus", "incus-vm", "disk")
 	metadata := buildSeededFile(t, []byte("incus-metadata-bytes\n"),
 		"none", "incus.meta", "incus", "incus-vm", "metadata")
-	empty := []byte("{}")
-	seedBlob(t, registry, repo, filemanifest.EmptyConfigDigest, empty, e2eCreds{})
+	seedEmptyConfigBlob(t, registry, repo, e2eCreds{})
 	pushFile(t, registry, repo, disk, e2eCreds{})
 	pushFile(t, registry, repo, metadata, e2eCreds{})
 

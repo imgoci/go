@@ -48,8 +48,8 @@ type parsedRef struct {
 // parse splits r into host, repository, optional tag, and optional digest.
 //
 // Name-only references (registry/repo with neither tag nor digest) parse
-// successfully; [Client.Fetch] rejects them because a fetch must name one
-// index. Publish later accepts name-only for digest writes.
+// successfully; [Client.Fetch] and [Client.Publish] reject them. Fetch must
+// name one index; Publish is tag-only.
 func (r Reference) parse() (parsedRef, error) {
 	named, err := reference.ParseNamed(string(r))
 	if err != nil {
