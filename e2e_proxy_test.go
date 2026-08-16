@@ -173,18 +173,14 @@ func startPassthroughProxy(t *testing.T, backend string) string {
 	return startGzipProxy(t, backend, func(*http.Request) bool { return false })
 }
 
-// startTruncatingBlobProxy fronts backend and corrupts stored-blob GET
-// bodies. Content-addressed registries refuse a digest-mismatched overwrite,
-// so this is the black-box equivalent of truncating or bit-flipping a part
-// after publish.
-//
-// Blob fetches are performed here and returned as 200/206 so a registry 307
-// cannot send the client around the corruption. Redirect Location hosts are
-// rewritten to backend (the mapped host:port) because zot may name an
-// unreachable container address. Bodies are bit-flipped rather than shortened:
-// a short read is transient in bigoci (Range resume reassembles the part);
-// a same-length digest mismatch is terminal. The empty config blob (2 bytes)
-// is left intact so only part payloads are altered.
+// startTruncatingBlobProxy fronts backend and bit-flips stored-blob GET bodies.
+// Content-addressed registries refuse a digest-mismatched overwrite, so this is
+// the black-box equivalent of corrupting a part after publish. Fetches are
+// returned as 200/206 so a registry 307 cannot skip the corruption. Redirect
+// Location hosts are rewritten to backend because zot may name an unreachable
+// container address. Bodies are bit-flipped rather than shortened: a short read
+// is retried via Range; a same-length digest mismatch is terminal. The empty
+// config blob is left intact.
 func startTruncatingBlobProxy(t *testing.T, backend string) string {
 	t.Helper()
 	target, err := url.Parse("http://" + backend)

@@ -14,7 +14,7 @@ const annotationName = "io.imgoci.name"
 // annotationVersion is the spec section 5.1 release-version annotation.
 const annotationVersion = "org.opencontainers.image.version"
 
-// Index is an immutable view of a fully validated release index. ParseIndex
+// Index is an immutable view of a fully validated release index. [ParseIndex]
 // records the SHA-256 digest of the original input bytes; that digest is the
 // identity of the encoded release.
 type Index struct {
@@ -31,7 +31,7 @@ type Index struct {
 }
 
 // Digest returns the SHA-256 digest of the canonical input bytes that produced
-// this index. The digest is computed from those original bytes; ParseIndex
+// this index. The digest is computed from those original bytes; [ParseIndex]
 // never re-encodes for identity.
 func (x *Index) Digest() digest.Digest {
 	if x == nil {

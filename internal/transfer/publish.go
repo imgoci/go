@@ -20,17 +20,16 @@ import (
 
 const (
 	// defaultBigOCIPartSize is github.com/imgoci/bigoci.DefaultPartSize: 512 MiB.
-	// Copied so this package does not import the adapter library
-	// (ARCHITECTURE.md §4). Zero [MultipartPlan.PartSize] resolves to this
-	// value when counting planned parts; planned parts below two fall back
-	// to the standard path.
+	// Copied so this package does not import the adapter library. Zero
+	// [MultipartPlan.PartSize] resolves to this value when counting planned parts;
+	// planned parts below two fall back to the standard path.
 	defaultBigOCIPartSize int64 = 512 << 20
 	// minMultipartParts is the imgoci BigOCI profile floor (spec §8).
 	minMultipartParts int64 = 2
 	// maxBigOCIParts is github.com/imgoci/bigoci/internal/plan.MaxParts: 4096.
-	// Copied so this package does not import the adapter library
-	// (ARCHITECTURE.md §4), matching [defaultBigOCIPartSize]. Planned parts
-	// above this ceiling are a caller-input error before any network I/O.
+	// Copied so this package does not import the adapter library, matching
+	// [defaultBigOCIPartSize]. Planned parts above this ceiling are a caller-input
+	// error before any network I/O.
 	maxBigOCIParts int64 = 4096
 )
 
@@ -164,43 +163,36 @@ func (h *hashCounter) digest() digest.Digest {
 	return digest.NewDigest(digest.SHA256, h.h)
 }
 
-// Publish performs ARCHITECTURE.md §5.1 steps 2–6: pass-1 hash, upload,
-// index build, tag PUT last. Steps 0–1 (reference form and spec validation)
-// belong to the root package and must already have passed.
+// Publish hashes unique sources, uploads unique stored blobs and file
+// manifests, then PUTs the release index by tag last. Reference-form and spec
+// validation belong to the root package and must already have passed.
 //
-// Pass 1 reads each unique SourcePath once, hashing stored bytes while
-// teeing into [decomp.Decoder] so decoded bytes are hashed and counted.
-// Producer strictness equals consumer strictness: a two-member gzip fails
-// here. Unique stored digests then share one blob push and one manifest
-// PUT, even when they came from different paths.
+// Pass 1 reads each unique SourcePath once, hashing stored bytes while teeing
+// into [decomp.Decoder] so decoded bytes are hashed and counted with the same
+// strictness as fetch. Unique stored digests share one blob push and one
+// manifest PUT, even when they came from different paths. After pass 1,
+// entries that share (architecture, target, representation, role) must agree
+// on content digest, content size, and filename (spec §6 rule 6) before any
+// network write. Unique stored digests that disagree on decoded content or
+// compression fail as [ErrSharedBlob] (spec §6 rule 8), also before any
+// network write.
 //
-// Upload uses bounded workers. Each unique stored digest re-checks pass-1
-// stat (size and mtime); a change is [ErrDigestMismatch]. Entries with a
-// non-nil [MultipartPlan] take the BigOCI path when ceil(storedSize /
-// effectivePartSize) is at least two and at most [maxBigOCIParts]:
-// [Multipart.Push] (PushByDigest; no tag), then Manifests.Get of the
-// returned descriptor digest, then [filemanifest.ValidateBigOCI] requiring
-// io.bigoci.file.digest and io.bigoci.file.size to equal the pass-1 stored
-// digest and size (ARCHITECTURE.md §3.2, §5.1). Fewer than two planned
-// parts falls back to the standard path and increments [Progress.Fallbacks].
-// More than [maxBigOCIParts] planned parts is a caller-input error wrapping
-// [index.ErrRule] before any network write.
+// Upload uses bounded workers. Each unique stored digest re-checks pass-1 stat
+// (size and mtime); a change is [ErrDigestMismatch]. A non-nil [MultipartPlan]
+// takes the BigOCI path when planned parts are at least two and at most
+// [maxBigOCIParts]: [Multipart.Push] (no tag), then Manifests.Get of the
+// returned digest, then [filemanifest.ValidateBigOCI] requiring
+// io.bigoci.file.digest and io.bigoci.file.size to equal pass-1 stored
+// identity. Fewer than two planned parts falls back to the standard path and
+// increments [Progress.Fallbacks]. More than [maxBigOCIParts] planned parts is
+// a caller-input error wrapping [index.ErrRule] before any network write.
 //
-// Standard path: Blobs.Exists skips a push; otherwise Blobs.Push gets a
-// fresh file handle — the adapter's re-verifying reader is the net.
-// [filemanifest.BuildStandard] runs after the blob is present, then
-// Manifests.Put of that digest-ref. The OCI empty-config blob
-// ([filemanifest.EmptyConfigDigest]) is ensured once, before any standard
-// Manifests.Put. BigOCI pushes its own config; ensureEmptyConfig is
-// standard-path-only. Manifests always land after their blobs. The index
-// PUT by tag is last, so nothing references the index until every
-// manifest and blob has landed.
-//
-// After pass 1, entries that share (architecture, target, representation,
-// role) must agree on real content digest, content size, and filename
-// (spec §6 rule 6) before any network write. Unique stored digests that
-// disagree on decoded content or compression fail as [ErrSharedBlob]
-// (spec §6 rule 8) still before upload.
+// On the standard path, Blobs.Exists skips a push; otherwise Blobs.Push gets a
+// fresh file handle. The OCI empty-config blob
+// ([filemanifest.EmptyConfigDigest]) is ensured once before any standard
+// Manifests.Put. BigOCI pushes its own config. Manifests land after their
+// blobs. The index PUT by tag is last, so nothing references the index until
+// every manifest and blob has landed.
 func Publish(ctx context.Context, p Ports, req PublishRequest) (digest.Digest, error) {
 	if err := checkPublishPorts(p, req); err != nil {
 		return "", err
@@ -461,12 +453,11 @@ func applyMultipartFallback(blobs []uniqueBlob) int {
 	return n
 }
 
-// checkMultipartPartCeiling rejects a multipart entry whose planned part
-// count exceeds [maxBigOCIParts] (bigoci plan.MaxParts). sizeOf supplies
-// the stored size (Publish passes [statSize]); tests inject a synthetic
-// size so an 8 GiB fixture is not materialized. The check runs before
-// pass-1 hashing and before any network write. The error wraps
-// [index.ErrRule] so the public mapper classifies it as caller input.
+// checkMultipartPartCeiling rejects a multipart entry whose planned part count
+// exceeds [maxBigOCIParts]. sizeOf supplies the stored size; tests inject a
+// synthetic size so an 8 GiB fixture is not materialized. The check runs before
+// pass-1 hashing. The error wraps [index.ErrRule] so the public mapper
+// classifies it as caller input.
 func checkMultipartPartCeiling(entries []PublishEntry, sizeOf func(string) (int64, error)) error {
 	for _, entry := range entries {
 		if entry.Multipart == nil {
@@ -561,7 +552,7 @@ func totalContentBytes(entries []PublishEntry, hashed map[string]hashedFile) int
 // ensureEmptyConfig pushes the OCI empty-config blob once when the repository
 // does not already hold it. Standard file manifests reference this digest, so
 // it must exist before any standard Manifests.Put. BigOCI pushes its own
-// config; this helper is standard-path-only (ARCHITECTURE.md §5.1).
+// config; this helper is standard-path-only.
 func ensureEmptyConfig(ctx context.Context, blobs Blobs) error {
 	exists, err := blobs.Exists(ctx, filemanifest.EmptyConfigDigest)
 	if err != nil {
@@ -676,9 +667,8 @@ func uploadStandard(ctx context.Context, p Ports, blob *uniqueBlob, progress *re
 }
 
 // uploadMultipart publishes via [Multipart.Push] (PushByDigest; no tag) and
-// re-fetches the returned manifest by descriptor digest, requiring the
-// BigOCI whole-file digest and size to equal pass-1 stored identity
-// (ARCHITECTURE.md §3.2).
+// re-fetches the returned manifest by descriptor digest, requiring the BigOCI
+// whole-file digest and size to equal pass-1 stored identity.
 func uploadMultipart(ctx context.Context, p Ports, repo string, blob *uniqueBlob, progress *reporter) error {
 	if p.Multipart == nil {
 		return errors.New("publish: multipart adapter is required")
@@ -847,8 +837,8 @@ func (e oracleError) Error() string {
 // oracleIndex checks that encoded index bytes would pass the consumer path.
 //
 // [index.Build] already ran [index.Validate] (rules 1–9) on the model.
-// Decode+Validate+VerifyCanonical is a cheap self-oracle that the canonical
-// bytes survive the same three seams [ParseIndex] uses, including rule 10.
+// Decode+Validate+VerifyCanonical is a self-oracle that the canonical bytes
+// survive the same three seams the consumer path uses, including rule 10.
 // Failures are [oracleError]: library defects, not caller input.
 func oracleIndex(raw []byte) error {
 	v, err := index.Decode(raw)

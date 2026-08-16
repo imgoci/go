@@ -9,9 +9,8 @@ import (
 	"time"
 )
 
-// drawnCeiling is what a recording Rand reports for a draw it was never
-// asked to make, so a row can say "the policy drew nothing" without a second
-// field.
+// drawnCeiling is what a recording Rand reports for a draw it was never asked
+// to make, so a row can say the policy drew nothing without a second field.
 const drawnCeiling = -1
 
 func TestPolicyBackoff(t *testing.T) {
@@ -320,7 +319,6 @@ func TestDo(t *testing.T) {
 	}
 }
 
-// doCase is one [Do] table row.
 type doCase struct {
 	// name is the subtest name.
 	name string
@@ -640,24 +638,19 @@ func halved(n int64) int64 {
 	return n / 2
 }
 
-// timeoutError renders the way the transport's own timeouts do: it matches
-// [context.DeadlineExceeded] under [errors.Is] without any context having
-// ended.
+// timeoutError matches [context.DeadlineExceeded] under [errors.Is] without any
+// context having ended, as transport timeouts do.
 type timeoutError struct{}
 
-// Error renders the message a dial timeout really produces.
 func (timeoutError) Error() string {
 	return "dial tcp 10.255.255.1:5000: i/o timeout"
 }
 
-// Is matches the deadline sentinel, exactly as net.errTimeout and
-// net/http's timeout errors do.
 func (timeoutError) Is(target error) bool {
 	return target == context.DeadlineExceeded
 }
 
-// clock is the pair of seams a [Policy] takes as data, recording what the
-// loop asked of them.
+// clock records the Sleep durations and Rand ceilings the loop asked for.
 type clock struct {
 	// waits are the durations Sleep was asked for, in order.
 	waits []time.Duration
@@ -675,8 +668,6 @@ type clock struct {
 	during func()
 }
 
-// sleep records the wait it was asked for and reports the interruption the
-// fixture was built with, if this is the call that carries it.
 func (c *clock) sleep(_ context.Context, d time.Duration) error {
 	c.waits = append(c.waits, d)
 	if c.during != nil {
@@ -688,14 +679,13 @@ func (c *clock) sleep(_ context.Context, d time.Duration) error {
 	return nil
 }
 
-// rand records the ceiling it was offered and draws under it.
 func (c *clock) rand(n int64) int64 {
 	c.ceilings = append(c.ceilings, n)
 	return c.draw(n)
 }
 
-// policy returns a four-attempt policy wired to this clock, with the default
-// base and cap so the rows can talk in the numbers the design fixes.
+// policy returns a four-attempt policy wired to this clock, using [DefaultBase]
+// and [DefaultCap].
 func (c *clock) policy() Policy {
 	return Policy{
 		Attempts: DefaultAttempts,
@@ -722,7 +712,6 @@ func scripted(t *testing.T, script []error) (func(context.Context) error, *int) 
 	}, &calls
 }
 
-// durationsEqual reports whether a and b hold the same durations in order.
 func durationsEqual(a, b []time.Duration) bool {
 	if len(a) != len(b) {
 		return false
@@ -735,7 +724,6 @@ func durationsEqual(a, b []time.Duration) bool {
 	return true
 }
 
-// int64sEqual reports whether a and b hold the same values in order.
 func int64sEqual(a, b []int64) bool {
 	if len(a) != len(b) {
 		return false

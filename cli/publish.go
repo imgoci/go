@@ -13,8 +13,8 @@ import (
 // runPublish parses publish's command line and runs the publish it describes.
 //
 // The spec is decoded and required members are checked before a client is
-// built. The reference is passed through exactly as typed: the CLI knows no
-// reference grammar and never wants to disagree with the one the library uses.
+// built. The reference is passed through exactly as typed; the CLI does not
+// parse reference grammar.
 func runPublish(ctx context.Context, e env, args []string) error {
 	var f publishFlags
 	fs := newFlagSet(cmdPublish)

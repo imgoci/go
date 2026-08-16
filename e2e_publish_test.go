@@ -41,11 +41,9 @@ func TestE2EPublishTwoMemberGzip(t *testing.T) {
 	}
 }
 
-// TestE2EPublishNonCanonicalIndexRejected fails Fetch with ErrInvalidIndex
-// when the tag names pretty-printed index bytes.
-//
-// Publish cannot emit this fixture: it always RFC 8785-encodes the index,
-// so a conforming producer cannot store indented JSON at the tag.
+// TestE2EPublishNonCanonicalIndexRejected fails Fetch with ErrInvalidIndex when
+// the tag names pretty-printed index bytes. A conforming [Client.Publish] RFC
+// 8785-encodes the index, so it cannot store indented JSON at the tag.
 func TestE2EPublishNonCanonicalIndexRejected(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eDistribution)
@@ -75,10 +73,8 @@ func TestE2EPublishNonCanonicalIndexRejected(t *testing.T) {
 }
 
 // TestE2EPublishWrongSizeDescriptorRejected fails FetchFiles when the index
-// entry declares a file-manifest size that is not the retrieved byte length.
-//
-// Publish cannot emit this fixture: it records the true file-manifest size
-// produced by filemanifest.BuildStandard.
+// entry declares a file-manifest size that is not the retrieved byte length. A
+// conforming [Client.Publish] records the size from filemanifest.BuildStandard.
 func TestE2EPublishWrongSizeDescriptorRejected(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eDistribution)

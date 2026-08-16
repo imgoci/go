@@ -50,15 +50,15 @@ const tempDirPerm os.FileMode = 0o700
 // TestMain points every environment variable a credential lookup reads at a
 // temporary directory of its own, and only then runs the tests.
 //
-// Isolation is not a convenience here, it is the thing under test. A
-// credential lookup's whole job is to find the developer's real credentials,
-// so a suite that leaves the environment alone would be running the code
-// against a live keychain: the positive rows could pass on a machine somebody
-// had run `docker login` on and fail on a machine nobody had, the negative
-// rows could pass because a helper was missing rather than because it was
-// never asked for, and any bug that wrote to the configuration would write to
-// the real one. With the environment redirected, every row starts from
-// nothing, and the paths the tests assert on prove which file was read.
+// Isolation is the thing under test. A credential lookup's whole job is to find
+// the developer's real credentials, so a suite that leaves the environment
+// alone would be running the code against a live keychain: the positive rows
+// could pass on a machine somebody had run `docker login` on and fail on a
+// machine nobody had, the negative rows could pass because a helper was missing
+// rather than because it was never asked for, and any bug that wrote to the
+// configuration would write to the real one. With the environment redirected,
+// every row starts from nothing, and the paths the tests assert on prove which
+// file was read.
 func TestMain(m *testing.M) {
 	root, err := os.MkdirTemp("", "imgoci-auth")
 	if err != nil {

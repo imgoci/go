@@ -48,9 +48,9 @@ type challenge struct {
 // no use for. Names are matched case-insensitively, as RFC 9110 requires.
 //
 // A scope parameter carries a space-separated list, so it is split on
-// whitespace and never on commas: the first challenge this package meets in
-// the wild spells a scope "repository:team/artifact:pull,push", and a comma
-// is part of that value rather than a separator.
+// whitespace and never on commas: in a quoted scope such as
+// "repository:team/artifact:pull,push", the comma is part of the value and not
+// a separator.
 func (c *challenge) set(name, value string) {
 	switch strings.ToLower(name) {
 	case "realm":

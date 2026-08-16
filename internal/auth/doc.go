@@ -1,16 +1,11 @@
-// Package auth authenticates registry HTTP requests.
+// Package auth authenticates registry HTTP requests: anonymous bearer token
+// exchange, static username/password credentials, an opt-in Docker
+// configuration store, token caching, and off-origin credential stripping.
 //
-// It is a clone of bigoci's auth stack — anonymous bearer token exchange,
-// static username/password credentials, an opt-in Docker configuration store,
-// token caching, and off-origin credential stripping — reshaped for this
-// repository. Duplication with bigoci is an accepted v1 decision
-// (ARCHITECTURE.md §9.8): extraction waits for a third consumer.
-//
-// This is the only place oras-go enters the import graph, and it borrows
+// This is the only package in the module that imports oras-go, and it uses
 // exactly one thing from it: the credential store. The bearer exchange, the
-// token cache, and the decision of what a refusal is worth all live in this
-// package, because they are transfer behaviour rather than credential
-// storage.
+// token cache, and the handling of a refusal live here, because they are
+// transfer behavior rather than credential storage.
 //
 // Reading a credential can run a program on the machine. A Docker
 // configuration file may name a credential helper, in its credsStore or
@@ -36,14 +31,13 @@
 // # Realm traffic isolation
 //
 // Token-realm requests must never pass through the registry adapter's
-// identity-encoding enforcement (ARCHITECTURE.md §6.6.1). That invariant is
-// structural: [Transport.RealmClient] is an explicit injectable HTTP client
-// used only for realm GETs, defaulting to a plain [http.Client] that is
+// identity-encoding enforcement. [Transport.RealmClient] is the injectable HTTP
+// client used only for realm GETs, defaulting to a plain [http.Client] that is
 // deliberately outside identity enforcement. [Transport.Base] is the
 // registry-facing RoundTripper the adapter may wrap with identityTransport.
 // Realm requests are issued with RealmClient.Do and never through
-// Base.RoundTrip, so a compressing token realm keeps working while identity
-// is enforced on manifest and blob GETs.
+// Base.RoundTrip, so a compressing token realm keeps working while identity is
+// enforced on manifest and blob GETs.
 //
 // # Off-origin stripping
 //

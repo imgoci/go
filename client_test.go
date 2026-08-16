@@ -96,18 +96,11 @@ func TestNewIgnoresNilOption(t *testing.T) {
 	}
 }
 
-// TestNewReadsTheDockerConfiguration pins where a credential source is built
-// and what it costs to build a broken one.
+// TestNewReadsTheDockerConfiguration pins that [WithDockerCredentials] is
+// applied at [New]: a missing config is anonymous, a malformed config fails
+// construction, and without the option DOCKER_CONFIG is not read.
 //
-// [New] returns an error for a caller who asked for the credentials a login
-// stored, so the configuration is read while a client is being built rather
-// than in the middle of a transfer. A file nobody wrote is not a failure —
-// that is a machine nobody has logged in on — and a file that is not a
-// configuration is, because the alternative is transferring without the
-// credentials the caller asked for and failing somewhere that does not
-// mention them.
-//
-// It runs sequentially: DOCKER_CONFIG belongs to the process, not to the test.
+// Sequential: DOCKER_CONFIG belongs to the process, not to the test.
 func TestNewReadsTheDockerConfiguration(t *testing.T) {
 	t.Run("a directory holding no configuration is the anonymous machine", func(t *testing.T) {
 		assertMissingDockerConfigIsAnonymous(t)
@@ -122,10 +115,9 @@ func TestNewReadsTheDockerConfiguration(t *testing.T) {
 	})
 }
 
-// TestNewWithDockerCredentialsOnAMachineWithNoHome pins the zero-config
-// contract for the environment a scratch container has: no $DOCKER_CONFIG and
-// no home directory is a machine with no configuration, which is the
-// anonymous case rather than an error — a public pull must not need a home.
+// TestNewWithDockerCredentialsOnAMachineWithNoHome pins that a scratch
+// container with no $DOCKER_CONFIG and no home is anonymous, not an error: a
+// public pull must not need a home.
 func TestNewWithDockerCredentialsOnAMachineWithNoHome(t *testing.T) {
 	t.Setenv("DOCKER_CONFIG", "")
 	t.Setenv("HOME", "")
@@ -256,8 +248,8 @@ func TestPortsForStaticCredentialsStayNonblocking(t *testing.T) {
 }
 
 // blockingCredentials waits for the lookup context to end, then returns that
-// cancellation. It is how the construction-path cancellation row proves the
-// caller context reached the credential source.
+// cancellation, so cancelled adapter construction proves the caller context
+// reached the credential source.
 type blockingCredentials struct{}
 
 func (blockingCredentials) Credential(ctx context.Context, _ string) (auth.Credential, error) {
@@ -283,9 +275,9 @@ func storeWithAuths(t *testing.T, entry string) *auth.Store {
 	return store
 }
 
-// assertMissingDockerConfigIsAnonymous requires that WithDockerCredentials on
-// a directory holding no configuration still builds a client whose store
-// answers anonymously.
+// assertMissingDockerConfigIsAnonymous requires that WithDockerCredentials on a
+// directory holding no configuration still builds a client whose store resolves
+// empty credentials.
 func assertMissingDockerConfigIsAnonymous(t *testing.T) {
 	t.Helper()
 

@@ -79,23 +79,22 @@ type adapterFactory func(ctx context.Context, host, repository string, settings 
 
 // Option configures a [Client] as [New] builds it.
 //
-// The function signature names a type this package keeps to itself, which
-// seals the set: the only Options that exist are the ones declared here, so
-// [New] can never be handed a knob the client does not know how to honor.
+// The function signature names a type this package keeps to itself, which seals
+// the set: the only Options that exist are the ones declared here, so [New]
+// cannot be handed a knob it does not honor.
 type Option func(*clientSettings)
 
 // New returns a client configured by opts.
 //
-// It reports an error when an option cannot be applied, which today is one
-// case: [WithDockerCredentials] records the intent to use the credentials
-// `docker login` stores, and this is where they are read. A configuration file
-// that is not there — or a machine that cannot even name where one would be,
-// with no home directory and no $DOCKER_CONFIG — is not an error: that is a
-// machine nobody has logged in on, and every registry resolves to the
-// anonymous credential. A file that exists but cannot be read as a
-// configuration is, because a caller who asked this client to use their
-// credentials would otherwise watch it transfer without them and fail
-// somewhere less obvious.
+// It reports an error when an option cannot be applied: [WithDockerCredentials]
+// records the intent to use the credentials `docker login` stores, and this is
+// where they are read. A configuration file that is not there — or a machine
+// that cannot even name where one would be, with no home directory and no
+// $DOCKER_CONFIG — is not an error: that is a machine nobody has logged in on,
+// and every registry resolves to the anonymous credential. A file that exists
+// but cannot be read as a configuration is, because a caller who asked this
+// client to use their credentials would otherwise watch it transfer without
+// them and fail somewhere less obvious.
 //
 // A client built with no credential option is not a client with
 // authentication turned off. A registry that asks for a token still gets the
@@ -140,9 +139,8 @@ func WithHTTPClient(client *http.Client) Option {
 
 // WithPlainHTTP talks http:// to the registry instead of https://.
 //
-// Everything a transfer sends rides unencrypted under it, credentials and
-// token exchanges included, which is one more reason it is for local
-// registries only.
+// Everything a transfer sends rides unencrypted under it, credentials and token
+// exchanges included. It is for local registries only.
 func WithPlainHTTP() Option {
 	return func(s *clientSettings) {
 		s.plainHTTP = true
@@ -184,9 +182,8 @@ func WithDockerCredentials() Option {
 // is run. secret is a password, or — at most registries today — a personal
 // access token.
 //
-// Every registry is the deliberate part. The credential goes to whatever
-// host the reference names, so the caller, who chose both the secret and the
-// reference, is the one deciding who sees it.
+// The credential goes to whatever host the reference names, so the caller, who
+// chose both the secret and the reference, is the one deciding who sees it.
 // [WithDockerCredentials] is the other shape: it answers only for the hosts a
 // login was stored under.
 //
@@ -219,10 +216,7 @@ func WithUnverifiedExternalTransport() Option {
 // Capabilities reports what this built client can retrieve conformingly.
 //
 // The set is the standard file-manifest type plus
-// application/vnd.bigoci.file.v1. BigOCI is advertised because the pinned
-// bigoci version (v0.2.0) passes the slice-5 interop suite
-// (ARCHITECTURE.md §6.4). The e2e wave validates those fixtures before
-// this capability flip ships.
+// application/vnd.bigoci.file.v1.
 func (c *Client) Capabilities() Capabilities {
 	return Capabilities{types: []string{standardFileMediaType, bigociFileMediaType}}
 }
@@ -290,8 +284,7 @@ func defaultAdapter(ctx context.Context, host, repository string, settings clien
 
 // multipartConfig maps client settings onto [multipart.Config] the same way
 // [defaultAdapter] maps them onto [registry.Config]: HTTP client, plain HTTP,
-// and credentials. The unverified-external-transport option is never
-// forwarded (ARCHITECTURE.md §6.6.3).
+// and credentials. The unverified-external-transport option is never forwarded.
 //
 // ctx is the operation's caller context, so a cancelled or expired transfer
 // interrupts a credential helper instead of waiting out the auth lookup cap.

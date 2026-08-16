@@ -102,7 +102,6 @@ func TestIsTransient(t *testing.T) {
 	}
 }
 
-// assertIsTransient checks [IsTransient] against wantAfter and wantOK.
 func assertIsTransient(t *testing.T, err error, wantAfter time.Duration, wantOK bool) {
 	t.Helper()
 	gotAfter, ok := IsTransient(err)
@@ -175,13 +174,10 @@ type probeError struct {
 	wraps error
 }
 
-// Error renders the probe and the sentinel under it.
 func (p *probeError) Error() string {
 	return "probe: " + p.wraps.Error()
 }
 
-// Unwrap exposes the sentinel, so a tag placed over the probe does not hide
-// it.
 func (p *probeError) Unwrap() error {
 	return p.wraps
 }
@@ -197,22 +193,18 @@ type blobRetryableError struct {
 	retry bool
 }
 
-// Error renders the underlying failure.
 func (e *blobRetryableError) Error() string {
 	return e.err.Error()
 }
 
-// Unwrap exposes the underlying failure.
 func (e *blobRetryableError) Unwrap() error {
 	return e.err
 }
 
-// Retryable reports whether a fresh operation may succeed.
 func (e *blobRetryableError) Retryable() bool {
 	return e.retry
 }
 
-// RetryAfter returns the peer-requested wait.
 func (e *blobRetryableError) RetryAfter() time.Duration {
 	return e.after
 }
@@ -225,12 +217,10 @@ type retryableFlagError struct {
 	retry bool
 }
 
-// Error renders the underlying failure.
 func (e retryableFlagError) Error() string {
 	return e.err.Error()
 }
 
-// Retryable reports whether a fresh operation may succeed.
 func (e retryableFlagError) Retryable() bool {
 	return e.retry
 }

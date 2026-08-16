@@ -40,14 +40,12 @@ const (
 //
 // When pathScoped is true, only GET and HEAD of /v2/…/manifests/… and
 // /v2/…/blobs/… are enforced. Token realms, the /v2/ ping, blob-upload
-// sessions, and any other URL pass through untouched. That scoping is the
-// registry-transport rule for go-oci-blob (ARCHITECTURE.md §6.6.1): identity
-// is a property of stored manifest and blob bytes, not of every HTTP
-// conversation the adapter happens to have.
+// sessions, and any other URL pass through untouched. Identity is a property of
+// stored manifest and blob bytes, not of every HTTP conversation the adapter
+// happens to have.
 //
-// When pathScoped is false, every request is enforced. The manifest client
-// uses that so a 302 onto an off-path URL is still identity-coded. The
-// storage-transport rule is the same (ARCHITECTURE.md §6.6.2): go-oci-blob's
+// When pathScoped is false, every request is enforced. The manifest client uses
+// that so a 302 onto an off-path URL is still identity-coded. go-oci-blob's
 // off-origin client carries only redirected blob traffic, so "external means
 // blob" is true and a path filter would miss object-store URLs.
 type identityTransport struct {
@@ -98,7 +96,7 @@ func (t *identityTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return resp, nil
 }
 
-// next is the base RoundTripper, or [http.DefaultTransport] when Base is nil.
+// next is the base RoundTripper, or [http.DefaultTransport] when base is nil.
 func (t *identityTransport) next() http.RoundTripper {
 	if t.base != nil {
 		return t.base

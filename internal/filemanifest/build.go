@@ -101,8 +101,8 @@ func BuildStandard(in BuildInput) ([]byte, error) {
 	})
 }
 
-// copyAnnotations copies annotation keys and values after a UTF-8 check.
-// The input must be non-empty; BuildStandard omits the member for empty maps.
+// copyAnnotations copies annotation keys and values after a UTF-8 check. The
+// input must be non-empty; [BuildStandard] omits the member for empty maps.
 func copyAnnotations(in map[string]string) (map[string]string, error) {
 	out := make(map[string]string, len(in))
 	for k, val := range in {

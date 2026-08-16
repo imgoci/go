@@ -79,7 +79,7 @@ type wireDescriptor struct {
 //
 // Descriptors are sorted by the five-field UTF-8 byte-order tuple and encoded
 // with [jcs.Encode]. The result is intended to pass [Decode], [Validate], and
-// [VerifyCanonical].
+// [VerifyCanonical]; Build does not re-check that itself.
 func Build(m *Model) ([]byte, error) {
 	if m == nil {
 		return nil, errors.New("model is nil")

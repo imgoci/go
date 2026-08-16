@@ -28,7 +28,7 @@
 // does not probe; it is idempotent and does not substitute for reading to
 // EOF.
 //
-// # Spike outcomes (PR4.1 / ARCHITECTURE.md §9.2)
+// # Upstream decoder behavior
 //
 // ulikunitz/xz v0.5.16 default NewReader concatenates streams and consumes
 // 4-byte stream padding. ReaderConfig.SingleStream rejects padding,

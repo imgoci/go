@@ -27,8 +27,8 @@ const (
 )
 
 // TestRegistryPublishListResolveFetch drives the four commands against a real
-// local registry and is the one path that proves argument parsing, the library
-// calls, and the stream contract together.
+// local registry and covers argument parsing, library calls, and the stream
+// contract together.
 func TestRegistryPublishListResolveFetch(t *testing.T) {
 	t.Parallel()
 

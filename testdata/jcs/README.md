@@ -16,7 +16,7 @@ cases (`true.json`, `false.json`, `null.json`, `simpleString.json`).
 | `values.json` | cyberphone (= RFC 8785 §3.2.2 sample) | number canonicalization including `1E30` / `4.50` / `2e-3` / `1e-27`, literal array, escape minimization |
 | `weird.json` | cyberphone (RFC 8785 §3.2.3 key-sort, plus extras) | UTF-16 code-unit key sort, including `\r`, `\u0080`, euro, emoji surrogate pair, U+FB33 |
 | `rfc8785-sorting.json` | reconstructed from RFC 8785 §3.2.3 | the exact appendix/section sorting example without cyberphone's extra keys |
-| `rfc8785-exponent-1e2.json` | reconstructed from RFC 8785 §3.2.2 / ARCHITECTURE.md §6.2 | `1e2` → `100` |
+| `rfc8785-exponent-1e2.json` | reconstructed from RFC 8785 §3.2.2 | `1e2` → `100` |
 | `unicode.json` | cyberphone | unnormalized combining mark preserved as-is |
 | `arrays.json`, `structures.json`, `french.json` | cyberphone | nested objects/arrays, locale-independent sort |
 | `true.json`, `false.json`, `null.json`, `simpleString.json` | gowebpki v1.0.1 | top-level literals and strings |

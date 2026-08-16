@@ -57,10 +57,10 @@ echo '{"ServerURL":"","Username":"` + helperUser + `","Secret":"` + helperSecret
 // wedgedHelperScript is a credential helper that never answers. It records
 // that it started and then sleeps for longer than any test would wait.
 //
-// The sleep replaces the shell rather than running under it, so the one
-// process the lookup knows about is the one holding its output open: a
-// grandchild left behind would keep the pipe open after its parent was killed
-// and the lookup would wait for the sleep it was meant to escape.
+// The sleep replaces the shell rather than running under it, so the one process
+// the lookup waits on is the one holding its output open: a grandchild left
+// behind would keep the pipe open after its parent was killed and the lookup
+// would wait for the sleep it was meant to escape.
 const wedgedHelperScript = `#!/bin/sh
 PATH=/usr/bin:/bin
 export PATH

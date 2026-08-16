@@ -15,10 +15,9 @@ import (
 // identity-wrapped manifest client as [Client.Get]; Accept-Encoding on the
 // request is about the response body, not the bytes being stored.
 //
-// Success is 201 Created. 200 and 202 are also accepted: the e2e seeder
-// observes zot and registry:2 answering 201 or 200, and 202 is OCI
-// distribution-spec tolerance. 401 and 403 wrap
-// [transfer.ErrUnauthorized]. 404 wraps [transfer.ErrNotFound]. 429 and
+// Success is 201 Created. 200 and 202 are also accepted: zot and registry:2
+// answer 201 or 200, and 202 is OCI distribution-spec tolerance. 401 and 403
+// wrap [transfer.ErrUnauthorized]. 404 wraps [transfer.ErrNotFound]. 429 and
 // 5xx are tagged transient and retried under [retry.Do] with the client's
 // policy. Each attempt uses a fresh [bytes.NewReader] so the body is
 // replayable.

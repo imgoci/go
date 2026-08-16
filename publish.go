@@ -39,7 +39,7 @@ type FileSpec struct {
 	// Publish; see [FromFile].
 	Source Source
 	// Selector is the five-field identity. Compression declares what Source
-	// already is; v1 does not compress on the caller's behalf.
+	// already is; the library does not compress on the caller's behalf.
 	Selector Selector
 	// Filename is io.imgoci.filename.
 	Filename string
@@ -74,30 +74,27 @@ type publishSettings struct {
 	workers int
 	// workersSet reports whether [WithWorkers] was named.
 	workersSet bool
-	// progress receives absolute snapshots, nil when nobody is watching.
+	// progress receives absolute snapshots, nil when omitted.
 	progress func(Progress)
 }
 
 // Publish publishes spec as a standard-form imgoci release at ref and
 // returns the canonical index digest.
 //
-// Step 0 is the reference contract, before any I/O: Publish is tag-only.
-// Digest-only is rejected because nothing would name the index.
-// Tag+digest is rejected because it is a read binding with no defined write
-// meaning; silently dropping the digest would be worse. Name-only (no tag)
-// is rejected for the same reason as digest-only: there is no tag to PUT.
-// An optimistic "publish only if the tag still points at X" precondition is
-// a possible future feature, not smuggled into v1.
+// Publish is tag-only. Digest-only is rejected because nothing would name the
+// index. Tag+digest is rejected because it is a read binding with no defined
+// write meaning; silently dropping the digest would be worse. Name-only (no
+// tag) is rejected for the same reason as digest-only: there is no tag to PUT.
+// These checks run before any I/O.
 //
-// Step 1 validates the spec against producer rules 1–8 before network:
-// non-empty Name/Version, UTF-8 of every caller string, reserved io.imgoci.*
-// keys, selector and filename grammar, duplicate five-tuples, required
-// representation roles, incus-vm→incus, filename collisions, and shared-
-// source consistency. Content digest/size/filename annotations are computed
-// from Source; two FileSpecs naming the same Source path cannot carry
-// different content annotations in v1 because callers cannot supply those
-// annotations. MultipartSpec.PartSize must be >= 0; negative is
-// [ErrInvalidSpec].
+// The spec is validated against producer rules 1–8 before network: non-empty
+// Name/Version, UTF-8 of every caller string, reserved io.imgoci.* keys,
+// selector and filename grammar, duplicate five-tuples, required representation
+// roles, incus-vm→incus, filename collisions, and shared- source consistency.
+// Content digest/size/filename annotations are computed from Source; two
+// FileSpecs naming the same Source path cannot carry different content
+// annotations because callers cannot supply those annotations.
+// MultipartSpec.PartSize must be >= 0; negative is [ErrInvalidSpec].
 func (c *Client) Publish(
 	ctx context.Context,
 	ref Reference,

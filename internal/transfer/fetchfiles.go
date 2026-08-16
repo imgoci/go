@@ -75,29 +75,20 @@ type FetchFilesRequest struct {
 
 // FetchFiles retrieves and verifies every entry, then commits destinations.
 //
-// Spec §5.3 (standard) and §5.4 (BigOCI): [file.NewPlan] runs first so an
-// invalid ByRole produces zero registry Get calls. Each entry GETs the
-// manifest by digest and checks digest/size/Content-Type. Form is the
-// entry's ArtifactType compared with [index.EqualMediaType] against
-// [index.ArtifactTypeBigOCI] (that field is the capability type Resolve
-// classified).
+// Spec §8: [file.NewPlan] runs first so an invalid ByRole produces zero
+// registry Get calls. Each entry GETs the manifest by digest and checks
+// digest, size, and Content-Type. Form is the entry's ArtifactType compared
+// with [index.EqualMediaType] against [index.ArtifactTypeBigOCI].
 //
-// Standard: [filemanifest.ValidateStandard], mediaType/artifactType identity,
-// compression "none" precheck, then blob Pull through
-// [decomp.NewBoundedReader] and [decomp.Decoder] into
-// [decomp.NewCountingHashWriter] wrapping the staged file.
-//
-// BigOCI: [filemanifest.ValidateBigOCI], mediaType/artifactType identity,
-// compression "none" precheck (profile FileDigest/FileSize must equal the
-// entry ContentDigest/ContentSize), [file.NewStoredCache] on the role's
-// staging parent, then [file.StoredCache.With] keyed by io.bigoci.file.digest.
-// Fetch is [Multipart.PullTo]; use is one read of the stored file hashing
-// raw bytes (digest and size) while feeding [decomp.Decoder] into the staged
-// output with a content digest/size ceiling. BigOCI WireBytes and Retries
-// merge into the same serialized stream as the standard path, latest-
-// absolute per transfer. Cache entries are removed best-effort
-// after a successful commit (ARCHITECTURE.md §9.6 retention fallback) and
-// retained on any failure.
+// Standard entries Pull the layer through [decomp.NewBoundedReader] and
+// [decomp.Decoder] into a [decomp.CountingHashWriter] over staging. BigOCI
+// entries populate a [file.StoredCache] keyed by io.bigoci.file.digest, then
+// decode the stored file into staging. On both paths compression "none" is
+// prechecked: the manifest's stored digest and size must already equal the
+// entry ContentDigest and ContentSize. WireBytes and Retries from both paths
+// merge into one serialized stream, latest-absolute per transfer. Cache
+// entries are removed best-effort after a successful commit and retained on
+// any failure.
 //
 // Commit runs only when every role verified, in input entry order. Any
 // failure before commit cancels outstanding work, commits nothing, and
@@ -157,16 +148,15 @@ func FetchFiles(ctx context.Context, req FetchFilesRequest) error {
 	if err := plan.Commit(order); err != nil {
 		return err
 	}
-	// Post-commit cache removal is best-effort (ARCHITECTURE.md §9.6
-	// retention fallback). A held lock or canceled ctx must not fail a
-	// committed fetch; the terminal snapshot always fires.
+	// Post-commit cache removal is best-effort. A held lock or canceled ctx must
+	// not fail a committed fetch; the terminal snapshot always fires.
 	_ = caches.remove(ctx)
 	progress.finish()
 	return nil
 }
 
-// firstFailure holds the first worker error. A later non-context error
-// replaces a [context.Canceled] or [context.DeadlineExceeded] placeholder so a
+// firstFailure holds the first worker error. A later non-context error replaces
+// a [context.Canceled] or [context.DeadlineExceeded] already in the slot so a
 // verification failure is not lost to cancellation racing into the slot.
 type firstFailure struct {
 	// mu guards err.
@@ -320,8 +310,8 @@ func bigOCIEntry(entry Entry) bool {
 	return index.EqualMediaType(entry.ArtifactType, index.ArtifactTypeBigOCI)
 }
 
-// fetchStandard is ARCHITECTURE.md §5.3: validate the standard file
-// manifest, precheck compression "none", and stream the layer into staging.
+// fetchStandard validates the standard file manifest, prechecks compression
+// "none", and streams the layer into staging.
 func fetchStandard(
 	ctx context.Context,
 	req FetchFilesRequest,
@@ -349,8 +339,10 @@ func fetchStandard(
 	return nil
 }
 
-// fetchBigOCI is ARCHITECTURE.md §5.4: profile-read the retrieved manifest,
-// populate the stored cache, and decode the stored file into staging.
+// fetchBigOCI profile-reads the retrieved manifest, populates the stored cache,
+// and decodes the stored file into staging. For compression "none" the profile
+// FileDigest and FileSize must equal the entry ContentDigest and ContentSize;
+// a mismatch wraps [ErrDigestMismatch].
 func fetchBigOCI(
 	ctx context.Context,
 	req FetchFilesRequest,

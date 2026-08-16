@@ -45,7 +45,7 @@ func TestDecoderUnsupported(t *testing.T) {
 				t.Fatalf("error %q does not contain %q", err, tt.wantDetail)
 			}
 			if strings.Contains(err.Error(), "not supported in this build") {
-				t.Fatalf("error %q must not contain later-slice wording", err)
+				t.Fatalf("error %q must not claim the decoder is missing from this build", err)
 			}
 		})
 	}

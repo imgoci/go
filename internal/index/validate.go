@@ -598,7 +598,7 @@ func formatSelector(s Selector) string {
 	return strings.Join([]string{s.Architecture, s.Target, s.Representation, s.Role, s.Compression}, ", ")
 }
 
-// ErrRule is the sentinel [ruleError] wraps so callers can match spec §6
+// ErrRule is the sentinel wrapped by [ruleError] so callers can match spec §6
 // rule failures with [errors.Is] without depending on error text.
 var ErrRule = errors.New("spec rule")
 

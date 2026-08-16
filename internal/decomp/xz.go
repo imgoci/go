@@ -115,14 +115,11 @@ func openXZ(r io.Reader) (io.ReadCloser, error) {
 	return &xzReader{br: br, src: src, zr: zr}, nil
 }
 
-// Read decompressed bytes from the single xz stream.
-//
-// When the library reports [io.EOF], Read requires the compressed stream to
-// have ended with a Stream Footer (see [xzSource.checkFooter]) and then peeks
-// [xzReader.br] for any further byte. Concatenated streams, stream padding,
-// a missing Index+Footer, or any trailing byte fail wrapping [ErrDecode]. A
-// consumer that reaches [io.EOF] therefore has the single-stream-no-trailing
-// guarantee. Subsequent Reads return the sticky error.
+// Read decompressed bytes from the single xz stream. On library [io.EOF], the
+// compressed tail must be a Stream Footer ([xzSource.checkFooter]) and
+// [xzReader.br] must have no further byte. Concatenated streams, padding, a
+// missing Index+Footer, or a trailing byte fail wrapping [ErrDecode].
+// Subsequent Reads return the sticky error.
 func (x *xzReader) Read(p []byte) (int, error) {
 	if x.err != nil {
 		return 0, x.err
@@ -200,7 +197,7 @@ func (s *xzSource) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// push records p into the 12-byte tail ring.
+// push records p into the Stream Footer tail ring.
 func (s *xzSource) push(p []byte) {
 	s.total += int64(len(p))
 	if len(p) >= xzFooterLen {

@@ -91,16 +91,14 @@ const (
 )
 
 const (
-	// resultPrecision is how finely a success line reports how long a transfer
-	// took. Tenths of a second is all a human reads off it.
+	// resultPrecision is how finely a success line reports elapsed time.
 	resultPrecision = 100 * time.Millisecond
 	// defaultWorkers is the library orchestrator default named in help text.
 	defaultWorkers = 4
 	// versionLine is what "imgoci version" writes. The CLI is unreleased, so
 	// the line names the tool rather than a version number.
 	versionLine = "imgoci (private reference CLI)\n"
-	// twoOperands is how many operands fetch and publish take: a source and
-	// a destination.
+	// twoOperands is the operand count fetch and publish take.
 	twoOperands = 2
 )
 
@@ -109,11 +107,8 @@ const (
 // the process leaves with zero.
 var errHelp = errors.New("help requested")
 
-// env is the process environment one run reads and writes.
-//
-// Injecting it is what makes the whole CLI testable in process: a test hands
-// run arguments and two buffers and reads back the exact bytes the real
-// program would have written.
+// env is the process environment one run reads and writes. Tests inject
+// arguments and buffers and read back the bytes the real program would write.
 type env struct {
 	// args are the command line arguments after the program name.
 	args []string
@@ -122,18 +117,15 @@ type env struct {
 	stdout io.Writer
 	// stderr receives everything else, including progress.
 	stderr io.Writer
-	// ticks, when set, replaces the ticker a -progress run would build, so a
-	// test decides exactly when a progress line is rendered and how many are.
-	// A real run leaves it nil and gets a [time.Ticker].
+	// ticks, when set, replaces the -progress ticker so a test decides when lines
+	// render. A real run leaves it nil and gets a [time.Ticker].
 	ticks <-chan time.Time
-	// now, when set, replaces the clock the progress line's elapsed column is
-	// read off, so a rendered line can be asserted byte for byte. A real run
-	// leaves it nil and gets [time.Now].
+	// now, when set, replaces the elapsed-column clock so a rendered line can be
+	// asserted byte for byte. A real run leaves it nil and gets [time.Now].
 	now func() time.Time
 }
 
-// clock returns the clock a run reads: the injected one where a test supplied
-// it, and the real one otherwise.
+// clock returns the injected clock, or [time.Now] when none was supplied.
 func (e env) clock() func() time.Time {
 	if e.now != nil {
 		return e.now
@@ -217,15 +209,10 @@ func runVersion(e env, args []string) error {
 	return nil
 }
 
-// reportError writes the two-line failure presentation on standard error and
-// returns the exit code the failure maps to.
-//
-// The first line preserves the library's printable error text and visibly
-// escapes non-graphic runes so a peer cannot add log records or terminal
-// controls. The second takes one of three documented forms: the sentinel
-// [errors.Is] matched, the statement that none did, or the signal that stopped
-// the run. It prints whatever the failure was: it is how a shell script watches
-// the library's error classification work.
+// reportError writes the two-line failure on stderr and returns the mapped exit
+// code. The first line is the library error with non-graphic runes escaped; the
+// second is the matched sentinel, "no sentinel matched", or the stopping
+// signal.
 func reportError(e env, err error, sig *interrupts) int {
 	fmt.Fprintf(e.stderr, "imgoci: %s\n", terminalSafeLine(err.Error()))
 
@@ -236,9 +223,8 @@ func reportError(e env, err error, sig *interrupts) int {
 		return exitUsage
 	}
 
-	// A recorded signal outranks the error's shape: whatever the cancellation
-	// surfaced as — context.Canceled, a closed file, a reset socket — the run
-	// stopped because it was told to, and the shell convention says so.
+	// A recorded signal outranks the error's shape: cancellation may surface as
+	// context.Canceled, a closed file, or a reset socket.
 	if code, stopped := sig.exitStatus(); stopped {
 		fmt.Fprintf(e.stderr, "imgoci: %s (exit %d)\n", stopDescription(code), code)
 
@@ -290,12 +276,9 @@ func terminalSafeLine(value string) string {
 	return b.String()
 }
 
-// sentinelExits is the table that turns a failure into an exit code, checked
-// with [errors.Is] in order, first match winning.
-//
-// It is built here rather than declared once because the package keeps no
-// global state. Every sentinel the library exports has a row here, 3 through
-// 11 with no gaps; nothing is held in reserve.
+// sentinelExits is the table that maps a failure to an exit code, checked with
+// [errors.Is] in order, first match winning. Every library sentinel has a row,
+// 3 through 11 with no gaps.
 func sentinelExits() []sentinelExit {
 	return []sentinelExit{
 		{err: imgoci.ErrNotFound, code: exitNotFound, name: "imgoci.ErrNotFound"},
@@ -310,13 +293,9 @@ func sentinelExits() []sentinelExit {
 	}
 }
 
-// newClient builds the library client the shared flags describe.
-//
-// The Docker credentials are always on and there is no flag for them. This is
-// the command every other registry tool's users already know: log in with
-// `docker login`, then run the tool. A test that needs a run with no
-// credentials points DOCKER_CONFIG at an empty directory — which is what the
-// library's own gates do.
+// newClient builds the library client the shared flags describe. Docker
+// credentials are always on; a test that needs anonymity points DOCKER_CONFIG
+// at an empty directory.
 func newClient(c commonFlags) (*imgoci.Client, error) {
 	opts := []imgoci.Option{imgoci.WithDockerCredentials()}
 	if c.plainHTTP {
@@ -326,12 +305,9 @@ func newClient(c commonFlags) (*imgoci.Client, error) {
 	return imgoci.New(opts...)
 }
 
-// withDeadline runs one transfer under the deadline "-timeout" asked for, and
-// labels a deadline that expired so the failure line says the run ran out of
-// time rather than only that its context ended.
-//
-// A limit of zero means no deadline at all, which is what an unset flag leaves
-// behind: the CLI adds no bound the caller did not ask for.
+// withDeadline runs transfer under the -timeout deadline. A limit of zero adds
+// no deadline. An expired deadline is labeled so the failure line reports
+// running out of time, not only that the context ended.
 func withDeadline(ctx context.Context, limit time.Duration, transfer func(context.Context) error) error {
 	if limit <= 0 {
 		return transfer(ctx)
@@ -348,11 +324,9 @@ func withDeadline(ctx context.Context, limit time.Duration, transfer func(contex
 	return err
 }
 
-// setFlagNames returns the names of the flags the command line actually set.
-//
-// [flag.FlagSet.Visit] walks only those, which is the whole mechanism behind
-// the CLI's rule that unset means absent: a flag left alone contributes no
-// option, so the library's own default applies and the CLI never restates it.
+// setFlagNames returns the flags the command line actually set.
+// [flag.FlagSet.Visit] walks only those: an unset flag contributes no option,
+// so the library default applies.
 func setFlagNames(fs *flag.FlagSet) map[string]bool {
 	set := make(map[string]bool)
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
@@ -407,11 +381,9 @@ Print the CLI identity line on standard output.
 `
 }
 
-// newFlagSet builds the flag set for one subcommand.
-//
-// It writes nowhere: every byte this CLI emits goes through the injected
-// writers, so the standard library's own error and usage printing is discarded
-// and the errors it returns are reported by the CLI instead.
+// newFlagSet builds the flag set for one subcommand. Stdlib error and usage
+// printing is discarded; the CLI reports those errors through the injected
+// writers.
 func newFlagSet(name string) *flag.FlagSet {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
@@ -433,8 +405,7 @@ type sentinelExit struct {
 
 // usageError reports a command line the CLI refused to run: an unknown flag, a
 // value it could not parse, the wrong number of operands, a missing required
-// filter. It exits 2 and prints the offending command's usage block, so the
-// fix is on screen beside the complaint.
+// filter. It exits 2 and prints the offending command's usage block.
 type usageError struct {
 	// message is the complaint, written on its own line after the prefix.
 	message string
@@ -443,16 +414,13 @@ type usageError struct {
 }
 
 // Error returns the complaint. The usage block is presentation and stays out of
-// it, so a caller that wraps this error does not drag a screen of text along.
+// the error string.
 func (e *usageError) Error() string {
 	return e.message
 }
 
-// timeoutError reports that the deadline "-timeout" asked for expired before
-// the transfer finished.
-//
-// It wraps the error the transfer returned, so [errors.Is] still answers for
-// the whole chain and the sentinel table still sees whatever was underneath.
+// timeoutError reports that the -timeout deadline expired before the transfer
+// finished. It wraps the transfer error so [errors.Is] still matches the chain.
 type timeoutError struct {
 	// limit is the deadline the run was given.
 	limit time.Duration
@@ -460,8 +428,7 @@ type timeoutError struct {
 	err error
 }
 
-// Error names the deadline first, then repeats the transfer's own error, so the
-// failure line says why the run stopped as well as what it was doing.
+// Error names the deadline first, then the transfer error.
 func (e *timeoutError) Error() string {
 	return "timed out after " + e.limit.String() + ": " + e.err.Error()
 }
@@ -509,11 +476,9 @@ func (c *commonFlags) registerWorkers(fs *flag.FlagSet) {
 }
 
 // validate rejects shared flag values no command can run with. A negative
-// duration is the same mistake on either flag: someone typed a sign by
-// accident and should hear about it rather than watch a run go unbounded or
-// silent. An explicit zero stays what leaving the flag alone means — no
-// limit, and no progress lines. An explicit non-positive -workers is a
-// usage error: the library would only reject it after a network round trip.
+// -timeout or -progress is a usage error; an explicit zero means no limit and
+// no progress lines. A non-positive -workers is a usage error here because the
+// library would otherwise only reject it after a network round trip.
 func (c *commonFlags) validate(set map[string]bool, name, usage string) error {
 	if set[flagTimeout] && c.timeout < 0 {
 		return usageErrorf(usage, "%s: -timeout must not be negative, got %s", name, c.timeout)
@@ -528,8 +493,8 @@ func (c *commonFlags) validate(set map[string]bool, name, usage string) error {
 	return nil
 }
 
-// effectiveWorkers is the worker count the transfer will really run with: the
-// flag where it was set, the library's own default where it was not.
+// effectiveWorkers is the worker count the transfer will run with: the flag
+// where it was set, the library default where it was not.
 func (c *commonFlags) effectiveWorkers(set map[string]bool) int {
 	if set[flagWorkers] {
 		return c.workers
@@ -566,15 +531,13 @@ func (c *commonFlags) publishWorkerOptions(set map[string]bool) []imgoci.Publish
 	return []imgoci.PublishOption{imgoci.WithWorkers(c.workers)}
 }
 
-// command describes one subcommand's shape so the shared parser can name it in
-// every complaint it makes.
+// command is one subcommand's shape, used by the shared parser in complaints.
 type command struct {
-	// flags is the set that declares this command's flags.
+	// flags is this command's FlagSet.
 	flags *flag.FlagSet
-	// name is the word the caller typed.
+	// name is the subcommand word.
 	name string
-	// syntax is the operand list the command takes, spelled as the usage line
-	// spells it.
+	// syntax is the operand list as the usage line spells it.
 	syntax string
 	// usage is the block printed under a complaint about this command.
 	usage string
@@ -631,9 +594,8 @@ func operandWord(n int) string {
 	return fmt.Sprintf("%d operands", n)
 }
 
-// misplacedFlagError complains about a flag written after the operands, and
-// says where to move it. An operand that really does begin with a dash goes
-// after a "--", which is the standard escape the complaint teaches.
+// misplacedFlagError complains about a flag written after the operands and says
+// where to move it. A dash-leading operand belongs after "--".
 func (c command) misplacedFlagError(operands []string, bad int) error {
 	if bad == 0 {
 		return usageErrorf(
@@ -690,17 +652,13 @@ func (i *interrupts) exitStatus() (int, bool) {
 	}
 }
 
-// watchSignals installs the handler that turns the first interrupt into a
-// cancelled transfer and lets the second one kill the process outright.
+// watchSignals turns the first interrupt into a cancelled transfer and lets the
+// second kill the process. [signal.NotifyContext] keeps the signal registered
+// after the first delivery, so a second interrupt would be swallowed and a
+// wedged transfer unkillable. Resetting the disposition after the first
+// delivery restores the default action.
 //
-// The handler is written by hand rather than with [signal.NotifyContext]
-// because NotifyContext keeps the signal registered after the first delivery: a
-// second interrupt would be swallowed and a wedged transfer would be
-// unkillable. Resetting the disposition after the first delivery hands the
-// second one back to the default action.
-//
-// The handler never exits the process. It cancels, and the transfer unwinds on
-// its own.
+// The handler never exits the process; it cancels and the transfer unwinds.
 func watchSignals(cancel context.CancelFunc, stderr io.Writer) *interrupts {
 	sig := &interrupts{}
 	delivered := make(chan os.Signal, 1)
@@ -709,10 +667,9 @@ func watchSignals(cancel context.CancelFunc, stderr io.Writer) *interrupts {
 	go func() {
 		received := <-delivered
 
-		// Reset before anything that can block — cancel's bookkeeping, and
-		// above all the stderr write, which stalls for as long as a full pipe
-		// does. Until the disposition is back to the default, a second
-		// interrupt lands in a channel nobody reads and kills nothing.
+		// Reset before cancel or the stderr write: either can block, and until the
+		// default disposition is restored a second interrupt sits unread on the
+		// channel and kills nothing.
 		signal.Reset(os.Interrupt, syscall.SIGTERM)
 		sig.record(received)
 		cancel()
@@ -724,8 +681,7 @@ func watchSignals(cancel context.CancelFunc, stderr io.Writer) *interrupts {
 	return sig
 }
 
-// signalName renders a signal the way a shell names it, so the message and the
-// exit code read as one story.
+// signalName renders s as SIGINT or SIGTERM.
 func signalName(s os.Signal) string {
 	if s == syscall.SIGTERM {
 		return "SIGTERM"
@@ -745,13 +701,9 @@ func stopDescription(code int) string {
 }
 
 // misplacedFlag returns the index of the first operand that looks like a flag,
-// or -1 when none does.
-//
-// The standard flag package stops parsing at the first operand, so a flag
-// written after one silently becomes an operand. Silently ignoring a flag on
-// an instrument whose whole job is to show what happened is not acceptable, and
-// no operand this CLI takes — a spec path, a reference, a destination path —
-// begins with a dash unless the caller said so with "--".
+// or -1 when none does. [flag.FlagSet] stops at the first operand, so a flag
+// written after one becomes an operand. No operand this CLI takes begins with a
+// dash unless the caller wrote "--".
 func misplacedFlag(operands []string) int {
 	for i, operand := range operands {
 		if strings.HasPrefix(operand, "-") {
@@ -762,13 +714,9 @@ func misplacedFlag(operands []string) int {
 	return -1
 }
 
-// sawTerminator reports whether the parse that left narg operands behind got
-// them from after a "--" terminator.
-//
-// The terminator is the standard way to say the rest are operands whatever they
-// look like, and [flag.FlagSet.Parse] consumes it just before the operands it
-// returns. When the caller wrote one, the misplaced-flag guard stands down: a
-// dash-leading operand after "--" is exactly what the caller meant.
+// sawTerminator reports whether the narg operands came after a "--".
+// [flag.FlagSet.Parse] consumes the terminator just before the operands it
+// returns; when the caller wrote one, the misplaced-flag guard stands down.
 func sawTerminator(args []string, narg int) bool {
 	before := len(args) - narg - 1
 

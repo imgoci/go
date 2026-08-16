@@ -36,12 +36,9 @@ func openGzip(r io.Reader) (io.ReadCloser, error) {
 	return &gzipReader{br: br, zr: zr}, nil
 }
 
-// Read decompressed bytes from the single gzip member.
-//
-// When the member ends, Read peeks [gzipReader.br] for any further byte. A
-// second member or any trailing byte fails wrapping [ErrDecode]. A consumer
-// that reaches [io.EOF] therefore has the single-member-no-trailing
-// guarantee. Subsequent Reads return the sticky error.
+// Read decompressed bytes from the single gzip member. When the member ends, a
+// second member or any trailing byte in [gzipReader.br] fails wrapping
+// [ErrDecode]. Subsequent Reads return the sticky error.
 func (g *gzipReader) Read(p []byte) (int, error) {
 	if g.err != nil {
 		return 0, g.err

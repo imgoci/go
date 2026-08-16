@@ -10,7 +10,8 @@ import (
 //
 // It delegates to [jcs.Verify] with a generic JSON tree so unknown members
 // remain visible to the RFC 8785 transform. Callers that also need rules 1–9
-// must run [Decode] and [Validate] themselves; [VerifyCanonical] does not.
+// must run [Decode] and [Validate] themselves; [VerifyCanonical] does not apply
+// those rules.
 func VerifyCanonical(b []byte) error {
 	parsed, err := decodeJSON(b)
 	if err != nil {

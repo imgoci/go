@@ -25,7 +25,7 @@ type IndexBytes struct {
 	ContentType string
 }
 
-// FetchIndex performs spec §5.2 through hashing.
+// FetchIndex performs spec §7.1 through hashing.
 //
 // It GETs ref with Accept set to the release-index media type, requires the
 // returned Content-Type to identify that same type under

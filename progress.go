@@ -5,17 +5,16 @@ import "github.com/imgoci/go/internal/transfer"
 // Progress is an absolute snapshot of one [Client.FetchFiles] or
 // [Client.Publish] call.
 //
-// The fields match [transfer.Progress] one-for-one. Snapshots are serialized:
-// a mutex in the orchestrator orders every emit. TotalFiles and TotalBytes
-// are fixed up front (TotalBytes is the sum of ContentSize; on Publish they
-// are filled after pass 1). CompletedFiles, CompletedBytes, WireBytes,
-// Retries, and Fallbacks only increase. WireBytes is raw standard-path blob
-// bytes plus each BigOCI transfer's latest WireBytes. Retries is standard-
-// path attempts after the first plus each BigOCI transfer's latest Retries.
-// Repeated snapshots from one transfer replace that transfer's contribution;
-// they are never summed. Fallbacks counts unique blobs that requested
-// multipart publication and used the standard path because the part plan
-// was fewer than two parts.
+// Snapshots are serialized: a mutex in the orchestrator orders every emit.
+// TotalFiles and TotalBytes are fixed up front (TotalBytes is the sum of
+// ContentSize; on Publish they are filled after pass 1). CompletedFiles,
+// CompletedBytes, WireBytes, Retries, and Fallbacks only increase. WireBytes is
+// raw standard-path blob bytes plus each BigOCI transfer's latest WireBytes.
+// Retries is standard-path attempts after the first plus each BigOCI transfer's
+// latest Retries. Repeated snapshots from one transfer replace that transfer's
+// contribution; they are never summed. Fallbacks counts unique blobs that
+// requested multipart publication and used the standard path because the part
+// plan was fewer than two parts.
 //
 // Direction is "fetch" on the consumer path and "publish" on the producer
 // path. Fetch phases are "staging" then "commit". Publish phases are

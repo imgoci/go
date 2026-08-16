@@ -175,10 +175,9 @@ func TestZstdCorruptRejected(t *testing.T) {
 func TestZstdWindowBombRejected(t *testing.T) {
 	t.Parallel()
 
-	// 10-byte 512 MiB-window frame: magic 28B52FFD, FHD 00, WD 98,
-	// RLE last block 0B 00 00, one byte. Rejected at header inspect
-	// before a decoder (or 512 MiB window) is allocated. Memory is
-	// bounded by maxDecodeWindow (8 MiB), documented in doc.go.
+	// 10-byte 512 MiB-window frame: magic 28B52FFD, FHD 00, WD 98, RLE last block
+	// 0B 00 00, one byte. Rejected at header inspect before a decoder (or 512 MiB
+	// window) is allocated.
 	frame := []byte("\x28\xb5\x2f\xfd\x00\x98\x0b\x00\x00\x00")
 	_, err := Decoder(nameZstd)(bytes.NewReader(frame))
 	if !errors.Is(err, ErrDecode) {

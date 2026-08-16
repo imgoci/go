@@ -6,11 +6,11 @@
 // publishes it, and the local replace directive in its go.mod makes installing
 // it from a module proxy impossible on purpose.
 //
-// It is thin by rule. Transfer and selection flags map onto public library
+// It is a thin wrapper. Transfer and selection flags map onto public library
 // options or query fields. -timeout is not a library option: it is the CLI
-// command-context deadline. There is no transfer logic here, no retry,
-// resume, or authentication logic, and no interface of its own. Argument
-// dispatch uses the standard library [flag] package only.
+// command-context deadline. There is no transfer logic here, no retry, resume,
+// or authentication logic, and no interface of its own. Argument dispatch uses
+// the standard library [flag] package only.
 //
 // # Commands
 //
@@ -109,9 +109,8 @@
 // A failure always prints two lines. The first preserves the library's graphic
 // error text without re-wrapping or re-phrasing it, and visibly escapes every
 // non-graphic rune so peer-controlled detail cannot create another log record
-// or terminal control. The second is unconditional, because it is how a shell
-// script watches the library's error classification work, and it takes one of
-// three forms: the sentinel [errors.Is] matched and the code it maps to, the
+// or terminal control. The second is unconditional and takes one of three
+// forms: the sentinel [errors.Is] matched and the code it maps to, the
 // statement that none matched, or the signal that stopped the run, written
 // "interrupted by SIGINT (exit 130)" or "terminated by SIGTERM (exit 143)".
 //

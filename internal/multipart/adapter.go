@@ -15,10 +15,9 @@ import (
 
 // Config is the construction-time settings for the BigOCI adapter.
 type Config struct {
-	// HTTPClient is an optional injected client. Nil leaves bigoci to build
-	// its own default verified stack. A non-nil client is passed via
-	// [bigoci.WithHTTPClient], which implements the documented
-	// BigociExternalBase/BigociWrapExternal seam (ARCHITECTURE.md §6.6.3).
+	// HTTPClient is an optional injected client. Nil leaves bigoci to build its
+	// own default verified stack. A non-nil client is passed via
+	// [bigoci.WithHTTPClient].
 	HTTPClient *http.Client
 	// PlainHTTP selects http:// registry URLs instead of https://. Meant for
 	// local registries served without TLS.
