@@ -138,3 +138,91 @@ Process notes:
   phases. Port-8000 docs server stopped; no stray `imgoci-zot` container.
 
 Next: Phase 2 (core library contracts, `LIB-01`..`LIB-04`) on the user's go.
+
+## 2026-08-16 14:45 — Phase 2 executed
+
+Four `functional-tester` agents, one scenario each, at the cap: `LIB01Tester`,
+`LIB02Tester`, `LIB03Tester`, `LIB04Tester`. Per-scenario throwaway modules
+(`$FT/consumer-lib0{1..4}`), registry prefixes (`ft/core`, `ft/progress`), and
+counting-shim ports (5110, 5111) to keep four concurrent runs from racing.
+
+Verdicts: **`LIB-01` PASS, `LIB-02` PASS, `LIB-03` PASS, `LIB-04` PASS. No
+blockers, no new findings. Phase 2 stop rule not triggered.**
+
+- `LIB-01` (34+8 assertions, 0 failures). Export set matches the inventory with
+  zero delta: 22 types, 15 functions, 16 methods, 9 sentinels; `Option` is a
+  func type, `FetchOption`/`PublishOption` are sealed interfaces. Every exported
+  symbol and every exported struct field carries godoc (D1) — mechanical scan
+  found zero undocumented fields. Identity proof: `Index.Digest()` ==
+  `sha256:e475b1ed…` == stdlib `sha256.Sum256(raw)` of the exact 870 input bytes;
+  the re-indented copy of the same JSON value hashes differently and
+  `ParseIndex` rejects it with `invalid index: spec §6 rule 10: jcs: input is
+  not RFC 8785 canonical` matching `ErrInvalidIndex`. All accessors copy on
+  return; two independent parses are equal by digest, distinct by pointer.
+- `LIB-02` (99 cases, 259 assertions, 0 failures, fully offline). Three-level
+  sort order, capability-independent `List`, empty no-match with nil error,
+  default roles (`incus-vm` → `disk,metadata`; `linux-netboot-complete` → all;
+  unknown representation → all), and the documented precedence all hold. 33
+  error-producing cases carry a full nine-sentinel matrix: exactly four rows
+  have any sentinel true, all four `ErrUnsupportedType` from capability
+  exhaustion; every other failure (no deliverable, absent role, no accepted
+  compression, `NewCapabilities` rejections) is deliberately unclassified. No
+  failure returned a partial `Resolved` — selection pointer nil in every case.
+  The Unicode trap was proven *both* ways: `strings.EqualFold` does fold U+017F→s
+  and U+212A→k (so the ban is load-bearing), while `EqualMediaType` rejects both
+  look-alikes.
+- `LIB-03` (real registry round trip through a counting shim on 5110). Publish
+  returned `sha256:a80e4cb6…`; tag fetch and `ft/core@<digest>` fetch both agree;
+  entry content digests equal the source hashes (262144 / 393216 bytes). `ToDir`
+  and both `ToFiles` parents produced byte-identical files (`cmp` + sha256), all
+  outputs mode `0600`, and the unrelated pre-existing file was unchanged
+  (hash, size, mode, mtime). Post-construction mutation of the `ToFiles` map did
+  not move the outputs — the constructor clones. **24 of 24 preflight rejections
+  sent zero requests** (shim line count 35→35), and five rejected publications
+  aimed at fresh tag names left the tag list at `["smoke","v1"]`.
+- `LIB-04` (progress and options through a counting shim on 5111). Callback
+  serialization guard never exceeded 1 on publish, fetch, or any of four
+  concurrent `FetchFiles`; counters non-decreasing; totals fixed once
+  established; publish emitted `hashing → upload×3 → exactly one index`; fetch
+  emitted `staging×3 → exactly one commit` with
+  `{fetch,commit,2/2 files,8388608/8388608 bytes}`. Four concurrent
+  `FetchFiles` from one `Client`/`Release`/`Resolved`: 8/8 outputs hash-match,
+  `-race` build exit 0 with 0-byte stderr. Default worker count proven
+  behaviorally with a 300 ms-per-blob shim delay: omitted `WithWorkers` → max 4
+  concurrent blob GETs, controls at 2 and 1. `WithWorkers(0)`/`(-1)` fail with
+  `worker count must be positive, got 0/-1`, zero shim traffic, no sentinel
+  match, no tag written. `WithProgress(nil)` and `WithHTTPClient(nil)` ignored.
+
+Observations (no defect, recorded for owner visibility):
+
+1. `LIB-03/N1` — the plan's `LIB-03` Expected line compresses "invalid publish
+   reference/spec cases match `ErrInvalidSpec`". Reality, verified against
+   `reference.go:26-31` godoc: the three *semantic* reference rejections
+   (digest-only, tag+digest, name-only) wrap `ErrInvalidSpec`; the four
+   *grammar-malformed* references return descriptive unclassified parse errors
+   because "a malformed reference is a caller error … not `ErrInvalidSpec` (that
+   sentinel is producer-only)". Behavior matches the shipped contract; the plan
+   sentence is the imprecise part. All eight fail closed with delta 0 and write
+   no tag. Plan text left unedited since the user reviewed it; correct it if this
+   plan is ever re-run.
+2. `LIB-03/N2` — the successful `v1` publish shows a shim delta of only 6
+   because the shim end-to-end smoke publish had already stored the same content
+   blobs, so registry blob dedup answered the HEADs. Count is not a defect.
+3. `LIB-04` — `P-RETRY-01` is only partly exercised here: no failure was
+   injected, so `Progress.Retries` stayed 0 throughout. The positive
+   retry-accounting case belongs to `FAIL-01`.
+
+Process notes:
+
+- `git -C $REPO status --porcelain` empty before and after every scenario; HEAD
+  still `0b4be41`. No agent mutated the repository this phase.
+- `registry:2` uses monolithic blob PUT (no PATCH), so the shim smoke recorded
+  3 HEAD + 3 POST + 6 PUT for a two-file publish — worth knowing when reading
+  later phases' request counts.
+- `LIB-03` added a `cmd/rejtag` probe so "no tag on failed validation" is proven
+  against five previously nonexistent tag names rather than against `:v1`, which
+  already existed. Additive; no step narrowed.
+- Shared `imgoci-ft-dist` still running on 127.0.0.1:5100; shim ports 5110/5111
+  released.
+
+Next: Phase 3 (integrity and adversarial behavior, `ADV-01`..`ADV-04`).
