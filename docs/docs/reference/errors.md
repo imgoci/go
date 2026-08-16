@@ -25,11 +25,24 @@ The private reference CLI maps each sentinel onto a fixed exit code; see the
 | `ErrDigestMismatch` | `Client.Fetch`, `Client.FetchFiles`, `Client.Publish` | Retrieved or published bytes did not match a declared digest or size: a fetched index that fails the reference's digest pin, a manifest or blob that fails verification, a decoded stream that exceeds its declared size, or a `Source` that changed between pass 1 and upload. | On fetch: retry may help against a transient corruption, but a stable mismatch means the published content is wrong. On publish: stop mutating the `Source` during `Publish`. |
 | `ErrUnsupportedType` | `Index.Resolve`, `Client.Resolve`, `Client.FetchFiles` | A selected file-manifest type is outside the consumer capability set: capability filtering left a selected role with no remaining transport alternative, or a selected entry's `ArtifactType` is outside `Client.Capabilities`. | Widen the capability set with `NewCapabilities` (see the [capabilities reference](capabilities.md)) or select a different deliverable. |
 | `ErrSelectionMismatch` | `Client.FetchFiles` | The `Resolved` value was not derived from the release being retrieved. Binding is by canonical index digest, not pointer identity. | Re-run `Client.Resolve` against the `Release` you are fetching from. |
-| `ErrDecode` | `Client.FetchFiles`, `Client.Publish` | Strict decompression of a stored file failed — for example a two-member gzip stream. The producer path is as strict as the consumer: `Publish` fails such a file before any upload. | The stored bytes do not match their declared compression. On publish, re-encode the file as a single unit. |
+| `ErrDecode` | `Client.FetchFiles`, `Client.Publish` | Strict decompression of a stored file failed — for example a two-member gzip stream, a zstd frame whose window exceeds 8 MiB, or an xz stream whose LZMA2 dictionary exceeds 8 MiB. The producer path is as strict as the consumer: `Publish` fails such a file before any upload. | Re-encode the stored file as one compression unit. For zstd and xz, configure a window or dictionary no larger than 8 MiB. |
 
 `ErrNotFound`, `ErrUnauthorized`, and `ErrDigestMismatch` on the fetch path
 wrap the transfer orchestrator's detail; `ErrDigestMismatch` also covers a
 size bound exceeded during decode, because a size bound is digest discipline.
+
+## Decode working-set limits
+
+The decoder rejects a zstd frame whose declared window exceeds 8 MiB and an
+xz stream whose LZMA2 dictionary exceeds 8 MiB. It checks the declared value
+before allocating the decoder buffer. This working-set bound is independent of
+the file's decoded content size.
+
+The zstd command-line encoder's default window through compression level 19 is
+within the limit. Higher levels and `--long` can exceed it. The xz command-line
+encoder's `-9` preset uses a 64 MiB dictionary and exceeds the limit. Configure
+either encoder with an explicit window or dictionary of at most 8 MiB when
+producing imgoci files.
 
 ## Offline Resolve failures
 

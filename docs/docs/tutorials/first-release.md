@@ -112,7 +112,7 @@ Standard output is exactly one line — the canonical digest of the release inde
 sha256:...64 hex characters...
 ```
 
-Everything else (what the command is doing, how long it took) goes to standard error. That digest is the identity of the release: anyone who holds it can later fetch exactly this release, even if the `v1` tag moves.
+Everything else (what the command is doing, how long it took) goes to standard error. That digest identifies the exact release index. A digest-pinned fetch cannot be redirected if the `v1` tag moves, but it succeeds only while the registry retains the untagged index. Registry retention and garbage-collection policies determine how long old digests remain available.
 
 ## See what the registry holds
 
