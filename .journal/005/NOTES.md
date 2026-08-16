@@ -815,3 +815,143 @@ document the retained empty `.imgoci-stage` directory; add the missing
 
 Next: Phase 8 (release machinery and packaging — `REL-01`..`REL-04`), the final
 phase.
+
+## 2026-08-16 18:50 — Phase 8 executed; campaign complete
+
+Four `functional-tester` agents: `REL01Tester`, `REL02Tester`, `REL03Tester`,
+`REL04Tester`. Read-only repository and read-only GitHub throughout; no `gh`
+mutation of any kind and no vulnerability report submitted.
+
+Verdicts: **`REL-01` PASS, `REL-02` PASS, `REL-03` PASS, `REL-04` BLOCKER.**
+
+### THE ONE RELEASE BLOCKER — `REL-04-F1`
+
+`SECURITY.md` at `0b4be41` publishes **author-facing template directives instead
+of policy**. I read the file myself rather than trusting the report:
+
+- `SECURITY.md:7-8`, the entire body of `## Supported Versions`: "Do not claim
+  support windows or release lines until the project actually maintains them. /
+  For a brand-new project, a short policy such as \"only the latest release is
+  supported\" is usually enough."
+- `SECURITY.md:24-25`: "If the project has a documented disclosure timeline, add
+  it here. / If not, keep the policy short and avoid inventing guarantees."
+
+Why this is a blocker and not a doc nit:
+
+- The `## Supported Versions` section contains **no statement of which versions
+  are supported** — its whole body is instruction addressed to the document's
+  author. A user at `0.1.0` asking "is my version supported?" gets an answer
+  written for somebody else.
+- The file **ships inside the module zip** (`SECURITY.md`, 1039 bytes, confirmed
+  in the downloaded `v0.0.0-20260816185632-0b4be41235c1` zip), so the defect is
+  distributed with the release artifact, not merely rendered on GitHub.
+- The plan's `REL-04` block names this exact text as a failed expected result,
+  and the Phase 8 stop rule names "false security instructions" / template
+  directives in the published policy. Correctly classified.
+- There is no user-side workaround for a policy document that does not state a
+  policy.
+
+Also `REL-04-F2` (NON-BLOCKING, same unfinished-document defect, fix in the same
+pass): `SECURITY.md:12` hedges the route as conditional — "…through GitHub's
+private vulnerability reporting flow **when it is enabled for this repository**"
+— while the feature is in fact enabled (`HTTP/2.0 200 OK`, `{"enabled":true}`).
+The instruction is not false and the route works, but it makes the reporter
+determine feature availability and names no fallback.
+
+Notably, session 004's manual rehearsal did not catch this; it took a scenario
+that read `SECURITY.md` **as user instructions rather than as a template**.
+
+### Everything else in Phase 8 passed
+
+- `REL-01` — the pre-v1 guard is intact and the proposal is exactly right.
+  `release-type: go`, `include-v-in-tag: true`, `initial-version: 0.1.0`,
+  `bump-minor-pre-major: true`, `bump-patch-for-minor-pre-major: true`,
+  `draft: true`; manifest is exactly `{".": "0.0.0"}`; PR #9 is OPEN, titled
+  `chore(master): release 0.1.0`, not a draft, base `master`, labeled
+  `autorelease: pending`, and its diff touches **only**
+  `.release-please-manifest.json` (`0.0.0` → `0.1.0`) and `CHANGELOG.md`. Spec is
+  `Status: draft, 2026-08-11`. **Zero** releases and **zero** tags — verified
+  locally, on the remote, and through the API. `release-please.yml` triggers on
+  `master`, has `permissions: {}` at top level with job-scoped
+  contents/pull-requests/issues write, uses the `IMGOCI_*` app credentials, names
+  both config files, and **all 14 `uses:` across all three workflows are pinned
+  to 40-hex SHAs**. No workflow publishes a binary, image, or package.
+- `REL-02` — the library is genuinely gettable. A completely clean consumer
+  (fresh `GOMODCACHE`/`GOCACHE`/`GOPATH`, no `replace`, no path into `$REPO`)
+  resolved `github.com/imgoci/go@v0.0.0-20260816185632-0b4be41235c1` **from the
+  public proxy** with `sum.golang.org` verification — the sumdb lookup record
+  (tree index 60009551) is in evidence, proving the notary was consulted and
+  agreed. `download.json` `Origin.Hash` equals repo HEAD. Build and run exit `0`;
+  `ParseIndex` returned a digest equal to the SHA-256 of the copied canonical
+  bytes. `go doc -all` from the **published** cache matches the inventory with
+  zero delta. The published `go.mod` is byte-identical to the checkout's and says
+  `go 1.26.5`. The zip carries root source, `README.md`, and **both** licenses,
+  and has **0** `cli/` entries out of 298 files.
+- `REL-03` — the CLI is uninstallable **by construction**, and the docs' claim is
+  mechanically exact rather than aspirational. Clean
+  `go install github.com/imgoci/go/cli@0b4be41` exits `1` with "The go.mod file
+  for the module providing named packages contains one or more replace
+  directives…", and `GOBIN` is empty before and after. `cli/go.mod` requires the
+  root at `v0.0.0` — a version that exists nowhere — resolved solely by
+  `replace github.com/imgoci/go => ../`. No CLI module version, tag, release, or
+  asset exists; the root zip excludes `cli/`; PR #9 versions only the root
+  library; no workflow publishes a CLI artifact; and five independent doc sources
+  agree the CLI is private and unreleased.
+
+### Campaign summary — 8 phases, 28 scenarios
+
+| Phase | Scenarios | Outcome |
+|---|---|---|
+| 1 Consumer + docs | `CM-01`, `DOC-01`, `DOC-02` | 1 PASS, 2 NON-BLOCKING |
+| 2 Core library | `LIB-01`..`LIB-04` | 4 PASS |
+| 3 Integrity/adversarial | `ADV-01`..`ADV-04` | 3 PASS, 1 NON-BLOCKING |
+| 4 Auth/TLS/transport | `NET-01`, `NET-02`, `AUTH-01`..`03` | 3 PASS, 2 NON-BLOCKING |
+| 5 BigOCI and scale | `BIG-01`, `BIG-02` | 2 PASS |
+| 6 Failure injection | `FAIL-01`, `RACE-01`, `FAIL-02` | 3 PASS |
+| 7 CLI binary | `CLI-01`..`CLI-03` | 3 PASS |
+| 8 Release machinery | `REL-01`..`REL-04` | 3 PASS, **1 BLOCKER** |
+
+**All eight session-004 coverage gaps are closed.** No correctness, integrity,
+confidentiality, or machine-contract defect was found anywhere in the
+implementation. The single blocker is a documentation defect in the published
+security policy.
+
+Fix list before `0.1.0` (blocker first, then the accumulated non-blocking set):
+
+1. **BLOCKER** — rewrite `SECURITY.md`: state a real supported-versions policy,
+   drop both authoring directives, and state the private-reporting route
+   unconditionally (the feature is enabled).
+2. Name/version grammar on `ReleaseSpec` godoc + `reference/api.md`.
+3. Three `testdata/canonical/README.md` fail-row corrections (`unsorted-keys` is
+   a duplicate-key fixture; `exponent-1e0`/`1e2` hit the descriptor size type
+   check).
+4. Tutorial: port-5000 AirPlay caveat and the missing `cmp` prerequisite.
+5. Spec commit on `docs/docs/index.md`.
+6. Document the retained empty `.imgoci-stage` directory after a BigOCI `ToDir`
+   fetch.
+7. Add the missing `filename` required-check in `cli/spec.go` (or soften
+   `cli/doc.go`), so the adapter's documented required set matches exit `2`.
+8. Align the `help` placeholder wording with `cli/doc.go` / `reference/cli.md`.
+9. Consider preserving the wrapped cause on the standard blob path (upstream
+   `go-oci-blob` renders `registry request failed`), and the bare-401 /
+   `ErrUnauthorized` classification.
+
+The plan's exit condition requires the blocker to be fixed **and its scenario
+re-run** before the campaign can be signed off, so `REL-04` must be re-executed
+after the `SECURITY.md` fix.
+
+Process notes:
+
+- `git -C $REPO status --porcelain` empty before and after all four scenarios;
+  HEAD still `0b4be41`. Zero GitHub mutations; zero vulnerability reports
+  submitted; no `root:*` gate executed (`REL-04` used `moon query tasks` and
+  `mise which`/`ls` to prove the five documented tasks exist and their pinned
+  tools resolve).
+- `REL-04` derived its own module-zip listing in an isolated scratch cache
+  because `REL-02` had not yet produced `zip.txt`; neither peer's cache was read
+  or written.
+- Verified by hand: `SECURITY.md` lines 1-25 in full (the blocker), plus every
+  `result` file and repo cleanliness.
+- Registry `imgoci-ft-dist` on 127.0.0.1:5100 is still Up with the campaign's
+  test content (~3.3 GiB under `ft/big`); safe to remove now that Phase 8 is
+  done.
