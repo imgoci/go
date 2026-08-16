@@ -18,9 +18,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/opencontainers/go-digest"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
+	"github.com/ulikunitz/xz"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/imgoci/go/internal/filemanifest"
@@ -60,6 +62,12 @@ const (
 	qemuPattern = "imgoci-e2e-qemu-stream-"
 	// metalPattern is the repeating metal payload prefix.
 	metalPattern = "imgoci-e2e-metal-raw-"
+	// e2eAdversarialSize is uncompressed payload for truncated/decode-bomb
+	// seeds: large enough to compress, small enough to upload quickly.
+	e2eAdversarialSize = 8 << 10
+	// e2eDecodeBombCeiling is a content-size well below e2eAdversarialSize
+	// so CountingHashWriter aborts mid-stream.
+	e2eDecodeBombCeiling = 1024
 )
 
 // e2eRegistry is one testcontainers image the core suite runs against.
@@ -297,7 +305,7 @@ func applyCreds(req *http.Request, cred e2eCreds) {
 type seededFile struct {
 	// content is the decoded payload FetchFiles must write.
 	content []byte
-	// stored is the layer blob (gzip bytes when compression is gzip).
+	// stored is the layer blob (compressed when compression is not none).
 	stored []byte
 	// compression is io.imgoci.compression.
 	compression string
@@ -326,10 +334,7 @@ func buildSeededFile(
 	compression, filename, target, repr, role string,
 ) seededFile {
 	t.Helper()
-	stored := content
-	if compression == "gzip" {
-		stored = gzipBytes(t, content)
-	}
+	stored := compressBytes(t, compression, content)
 	layerDigest := digest.FromBytes(stored)
 	manifest := canonicalFileManifest(t, layerDigest, int64(len(stored)))
 	return seededFile{
@@ -388,6 +393,38 @@ func writeTempBytes(t *testing.T, dir, name string, data []byte) string {
 	return path
 }
 
+// compressBytes encodes p as a stored layer for compression.
+func compressBytes(t *testing.T, compression string, p []byte) []byte {
+	t.Helper()
+	switch compression {
+	case "none":
+		return p
+	case "gzip":
+		return gzipBytes(t, p)
+	case "xz":
+		return xzBytes(t, p)
+	case "zstd":
+		return zstdBytes(t, p)
+	default:
+		t.Fatalf("unknown compression %q", compression)
+		return nil
+	}
+}
+
+// storedSourceName appends the conventional suffix for a stored source file.
+func storedSourceName(name, compression string) string {
+	switch compression {
+	case "gzip":
+		return name + ".gz"
+	case "xz":
+		return name + ".xz"
+	case "zstd":
+		return name + ".zst"
+	default:
+		return name
+	}
+}
+
 // gzipBytes compresses p as a single gzip member with a zero mtime so the
 // stored digest is a function of p alone.
 func gzipBytes(t *testing.T, p []byte) []byte {
@@ -403,6 +440,34 @@ func gzipBytes(t *testing.T, p []byte) []byte {
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+// xzBytes compresses p as a single xz stream.
+func xzBytes(t *testing.T, p []byte) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	zw, err := xz.NewWriter(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := zw.Write(p); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
+}
+
+// zstdBytes compresses p as a single non-skippable zstd frame.
+func zstdBytes(t *testing.T, p []byte) []byte {
+	t.Helper()
+	enc, err := zstd.NewWriter(nil, zstd.WithEncoderConcurrency(1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = enc.Close() }()
+	return enc.EncodeAll(p, nil)
 }
 
 // repeatingBytes returns size bytes of pattern, truncated to size.
@@ -506,10 +571,7 @@ func publishSeededFiles(t *testing.T, registry, repo string, cred e2eCreds, file
 	dir := t.TempDir()
 	specs := make([]FileSpec, 0, len(files))
 	for i, file := range files {
-		name := fmt.Sprintf("%d-%s", i, file.filename)
-		if file.compression == "gzip" {
-			name += ".gz"
-		}
+		name := storedSourceName(fmt.Sprintf("%d-%s", i, file.filename), file.compression)
 		specs = append(specs, fileSpecFromSeeded(writeTempBytes(t, dir, name, file.stored), file))
 	}
 	client := newE2EClient(t, cred)
@@ -622,6 +684,57 @@ func seedOverlongLayer(t *testing.T, registry, repo string) seededFile {
 	seedBlob(t, registry, repo, file.layerDigest, file.stored, e2eCreds{})
 	seedManifest(t, registry, repo, file.manifestDigest.String(), index.MediaTypeManifest, file.manifest, e2eCreds{})
 	idx := buildCanonicalIndex(t, []seededFile{file})
+	seedManifest(t, registry, repo, tag, index.MediaTypeIndex, idx, e2eCreds{})
+	return file
+}
+
+// seedTruncatedStored publishes a file whose layer blob is a prefix of a
+// well-formed stored unit. The layer descriptor size matches the truncated
+// blob. Index content digest and size still name the complete payload.
+//
+// Publish cannot emit this fixture: pass 1 reads the source to EOF and
+// records that stored size.
+func seedTruncatedStored(t *testing.T, registry, repo, compression string) seededFile {
+	t.Helper()
+	tag := e2eTag
+	content := repeatingBytes(qemuPattern, e2eAdversarialSize)
+	file := buildSeededFile(t, content, compression, "trunc.qcow2", "qemu", "qcow2", "disk")
+	if len(file.stored) < 2 {
+		t.Fatal("stored fixture too small to truncate")
+	}
+	truncated := file.stored[:len(file.stored)/2]
+	if len(truncated) == 0 {
+		t.Fatal("truncated stored fixture is empty")
+	}
+	file.stored = truncated
+	file.layerDigest = digest.FromBytes(truncated)
+	file.manifest = canonicalFileManifest(t, file.layerDigest, int64(len(truncated)))
+	file.manifestDigest = digest.FromBytes(file.manifest)
+
+	seedEmptyConfigBlob(t, registry, repo, e2eCreds{})
+	seedBlob(t, registry, repo, file.layerDigest, file.stored, e2eCreds{})
+	seedManifest(t, registry, repo, file.manifestDigest.String(), index.MediaTypeManifest, file.manifest, e2eCreds{})
+	idx := buildCanonicalIndex(t, []seededFile{file})
+	seedManifest(t, registry, repo, tag, index.MediaTypeIndex, idx, e2eCreds{})
+	return file
+}
+
+// seedDecodeBombCeiling publishes a high-ratio stored file whose index
+// content size is far below the decoded length, so CountingHashWriter must
+// abort mid-stream.
+//
+// Publish cannot emit this fixture: pass 1 records the true decoded size.
+func seedDecodeBombCeiling(t *testing.T, registry, repo, compression string) seededFile {
+	t.Helper()
+	tag := e2eTag
+	content := bytes.Repeat([]byte{0}, e2eAdversarialSize)
+	file := buildSeededFile(t, content, compression, "bomb.qcow2", "qemu", "qcow2", "disk")
+	seedEmptyConfigBlob(t, registry, repo, e2eCreds{})
+	pushFile(t, registry, repo, file, e2eCreds{})
+
+	entries := modelEntries([]seededFile{file})
+	entries[0].ContentSize = e2eDecodeBombCeiling
+	idx := buildIndexFromEntries(t, entries)
 	seedManifest(t, registry, repo, tag, index.MediaTypeIndex, idx, e2eCreds{})
 	return file
 }

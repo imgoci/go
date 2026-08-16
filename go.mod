@@ -6,9 +6,11 @@ require (
 	github.com/distribution/reference v0.6.0
 	github.com/gowebpki/jcs v1.0.1
 	github.com/imgoci/go-oci-blob v1.1.1
+	github.com/klauspost/compress v1.18.6
 	github.com/opencontainers/go-digest v1.0.0
 	github.com/stretchr/testify v1.11.1
 	github.com/testcontainers/testcontainers-go v0.44.0
+	github.com/ulikunitz/xz v0.5.16
 	golang.org/x/crypto v0.55.0
 )
 
@@ -32,7 +34,6 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/lufia/plan9stats v0.0.0-20260330125221-c963978e514e // indirect
 	github.com/magiconair/properties v1.8.10 // indirect
 	github.com/moby/docker-image-spec v1.3.1 // indirect

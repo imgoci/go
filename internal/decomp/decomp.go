@@ -6,8 +6,7 @@ import (
 	"io"
 )
 
-// Compression names from spec section 5.4. "xz" and "zstd" are recognized
-// but not implemented in this build.
+// Compression names from spec section 5.4.
 const (
 	nameNone = "none"
 	nameGzip = "gzip"
@@ -22,8 +21,6 @@ var (
 	ErrDecode = errors.New("decode")
 
 	// ErrUnsupported reports a compression name this build cannot decode.
-	// The error detail distinguishes a name reserved for a later slice
-	// ("xz", "zstd") from an unknown name.
 	ErrUnsupported = errors.New("unsupported compression")
 
 	// ErrSizeExceeded reports that a [BoundedReader] saw more raw bytes than
@@ -35,10 +32,9 @@ var (
 // Decoder returns a constructor for the named compression.
 //
 // The constructor reads a single compression unit from r and returns an
-// [io.ReadCloser] over the decoded bytes. Names "xz" and "zstd" are known
-// but not implemented in this build; they fail with [ErrUnsupported] and a
-// detail that names the later-slice reservation. Any other unrecognized
-// name fails with [ErrUnsupported] and a detail that names it unknown.
+// [io.ReadCloser] over the decoded bytes. Recognized names are "none",
+// "gzip", "xz", and "zstd". Any unrecognized name fails with
+// [ErrUnsupported] and a detail that names it unknown.
 //
 // The returned constructor is safe to call concurrently with other
 // constructors; each call produces an independent decoder.
@@ -48,25 +44,19 @@ func Decoder(name string) func(r io.Reader) (io.ReadCloser, error) {
 		return openNone
 	case nameGzip:
 		return openGzip
-	case nameXZ, nameZstd:
-		return reject(name, true)
+	case nameXZ:
+		return openXZ
+	case nameZstd:
+		return openZstd
 	default:
-		return reject(name, false)
+		return rejectUnknown(name)
 	}
 }
 
-// reject returns an opener that fails with [ErrUnsupported].
-//
-// known is true for compression names the spec defines but this build does
-// not yet implement.
-func reject(name string, known bool) func(io.Reader) (io.ReadCloser, error) {
+// rejectUnknown returns an opener that fails with [ErrUnsupported] for a
+// compression name the spec does not define.
+func rejectUnknown(name string) func(io.Reader) (io.ReadCloser, error) {
 	return func(_ io.Reader) (io.ReadCloser, error) {
-		if known {
-			return nil, fmt.Errorf(
-				"decomp: compression %q is not supported in this build: %w",
-				name, ErrUnsupported,
-			)
-		}
 		return nil, fmt.Errorf("decomp: unknown compression %q: %w", name, ErrUnsupported)
 	}
 }
