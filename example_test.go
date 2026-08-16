@@ -1,6 +1,7 @@
 package imgoci_test
 
 import (
+	"context"
 	"fmt"
 
 	imgoci "github.com/imgoci/go"
@@ -43,4 +44,34 @@ func ExampleIndex_Resolve() {
 	// Output:
 	// x-test-file
 	// a
+}
+
+// Fetch then FetchFiles is the consumer path: pin a tag to a digest, resolve
+// one deliverable, and write verified files. This example compiles against the
+// public API. It is not executed: it needs a live registry.
+//
+//nolint:testableexamples // Running would need a live registry; the example exists to be compiled, not executed.
+func ExampleClient_Fetch() {
+	client, err := imgoci.New()
+	if err != nil {
+		panic(err)
+	}
+
+	ctx := context.Background()
+	rel, err := client.Fetch(ctx, "ghcr.io/example/os:v1")
+	if err != nil {
+		panic(err)
+	}
+
+	sel, err := client.Resolve(rel, imgoci.ResolveQuery{
+		Architecture:   "amd64",
+		Target:         "x-test-target",
+		Representation: "x-test-format",
+		Compressions:   []string{"none"},
+	})
+	if err != nil {
+		panic(err)
+	}
+
+	_ = client.FetchFiles(ctx, rel, sel, imgoci.ToDir("."), imgoci.WithWorkers(4))
 }

@@ -61,6 +61,18 @@ tasks:
     options:
       cache: false
 
+  # Cross-compile for the one non-unix platform the file adapter carries a
+  # build branch for, so the branch cannot rot uncompiled: CI never runs
+  # Windows, but it must at least keep building it.
+  build-windows:
+    command: 'go build ./...'
+    env:
+      GOOS: 'windows'
+    inputs:
+      - '@group(goSources)'
+    options:
+      cache: false
+
   test:
     command: 'go test -race ./...'
     inputs:
@@ -68,12 +80,35 @@ tasks:
     options:
       cache: false
 
+  # End-to-end tests are build-tagged out of the plain test task; they need a
+  # running Docker daemon for testcontainers (zot and registry:2).
+  test-e2e:
+    command: 'go test -race -tags e2e ./...'
+    inputs:
+      - '@group(goSources)'
+    options:
+      cache: false
+
+  # Regenerates every mock from the ports in internal/transfer (AGENTS.md
+  # T2/T3). Mocks are committed, so this is a hand-run task: it writes source
+  # files, which is not something CI should do behind a contributor's back.
+  mocks:
+    command: 'mockery'
+    inputs:
+      - '.mockery.yml'
+      - '@group(goSources)'
+    options:
+      cache: false
+      runInCI: false
+
   check:
     deps:
       - 'root:format'
       - 'root:lint'
       - 'root:build'
+      - 'root:build-windows'
       - 'root:test'
+      - 'root:test-e2e'
       - 'docs:build'
       - 'root:conformance-cue'
       - 'root:conformance-drift'

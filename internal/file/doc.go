@@ -1,0 +1,59 @@
+// Package file plans destination paths, stages verified bytes, and commits
+// them with per-file atomic rename.
+//
+// This is the slice-2 half of ARCHITECTURE.md §5.5: preflight, per-call
+// staging workspaces, secure open/reopen, and stage-then-commit. The
+// content-addressed stored cache and its locking are slice 5 and are not
+// implemented here.
+//
+// # Preflight
+//
+// [NewPlan] is the I/O that callers must run before any network transfer. It
+// resolves each role's final path by calling [filepath.EvalSymlinks] on the
+// deepest existing parent (the final file itself may be missing) and rejects
+// the plan wrapping [ErrInvalidPlan] when two roles collapse onto one file,
+// when a final path is an existing directory, or when a final path is the
+// reserved staging entry `.imgoci-stage` in its parent. Only that exact
+// entry name is reserved: a caller tree such as `/srv/.imgoci-cache/output`
+// is legal. Cross-filesystem role maps are allowed; each role stages beside
+// its own final parent so every rename stays on one filesystem.
+//
+// # Staging
+//
+// [Plan.Stage] returns a [*StagedFile] writer into a per-call workspace
+// created with [os.MkdirTemp] under `<parent>/.imgoci-stage/` at mode 0700.
+// Workspaces are unique by construction, so concurrent plans in one parent
+// never share staging and need no locking. One workspace is created per
+// distinct final parent, lazily on the first Stage into it. The caller must
+// [StagedFile.Close] the writer before [Plan.Commit].
+//
+// # Secure open
+//
+// Staging files are created and reopened with no-follow semantics
+// ([syscall.O_NOFOLLOW] on unix) and checked for regular type, ownership, and
+// mode. A mismatch is treated as absent so a planted symlink is never written
+// or published. The unix implementation lives in secure_unix.go; platforms
+// without those syscalls use the conservative fallbacks in secure_other.go so
+// GOOS=windows keeps compiling. Windows behavior is verified best-effort
+// (ARCHITECTURE.md §9.7): this package is compile-checked via the moon
+// `build-windows` task, and the split mirrors bigoci's `sink_unix.go` /
+// `sink_other.go` precedent.
+//
+// # Commit
+//
+// [Plan.Commit] publishes staged files in the caller-supplied role order:
+// fsync the file, close the handle (required before rename on Windows-like
+// platforms), rename staged onto final, then fsync the parent directory where
+// that is durable. Each rename is atomic; the set of renames is not a
+// transaction. A failure at role N returns a [*CommitError] whose Committed
+// field is the prefix of roles whose rename already succeeded (1..N−1) and
+// whose Role is the failing role. Retry overwrites every selected role; it
+// does not skip the prefix. After the last successful rename Commit returns
+// nil; leftover staging is the caller's job via [Plan.Cleanup].
+//
+// # Cleanup
+//
+// [Plan.Cleanup] removes every per-call workspace. It is idempotent and is
+// safe to defer whether Commit succeeded, failed after a prefix, or never
+// ran. A cleanup error is not a commit-phase failure.
+package file

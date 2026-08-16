@@ -171,8 +171,8 @@ func TestEqualMediaTypeASCIIOnly(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if got := equalMediaType(tc.a, tc.b); got != tc.want {
-				t.Fatalf("equalMediaType(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
+			if got := EqualMediaType(tc.a, tc.b); got != tc.want {
+				t.Fatalf("EqualMediaType(%q, %q) = %v, want %v", tc.a, tc.b, got, tc.want)
 			}
 		})
 	}
