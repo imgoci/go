@@ -14,25 +14,16 @@ func TestDecoderUnsupported(t *testing.T) {
 		name        string
 		compression string
 		wantDetail  string
-		notDetail   string
 	}{
-		{
-			name:        "xz reserved for later slice",
-			compression: nameXZ,
-			wantDetail:  "not supported in this build",
-			notDetail:   "unknown compression",
-		},
-		{
-			name:        "zstd reserved for later slice",
-			compression: nameZstd,
-			wantDetail:  "not supported in this build",
-			notDetail:   "unknown compression",
-		},
 		{
 			name:        "unknown name",
 			compression: "lz4",
 			wantDetail:  `unknown compression "lz4"`,
-			notDetail:   "not supported in this build",
+		},
+		{
+			name:        "empty name",
+			compression: "",
+			wantDetail:  `unknown compression ""`,
 		},
 	}
 
@@ -53,8 +44,8 @@ func TestDecoderUnsupported(t *testing.T) {
 			if !strings.Contains(err.Error(), tt.wantDetail) {
 				t.Fatalf("error %q does not contain %q", err, tt.wantDetail)
 			}
-			if tt.notDetail != "" && strings.Contains(err.Error(), tt.notDetail) {
-				t.Fatalf("error %q must not contain %q", err, tt.notDetail)
+			if strings.Contains(err.Error(), "not supported in this build") {
+				t.Fatalf("error %q must not contain later-slice wording", err)
 			}
 		})
 	}
@@ -69,6 +60,8 @@ func TestDecoderKnownNames(t *testing.T) {
 	}{
 		{name: "none", compression: nameNone},
 		{name: "gzip", compression: nameGzip},
+		{name: "xz", compression: nameXZ},
+		{name: "zstd", compression: nameZstd},
 	}
 
 	for _, tt := range tests {

@@ -11,7 +11,7 @@ import (
 )
 
 // TestE2EPublishRoundTrip is the self-hosting matrix: Publish, Fetch, Resolve,
-// and FetchFiles against both gate registries, both v1 compressions the
+// and FetchFiles against both gate registries, every v1 compression the
 // producer can emit, and three release shapes.
 //
 // linux-netboot follows spec §5: kernel is required; initramfs and rootfs are
@@ -19,7 +19,7 @@ import (
 // present role, so the kernel+initramfs pair is fetched together.
 func TestE2EPublishRoundTrip(t *testing.T) {
 	t.Parallel()
-	compressions := []string{"none", "gzip"}
+	compressions := []string{"none", "gzip", "xz", "zstd"}
 	shapes := []string{"single-role", "linux-netboot", "shared-digest"}
 	for _, reg := range e2eRegistries() {
 		t.Run(reg.name, func(t *testing.T) {
@@ -206,10 +206,5 @@ func roundTripSpec(t *testing.T, compression, shape string) (ReleaseSpec, Resolv
 
 func writeStoredSource(t *testing.T, dir, name, compression string, content []byte) string {
 	t.Helper()
-	stored := content
-	if compression == "gzip" {
-		stored = gzipBytes(t, content)
-		name += ".gz"
-	}
-	return writeTempBytes(t, dir, name, stored)
+	return writeTempBytes(t, dir, storedSourceName(name, compression), compressBytes(t, compression, content))
 }
