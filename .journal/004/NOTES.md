@@ -14,3 +14,7 @@ A functional-testing agent exercised the public library manually against disposa
 Result: release-critical correctness and safety behavior passed. The agent recommended shipping after documentation fixes for the registry-dependent digest-retention tutorial claim and the undocumented 8 MiB xz/zstd decode-window cap.
 Non-blocking findings: misleading zstd single-segment window error, unclassified unsupported-compression and bare-401 errors, one misnamed fixture, undocumented name/version field grammar, and tutorial port 5000 conflicting with macOS AirPlay. TLS, redirect, credential-helper, bearer-token, publish-retry, multi-GiB BigOCI, concurrent same-tag publish, and commit-phase partial-failure paths remain explicitly untested.
 Cleanup verified by the agent: disposable registries stopped, scratch probes removed, and the implementation worktree remained clean.
+
+## 2026-08-16 10:38 — Functional-test follow-up PR
+Opened PR #15 (`docs: clarify release retention and decode limits`) from `docs/release-rehearsal-followup` at `699c043`. It qualifies the tutorial's digest-retention claim against registry garbage collection and documents the 8 MiB zstd window and xz LZMA2 dictionary ceilings, including encoder guidance and `ErrDecode` behavior.
+Verification: `mise exec -- moon run docs:build` passed in strict mode. A local MkDocs preview rendered both changed pages; browser checks confirmed the retention caveat and decode-limit reference appeared on the actual site surface.
