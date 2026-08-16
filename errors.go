@@ -28,9 +28,6 @@ var (
 
 	// ErrInvalidSpec reports a producer-side specification violation, including
 	// an illegal publish reference form.
-	//
-	// This sentinel is declared as part of the stable public error surface. It
-	// is inert until the producer path lands; offline helpers never return it.
 	ErrInvalidSpec = errors.New("invalid spec")
 
 	// ErrInvalidDest reports that a fetch destination plan failed preflight.
@@ -40,12 +37,11 @@ var (
 	// never return it.
 	ErrInvalidDest = errors.New("invalid destination")
 
-	// ErrDigestMismatch reports that retrieved bytes did not match a declared
-	// digest or size.
+	// ErrDigestMismatch reports that retrieved or published bytes did not match
+	// a declared digest or size, including a Source that changed between pass 1
+	// and upload.
 	//
-	// This sentinel is declared as part of the stable public error surface. It
-	// is inert until the network consumer lands in slice 2; offline helpers
-	// never return it.
+	// This sentinel is declared as part of the stable public error surface.
 	ErrDigestMismatch = errors.New("digest mismatch")
 
 	// ErrUnsupportedType reports that a selected file-manifest type is outside
@@ -64,9 +60,7 @@ var (
 	ErrSelectionMismatch = errors.New("selection mismatch")
 
 	// ErrDecode reports that strict decompression of a stored file failed.
-	//
-	// This sentinel is declared as part of the stable public error surface. It
-	// is inert until the network consumer lands in slice 2; offline helpers
-	// never return it.
+	// The producer path is as strict as the consumer: a two-member gzip fails
+	// before any upload.
 	ErrDecode = errors.New("decode")
 )

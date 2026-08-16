@@ -1,10 +1,10 @@
-// Package transfer orchestrates imgoci fetch of release indexes and standard
-// file manifests.
+// Package transfer orchestrates imgoci fetch and publish of release indexes
+// and standard file manifests.
 //
 // It declares the [Manifests] and [Blobs] ports the registry adapter
-// implements. PLAN 2.5(b) defers the Multipart port to slice 5 so this
-// package compiles without opencontainers/image-spec; BigOCI pull/push lands
-// with that port.
+// implements, bundled as [Ports] for [Publish]. PLAN 2.5(b) defers the
+// Multipart port to slice 5 so this package compiles without
+// opencontainers/image-spec; BigOCI pull/push lands with that port.
 //
 // Destination planning is [github.com/imgoci/go/internal/file.NewPlan]:
 // preflight of ByRole paths happens before any registry Get or Pull. A Plan

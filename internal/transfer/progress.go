@@ -5,24 +5,36 @@ import "sync"
 const (
 	// DirectionFetch is Progress.Direction for consumer retrieval.
 	DirectionFetch = "fetch"
+	// DirectionPublish is Progress.Direction for producer publication.
+	DirectionPublish = "publish"
 	// PhaseStaging is Progress.Phase while entries are downloaded and verified.
 	PhaseStaging = "staging"
 	// PhaseCommit is Progress.Phase after every role has verified, including
 	// the terminal snapshot emitted after plan.Commit.
 	PhaseCommit = "commit"
+	// PhaseHashing is Progress.Phase while Publish hashes unique sources.
+	PhaseHashing = "hashing"
+	// PhaseUpload is Progress.Phase while unique stored blobs and file
+	// manifests are pushed.
+	PhaseUpload = "upload"
+	// PhaseIndex is Progress.Phase of the terminal snapshot after the index
+	// tag PUT.
+	PhaseIndex = "index"
 )
 
-// Progress is an absolute snapshot of one FetchFiles call.
+// Progress is an absolute snapshot of one FetchFiles or Publish call.
 //
 // Snapshots are serialized: a mutex orders every emit. TotalFiles and
 // TotalBytes are fixed up front (TotalBytes is the sum of ContentSize).
-// CompletedFiles and CompletedBytes only increase. WireBytes counts raw
-// blob bytes read off the wire. Retries is 0 until slice 6 unifies retry
-// accounting.
+// On Publish, TotalBytes is filled after pass 1. CompletedFiles and
+// CompletedBytes only increase. WireBytes counts raw blob bytes read
+// (fetch) or actually pushed (publish; Exists-skip is 0). Retries is 0
+// until slice 6 unifies retry accounting.
 type Progress struct {
-	// Direction is always [DirectionFetch] on the consumer path.
+	// Direction is [DirectionFetch] or [DirectionPublish].
 	Direction string
-	// Phase is [PhaseStaging] until commit, then [PhaseCommit].
+	// Phase is [PhaseStaging] then [PhaseCommit] on fetch, or [PhaseHashing],
+	// [PhaseUpload], then [PhaseIndex] on publish.
 	Phase string
 	// TotalFiles is the number of entries in the request.
 	TotalFiles int
@@ -32,7 +44,7 @@ type Progress struct {
 	TotalBytes int64
 	// CompletedBytes is the sum of ContentSize of verified entries.
 	CompletedBytes int64
-	// WireBytes is the count of raw blob bytes read from [Blobs.Pull].
+	// WireBytes is the count of raw blob bytes transferred.
 	WireBytes int64
 	// Retries is 0 in this slice.
 	Retries int
@@ -46,7 +58,7 @@ type reporter struct {
 	emit func(Progress)
 	// current is the last committed snapshot state.
 	current Progress
-	// terminal reports whether the commit-phase snapshot has been emitted.
+	// terminal reports whether the terminal snapshot has been emitted.
 	terminal bool
 }
 
@@ -63,6 +75,21 @@ func newReporter(entries []Entry, emit func(Progress)) *reporter {
 			Phase:      PhaseStaging,
 			TotalFiles: len(entries),
 			TotalBytes: totalBytes,
+		},
+	}
+	r.snapshot()
+	return r
+}
+
+// newPublishReporter builds a hashing snapshot with TotalFiles fixed and emits it.
+// TotalBytes is filled after pass 1 via [reporter.setTotalBytes].
+func newPublishReporter(files int, emit func(Progress)) *reporter {
+	r := &reporter{
+		emit: emit,
+		current: Progress{
+			Direction:  DirectionPublish,
+			Phase:      PhaseHashing,
+			TotalFiles: files,
 		},
 	}
 	r.snapshot()
@@ -112,6 +139,36 @@ func (r *reporter) finish() {
 		return
 	}
 	r.current.Phase = PhaseCommit
+	r.snapshotLocked()
+	r.terminal = true
+}
+
+// setTotalBytes records the decoded-content total after pass 1. It does not emit.
+func (r *reporter) setTotalBytes(n int64) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.current.TotalBytes = n
+}
+
+// setPhase records phase and emits a snapshot unless the reporter is terminal.
+func (r *reporter) setPhase(phase string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.terminal {
+		return
+	}
+	r.current.Phase = phase
+	r.snapshotLocked()
+}
+
+// finishIndex emits the terminal index-phase snapshot exactly once.
+func (r *reporter) finishIndex() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.terminal {
+		return
+	}
+	r.current.Phase = PhaseIndex
 	r.snapshotLocked()
 	r.terminal = true
 }

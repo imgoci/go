@@ -33,15 +33,21 @@ type fetchSettings struct {
 }
 
 // WithProgress delivers serialized absolute snapshots of the transfer to fn.
-// A nil fn is ignored.
-func WithProgress(fn func(Progress)) FetchOption {
+// A nil fn is ignored. The same option applies to [Client.FetchFiles] and
+// [Client.Publish].
+func WithProgress(
+	fn func(Progress),
+) progressOption { //nolint:revive // returns an unexported option type on purpose: it satisfies both FetchOption and PublishOption and callers never name it
 	return progressOption(fn)
 }
 
 // WithWorkers moves n selected files at once. n must be positive, which
-// [Client.FetchFiles] checks before constructing a registry adapter. Omitting
-// the option leaves the orchestrator default (four workers).
-func WithWorkers(n int) FetchOption {
+// [Client.FetchFiles] and [Client.Publish] check before constructing a
+// registry adapter. Omitting the option leaves the orchestrator default
+// (four workers).
+func WithWorkers(
+	n int,
+) workersOption { //nolint:revive // returns an unexported option type on purpose: it satisfies both FetchOption and PublishOption and callers never name it
 	return workersOption(n)
 }
 
@@ -55,11 +61,24 @@ func (o progressOption) applyFetch(s *fetchSettings) {
 	}
 }
 
+// applyPublish records the progress callback.
+func (o progressOption) applyPublish(s *publishSettings) {
+	if o != nil {
+		s.progress = o
+	}
+}
+
 // workersOption carries [WithWorkers].
 type workersOption int
 
 // applyFetch records how many entries download at once.
 func (o workersOption) applyFetch(s *fetchSettings) {
+	s.workers = int(o)
+	s.workersSet = true
+}
+
+// applyPublish records how many unique blobs upload at once.
+func (o workersOption) applyPublish(s *publishSettings) {
 	s.workers = int(o)
 	s.workersSet = true
 }

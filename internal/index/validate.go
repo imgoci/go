@@ -1,6 +1,7 @@
 package index
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -597,7 +598,11 @@ func formatSelector(s Selector) string {
 	return strings.Join([]string{s.Architecture, s.Target, s.Representation, s.Role, s.Compression}, ", ")
 }
 
+// ErrRule is the sentinel [ruleError] wraps so callers can match spec §6
+// rule failures with [errors.Is] without depending on error text.
+var ErrRule = errors.New("spec rule")
+
 // ruleError names the violated spec §6 rule number in the error text.
 func ruleError(rule int, format string, args ...any) error {
-	return fmt.Errorf("spec §6 rule %d: %s", rule, fmt.Sprintf(format, args...))
+	return fmt.Errorf("spec §6 rule %d: %s: %w", rule, fmt.Sprintf(format, args...), ErrRule)
 }
