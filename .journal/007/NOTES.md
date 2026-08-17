@@ -26,3 +26,42 @@ Current state of the world:
 
 Plan: wait for the developer's actual request, then load task-relevant skills
 and any matching prior-session history before starting work.
+
+## 2026-08-16 20:15 — Goal: absorb the spec usage selector
+Actual request: review the newest spec PR in `~/code/imgoci/spec` and update this
+implementation to match; first spawn a planning agent for the update plan.
+
+Spec delta reviewed. New spec tip is `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`
+(PR #17, `feat(spec): add deliverable usage selector`); we pin
+`5b957102eeda16498fdcb80a738431b83abd4197`. The local spec checkout was behind
+one commit; I fetched but did not move its branch. Snapshot for agents:
+`/tmp/imgoci-spec-46d18b7/` plus `/tmp/imgoci-spec-46d18b7-usage.diff`.
+
+Substance of the change: a new optional file-entry annotation `io.imgoci.usage`
+carrying a canonical, comma-separated, strictly ascending, unique basic-token set
+(<= 4096 bytes; absent = empty set; present empty string invalid). It joins the
+deliverable key `(architecture, target, representation, usage)` and the file key,
+the §6 rule 5 uniqueness tuple, the §9 producer sort tuple, and the §5.4
+registry (`live`, `install`, `install-offline`, with `install-offline` requiring
+`install` as a CONSUMER rule). §7.2 list filters by containment and must report
+each deliverable's exact usage set; §7.3 resolve requires a complete usage set
+matched for exact equality. Five new conformance fixtures (1 pass, 4 fail).
+
+Touch points confirmed by reading: `internal/index/{decode,validate,sort,build,
+producer}.go`, root `entry.go`/`list.go`/`resolve.go`/`index.go`/`publish.go`,
+`internal/transfer/publish.go`, the whole `cli/` query and output surface, the
+vendored conformance corpus plus counts in `internal/index/decode_test.go`
+(12/21 -> 13/25), the repo-owned `testdata/canonical` corpus and its
+phase-pinned fail map, and seven docs pages.
+
+Binding decisions I made before delegating: keep both `Selector` structs
+comparable by storing the canonical serialized usage string (rule 5 uses
+`map[Selector]int`; the §9 sort must stay allocation-free), give the public API a
+`Usage` domain type whose constructor sorts/dedupes/validates so producers never
+hand-sort, make `ListQuery.Usage` a containment filter and `ResolveQuery.Usage`
+an exact set where nil and empty both mean the empty set, put the §5.4 usage
+registry in producer-only code but the `install-offline` -> `install`
+relationship in `Validate`, and bump the pin through
+`.github/scripts/sync_conformance.sh --pin`.
+
+Next: read the planner's proposal, then decide scope and sequencing.
