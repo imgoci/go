@@ -24,7 +24,18 @@ rel, err := client.Fetch(ctx, "ghcr.io/example/os@sha256:9f86d081884c7d659a2feaa
 
 After `Fetch`, `rel.Digest()` is the index digest. Later calls address file manifests by digest, so a tag mutation after `Fetch` cannot redirect retrieval.
 
-`Fetch` requires the HTTP response's `Content-Type` to identify the release-index media type, then runs the same validation as the offline `ParseIndex`: JSON decoding rejects duplicate keys and invalid UTF-8; the ten consumer rules of spec section 6 are applied, including canonical descriptor order; the bytes must be RFC 8785-canonical. Any of those failures wraps `imgoci.ErrInvalidIndex`. Ten-rule validation failures name the violated rule. Decode, content-type, and canonical-bytes failures describe the failed check. The recorded digest is computed from the original input bytes — the library never re-encodes for identity.
+`Fetch` requires the HTTP response's `Content-Type` to identify the
+release-index media type, then runs the same validation as the offline
+`ParseIndex`: JSON decoding rejects duplicate keys and invalid UTF-8; the ten
+consumer rules of spec section 6 are applied, including canonical descriptor
+order; the bytes must be RFC 8785-canonical. Index validation also checks
+`io.imgoci.usage` syntax and rejects `install-offline` without `install`.
+These usage checks validate the producer's assertion, but do not prove that
+the deliverable behaves as asserted. Any index-validation failure wraps
+`imgoci.ErrInvalidIndex`. Ten-rule validation failures name the violated rule.
+Decode, content-type, and canonical-bytes failures describe the failed check.
+The recorded digest is computed from the original input bytes — the library
+never re-encodes for identity.
 
 ## Verify end to end in Go
 
@@ -61,6 +72,7 @@ func main() {
 		Architecture:   "amd64",
 		Target:         "qemu",
 		Representation: "qcow2",
+		Usage:          []string{"live"},
 		Compressions:   []string{"zstd", "none"},
 	})
 	if err != nil {
@@ -89,6 +101,11 @@ func fail(err error) {
 	os.Exit(1)
 }
 ```
+
+The example requests the exact usage set `live`. Replace it with the complete
+set reported by `List`. Use nil or an empty slice only for a deliverable with
+the empty usage set; omitting `Usage` does not match a deliverable that carries
+usage.
 
 `Resolve` returns a `Resolved` that carries the digest of the index it selected from (`sel.IndexDigest()`). `FetchFiles` refuses to run unless that digest equals `rel.Digest()`, failing with `imgoci.ErrSelectionMismatch` before any network I/O. For every selected entry it then fetches the file manifest by digest. A standard entry pulls one stored blob under an exact size bound. A BigOCI entry reconstructs the multipart stored file and re-verifies that file's stored digest and size. Both forms strictly decode a single unit and check the decoded stream against `io.imgoci.content.digest` and `io.imgoci.content.size`. A digest or size violation is `imgoci.ErrDigestMismatch`; a strict-decompression violation is `imgoci.ErrDecode`; an invalid retrieved manifest is `imgoci.ErrInvalidIndex`.
 

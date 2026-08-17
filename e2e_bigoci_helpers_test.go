@@ -160,6 +160,7 @@ func seedIndexForFileManifest(
 				Architecture:   sel.Architecture,
 				Target:         sel.Target,
 				Representation: sel.Representation,
+				Usage:          sel.Usage.String(),
 				Role:           sel.Role,
 				Compression:    sel.Compression,
 			},

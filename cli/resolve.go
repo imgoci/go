@@ -75,10 +75,11 @@ func resolveUsage() string {
 Fetch the release index <ref> names, select one deliverable, and write each
 selected role as a tab-separated line:
 
-  <architecture>	<target>	<representation>	<role>	<compression>	<filename>	<artifactType>	<contentDigest>	<contentSize>
+  <architecture>	<target>	<representation>	<usage>	<role>	<compression>	<filename>	<artifactType>	<contentDigest>	<contentSize>
 
 -architecture, -target, -representation, and at least one -compression are
-required and are checked before any network I/O. Diagnostics go to stderr.
+required and are checked before any network I/O. Unset -usage selects the
+empty usage set. Diagnostics go to stderr.
 
 flags:
 `, fs)

@@ -21,7 +21,7 @@ The private reference CLI maps each sentinel onto a fixed exit code; see the
 |---|---|---|---|
 | `ErrNotFound` | `Client.Fetch`, `Client.FetchFiles`, `Client.Publish` | The registry does not hold the requested release, manifest, or blob. | Check the reference and repository; nothing local to fix. |
 | `ErrUnauthorized` | `Client.Fetch`, `Client.FetchFiles`, `Client.Publish` | The registry refused a request for lack of credentials or insufficient permission. | Supply credentials (`WithCredentials` or `WithDockerCredentials`) or fix registry permissions. |
-| `ErrInvalidIndex` | `ParseIndex`, `Client.Fetch`, `Client.FetchFiles`, `Client.Publish` | A retrieved imgoci document is invalid: the release index failed a spec section 6 rule (decode, structure, canonical bytes, identity), the index response `Content-Type` did not identify the index type, a retrieved file manifest failed its rules — including a BigOCI profile violation — or `Client.Publish` read back an invalid BigOCI file manifest or profile after multipart push. | Do not retry with the same bytes; the producer published a non-conforming document. The wrapped error names the failed check. |
+| `ErrInvalidIndex` | `ParseIndex`, `Client.Fetch`, `Client.FetchFiles`, `Client.Publish` | A retrieved imgoci document is invalid: the release index failed a spec section 6 rule (decode, structure, canonical bytes, identity), an `io.imgoci.usage` value has invalid syntax, a usage set contains `install-offline` without `install`, the index response `Content-Type` did not identify the index type, a retrieved file manifest failed its rules — including a BigOCI profile violation — or `Client.Publish` read back an invalid BigOCI file manifest or profile after multipart push. | Do not retry with the same bytes; the producer published a non-conforming document. The wrapped error names the failed check. |
 | `ErrInvalidSpec` | `Client.Publish` | A producer-side specification violation: an illegal publish reference form (digest-only, tag+digest, or name-only), a producer rule 1–8 failure, invalid UTF-8 in a caller string, a reserved `io.imgoci.*` annotation key, a negative `MultipartSpec.PartSize`, or inconsistent shared sources. | Fix the `ReleaseSpec` or the reference; nothing was written. |
 | `ErrInvalidDest` | `Client.FetchFiles` | The fetch destination plan failed preflight: a zero `Dest`, a `ToFiles` map missing a selected role or naming an extra one, duplicate resolved paths, a path that is an existing directory, or a shadowed staging reservation. | Fix the destination; preflight fails before any network I/O. |
 | `ErrDigestMismatch` | `Client.Fetch`, `Client.FetchFiles`, `Client.Publish` | Retrieved or published bytes did not match a declared digest or size: a fetched index that fails the reference's digest pin, a manifest or blob that fails verification, a decoded stream that exceeds its declared size, or a `Source` that changed between pass 1 and upload. | On fetch: retry may help against a transient corruption, but a stable mismatch means the published content is wrong. On publish: stop mutating the `Source` during `Publish`. |
@@ -94,14 +94,16 @@ for the offline selection failures of spec section 7.3:
 - no accepted compression remains for a role.
 
 Only the capability filter wraps `ErrUnsupportedType`. Invalid queries (an
-empty required selector, a non-nil empty `Roles` slice, a duplicate or
-unknown compression token, a malformed basic token) and nil-receiver errors
-also have no distinguishing sentinel. Those three classes — selection found
-nothing, invalid query, and nil receiver — cannot be told apart with
-`errors.Is`. Do not parse the error text.
+empty required selector, a non-nil empty `Roles` slice, a malformed or
+duplicate usage value, a non-nil empty list-query `Usage` slice, a duplicate
+or unknown compression token, or another malformed basic token) and
+nil-receiver errors also have no distinguishing sentinel. Those three classes
+— selection found nothing, invalid query, and nil receiver — cannot be told
+apart with `errors.Is`. Do not parse the error text.
 
 `Index.List` likewise returns descriptive errors without a sentinel for
-invalid queries and a nil receiver.
+invalid queries and a nil receiver. Invalid `ListQuery.Usage` and
+`ResolveQuery.Usage` values are ordinary argument errors.
 
 ## Unclassified errors
 
@@ -113,6 +115,9 @@ ordinary errors; the CLI exits `1` for them.
   including the tag-only publish contract). A name-only reference passed to
   `Client.Fetch` is the same kind of error.
 - Nil arguments: a nil `Client`, `Release`, or `Index` reaching a method.
+- `NewUsage` returns an ordinary argument error for a malformed token, a
+  canonical set longer than 4096 bytes, or `install-offline` without
+  `install`. These errors match no public sentinel.
 - `WithWorkers` with a non-positive count, rejected before any I/O.
 - `New` failing to read an existing but unreadable Docker configuration file.
 - Network and transport errors that match nothing public.

@@ -96,7 +96,7 @@ cat > release.json <<'EOF'
 EOF
 ```
 
-Each file carries five selector fields — `architecture`, `target`, `representation`, `role`, `compression` — which is how consumers later pick the file they want. `compression` declares what the file already is; the library never compresses on your behalf, and `none` says `disk.img` is stored as-is.
+Each file has a six-field selector: `architecture`, `target`, `representation`, `usage`, `role`, and `compression`. This sample supplies the five required string fields and omits optional `usage`, so the deliverable has the empty usage set. `compression` declares what the file already is; the library never compresses on your behalf, and `none` says `disk.img` is stored as-is.
 
 ## Publish
 
@@ -125,12 +125,12 @@ List every stored alternative in the release:
 You see one tab-separated line, matching the spec you published:
 
 ```
-amd64	qemu	raw	disk	none	application/vnd.imgoci.file.v1
+amd64	qemu	raw		disk	none	application/vnd.imgoci.file.v1
 ```
 
 ## Select one deliverable
 
-`resolve` picks concrete files the way a consumer would: you name the architecture, target, and representation you need, plus the compressions you accept:
+`resolve` picks concrete files the way a consumer would: you name the architecture, target, representation, and complete usage set you need, plus the compressions you accept:
 
 ```sh
 ./imgoci resolve -plain-http \
@@ -139,10 +139,14 @@ amd64	qemu	raw	disk	none	application/vnd.imgoci.file.v1
   localhost:5500/tutorial/example:v1
 ```
 
+The publish spec omitted `usage`, so this tutorial passes no `-usage` to
+`resolve` or `fetch`; for those commands, an unset flag requests the exact
+empty usage set.
+
 You see one tab-separated line per selected file:
 
 ```
-amd64	qemu	raw	disk	none	disk.img	application/vnd.imgoci.file.v1	sha256:...	1048576
+amd64	qemu	raw		disk	none	disk.img	application/vnd.imgoci.file.v1	sha256:...	1048576
 ```
 
 Compare the second-to-last column with the `shasum` output from earlier: it is the SHA-256 of your `disk.img`, recorded in the release at publish time. The last column is its size in bytes.

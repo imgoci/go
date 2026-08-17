@@ -2,7 +2,7 @@ package imgoci
 
 import "github.com/opencontainers/go-digest"
 
-// Selector is the five-field identity of one file-entry descriptor. Values are
+// Selector is the six-field identity of one file-entry descriptor. Values are
 // compared exactly and case-sensitively, as spec section 5.3 requires.
 type Selector struct {
 	// Architecture is the io.imgoci.architecture value.
@@ -11,6 +11,9 @@ type Selector struct {
 	Target string
 	// Representation is the io.imgoci.representation value.
 	Representation string
+	// Usage is the io.imgoci.usage set. The zero value is the empty set,
+	// which is how a descriptor without that annotation is spelled.
+	Usage Usage
 	// Role is the io.imgoci.role value.
 	Role string
 	// Compression is the io.imgoci.compression value.
@@ -29,7 +32,7 @@ type FileEntry struct {
 	Digest digest.Digest
 	// Size is the byte length of the referenced file manifest.
 	Size int64
-	// Selector is the five-field file-entry identity.
+	// Selector is the six-field file-entry identity.
 	Selector Selector
 	// ContentDigest is the SHA-256 digest of the decoded content.
 	ContentDigest digest.Digest

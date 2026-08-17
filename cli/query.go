@@ -15,6 +15,8 @@ type queryFlags struct {
 	target string
 	// representation is an exact representation filter or selector.
 	representation string
+	// usage is the list containment filter or the exact resolve set.
+	usage stringList
 	// roles are the required or selected roles, in the order they were set.
 	roles stringList
 	// compressions are the accepted compressions, most preferred first.
@@ -29,6 +31,8 @@ func (q *queryFlags) registerList(fs *flag.FlagSet) {
 	fs.StringVar(&q.target, flagTarget, "", "exact target filter (unset: match every target)")
 	fs.StringVar(&q.representation, flagRepresentation, "",
 		"exact representation filter (unset: match every representation)")
+	fs.Var(&q.usage, flagUsage,
+		"usage value a matching set must contain; repeat to require several (unset: match every usage set)")
 	fs.Var(&q.roles, flagRole, "require this role; repeat to require several (unset: no role filter)")
 }
 
@@ -37,6 +41,8 @@ func (q *queryFlags) registerResolve(fs *flag.FlagSet) {
 	fs.StringVar(&q.architecture, flagArchitecture, "", "required exact architecture selector")
 	fs.StringVar(&q.target, flagTarget, "", "required exact target selector")
 	fs.StringVar(&q.representation, flagRepresentation, "", "required exact representation selector")
+	fs.Var(&q.usage, flagUsage,
+		"one value of the complete exact usage set; repeat to name the set (unset: the empty usage set)")
 	fs.Var(&q.roles, flagRole, "select this role; repeat to select several (unset: the default-role rule)")
 	fs.Var(&q.compressions, flagCompression, "accepted compression, most preferred first; repeat to accept several")
 	fs.Var(&q.capabilities, flagCapability,
@@ -44,12 +50,13 @@ func (q *queryFlags) registerResolve(fs *flag.FlagSet) {
 }
 
 // listQuery maps the flags onto [imgoci.ListQuery]. Unset scalars stay empty
-// and match every value. A nil Roles slice applies no role filter.
+// and match every value. A nil Roles or Usage slice applies no filter.
 func (q *queryFlags) listQuery() imgoci.ListQuery {
 	return imgoci.ListQuery{
 		Architecture:   q.architecture,
 		Target:         q.target,
 		Representation: q.representation,
+		Usage:          q.usage.values,
 		Roles:          q.roles.values,
 	}
 }
@@ -61,6 +68,7 @@ func (q *queryFlags) resolveQuery() (imgoci.ResolveQuery, error) {
 		Architecture:   q.architecture,
 		Target:         q.target,
 		Representation: q.representation,
+		Usage:          q.usage.values,
 		Roles:          q.roles.values,
 		Compressions:   q.compressions.values,
 	}

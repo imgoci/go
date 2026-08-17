@@ -16,10 +16,11 @@ func writeDeliverables(out io.Writer, deliverables []imgoci.Deliverable) error {
 		for _, role := range deliverable.Roles {
 			for _, alt := range role.Alternatives {
 				if _, err := fmt.Fprintf(
-					out, "%s\t%s\t%s\t%s\t%s\t%s\n",
+					out, "%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 					deliverable.Architecture,
 					deliverable.Target,
 					deliverable.Representation,
+					deliverable.Usage.String(),
 					role.Role,
 					alt.Compression,
 					alt.ArtifactType,
@@ -38,10 +39,11 @@ func writeDeliverables(out io.Writer, deliverables []imgoci.Deliverable) error {
 func writeResolved(out io.Writer, sel *imgoci.Resolved) error {
 	for _, entry := range sel.Entries() {
 		if _, err := fmt.Fprintf(
-			out, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			out, "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			entry.Selector.Architecture,
 			entry.Selector.Target,
 			entry.Selector.Representation,
+			entry.Selector.Usage.String(),
 			entry.Selector.Role,
 			entry.Selector.Compression,
 			entry.Filename,

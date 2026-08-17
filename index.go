@@ -102,6 +102,7 @@ func fileEntryFromDescriptor(d index.Descriptor) FileEntry {
 			Architecture:   sel.Architecture,
 			Target:         sel.Target,
 			Representation: sel.Representation,
+			Usage:          usageFromCanonical(sel.Usage),
 			Role:           sel.Role,
 			Compression:    sel.Compression,
 		},

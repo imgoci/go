@@ -6,13 +6,18 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+
+	"github.com/imgoci/go/internal/index"
 )
 
 // maxBasicTokenBytes is the spec section 5.3 maximum length of a basic token.
 const maxBasicTokenBytes = 128
 
 // ListQuery selects deliverables from a validated [Index]. Empty scalar fields
-// match every value. A nil Roles slice applies no role filter; a non-nil Roles
+// match every value. A nil Usage slice applies no usage filter and matches
+// every usage set. A non-nil Usage slice must be non-empty and free of
+// duplicates; a deliverable matches only when its usage set contains every
+// requested value. A nil Roles slice applies no role filter; a non-nil Roles
 // slice must be non-empty and names every role a matching deliverable must
 // contain.
 type ListQuery struct {
@@ -25,15 +30,20 @@ type ListQuery struct {
 	// Representation is an exact, case-sensitive representation filter. The
 	// empty string matches every representation.
 	Representation string
+	// Usage, when non-nil, requires a matching deliverable's usage set to
+	// contain every requested value (spec section 7.2). Nil applies no usage
+	// filter and matches every usage set. A non-nil empty slice is invalid
+	// per spec section 7.1. Order is irrelevant.
+	Usage []string
 	// Roles, when non-nil, requires every listed role to be present on a
 	// matching deliverable. Nil means no role filter. A non-nil empty slice is
 	// invalid per spec section 7.1.
 	Roles []string
 }
 
-// Deliverable is one unique (architecture, target, representation) group
-// returned by [Index.List]. Spec section 7.2 defines a deliverable as all file
-// entries that share that three-field key.
+// Deliverable is one unique (architecture, target, representation, usage)
+// group returned by [Index.List]. Spec section 7.2 defines a deliverable as
+// all file entries that share that four-field key.
 type Deliverable struct {
 	// Architecture is the deliverable's architecture selector.
 	Architecture string
@@ -41,6 +51,9 @@ type Deliverable struct {
 	Target string
 	// Representation is the deliverable's representation selector.
 	Representation string
+	// Usage is the deliverable's exact usage set, not the list-query filter
+	// (spec section 7.2).
+	Usage Usage
 	// Roles lists every role in the deliverable, sorted by role in ascending
 	// UTF-8 byte order. Each role includes its transport alternatives.
 	Roles []DeliverableRole
@@ -74,6 +87,8 @@ type listedGroup struct {
 	target string
 	// representation is the deliverable representation.
 	representation string
+	// usage is the deliverable's exact usage set.
+	usage Usage
 	// roles maps role name to compression-sorted alternatives as they arrive.
 	roles map[string][]TransportAlternative
 }
@@ -89,23 +104,28 @@ func (x *Index) List(q ListQuery) ([]Deliverable, error) {
 	if x == nil {
 		return nil, errors.New("list: nil index")
 	}
-	if err := validateListQuery(q); err != nil {
+	usageFilter, err := validateListQuery(q)
+	if err != nil {
 		return nil, err
 	}
 
-	groups := make(map[string]*listedGroup)
-	order := make([]string, 0)
+	groups := make(map[deliverableKey]*listedGroup)
+	order := make([]deliverableKey, 0)
 	for _, entry := range x.entries {
 		if !matchesListScalars(entry.Selector, q) {
 			continue
 		}
-		key := deliverableKey(entry.Selector)
+		if !index.UsageContainsAll(entry.Selector.Usage.String(), usageFilter) {
+			continue
+		}
+		key := newDeliverableKey(entry.Selector)
 		group, ok := groups[key]
 		if !ok {
 			group = &listedGroup{
 				architecture:   entry.Selector.Architecture,
 				target:         entry.Selector.Target,
 				representation: entry.Selector.Representation,
+				usage:          entry.Selector.Usage,
 				roles:          make(map[string][]TransportAlternative),
 			}
 			groups[key] = group
@@ -130,27 +150,45 @@ func (x *Index) List(q ListQuery) ([]Deliverable, error) {
 	return out, nil
 }
 
-// validateListQuery reports whether q satisfies spec section 7.1.
-func validateListQuery(q ListQuery) error {
+// validateListQuery reports whether q satisfies spec section 7.1 and returns
+// the canonical usage filter. An empty returned filter means no usage filter.
+func validateListQuery(q ListQuery) (string, error) {
 	if q.Architecture != "" {
 		if err := validateArchitecture(q.Architecture); err != nil {
-			return fmt.Errorf("list query architecture: %w", err)
+			return "", fmt.Errorf("list query architecture: %w", err)
 		}
 	}
 	if q.Target != "" {
 		if err := validateBasicToken(q.Target); err != nil {
-			return fmt.Errorf("list query target: %w", err)
+			return "", fmt.Errorf("list query target: %w", err)
 		}
 	}
 	if q.Representation != "" {
 		if err := validateBasicToken(q.Representation); err != nil {
-			return fmt.Errorf("list query representation: %w", err)
+			return "", fmt.Errorf("list query representation: %w", err)
 		}
 	}
-	if err := validateRoleList(q.Roles); err != nil {
-		return fmt.Errorf("list query roles: %w", err)
+	usageFilter, err := validateListUsage(q.Usage)
+	if err != nil {
+		return "", err
 	}
-	return nil
+	if err := validateRoleList(q.Roles); err != nil {
+		return "", fmt.Errorf("list query roles: %w", err)
+	}
+	return usageFilter, nil
+}
+
+// validateListUsage reports whether usage is a valid spec section 7.1 list
+// query usage list and returns its canonical form. Nil is valid and means
+// "omitted". A non-nil list must be non-empty and free of duplicates.
+func validateListUsage(usage []string) (string, error) {
+	if usage == nil {
+		return "", nil
+	}
+	if len(usage) == 0 {
+		return "", errors.New("list query usage: must be non-empty when present")
+	}
+	return canonicalUsageQuery(usage, "list query usage")
 }
 
 // matchesListScalars reports whether sel matches the exact scalar filters in q.
@@ -181,9 +219,28 @@ func matchesListRoles(roles map[string][]TransportAlternative, requested []strin
 	return true
 }
 
-// deliverableKey is the map key for one (architecture, target, representation).
-func deliverableKey(sel Selector) string {
-	return sel.Architecture + "\x00" + sel.Target + "\x00" + sel.Representation
+// deliverableKey is the map key for one (architecture, target, representation,
+// usage) group. The four fields are comparable so grouping allocates no
+// concatenated strings per entry.
+type deliverableKey struct {
+	// architecture is the deliverable architecture.
+	architecture string
+	// target is the deliverable target.
+	target string
+	// representation is the deliverable representation.
+	representation string
+	// usage is the canonical serialized usage set.
+	usage string
+}
+
+// newDeliverableKey returns the four-field grouping key for sel.
+func newDeliverableKey(sel Selector) deliverableKey {
+	return deliverableKey{
+		architecture:   sel.Architecture,
+		target:         sel.Target,
+		representation: sel.Representation,
+		usage:          sel.Usage.String(),
+	}
 }
 
 // toDeliverable copies g into a sorted public [Deliverable].
@@ -205,12 +262,13 @@ func (g *listedGroup) toDeliverable() Deliverable {
 		Architecture:   g.architecture,
 		Target:         g.target,
 		Representation: g.representation,
+		Usage:          g.usage,
 		Roles:          roles,
 	}
 }
 
 // sortDeliverables sorts d by architecture, then target, then representation,
-// each in ascending UTF-8 byte order.
+// then usage, each in ascending UTF-8 byte order.
 func sortDeliverables(d []Deliverable) {
 	slices.SortFunc(d, func(a, b Deliverable) int {
 		if c := cmp.Compare(a.Architecture, b.Architecture); c != 0 {
@@ -219,7 +277,10 @@ func sortDeliverables(d []Deliverable) {
 		if c := cmp.Compare(a.Target, b.Target); c != 0 {
 			return c
 		}
-		return cmp.Compare(a.Representation, b.Representation)
+		if c := cmp.Compare(a.Representation, b.Representation); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Usage.String(), b.Usage.String())
 	})
 }
 

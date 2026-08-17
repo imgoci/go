@@ -54,6 +54,7 @@ type Selector struct {
 	Architecture   string // io.imgoci.architecture
 	Target         string // io.imgoci.target
 	Representation string // io.imgoci.representation
+	Usage          Usage  // io.imgoci.usage; zero is the empty set
 	Role           string // io.imgoci.role
 	Compression    string // io.imgoci.compression
 }
@@ -63,13 +64,38 @@ type FileEntry struct {
 	ArtifactType  string            // file-manifest type, as written; capability metadata
 	Digest        digest.Digest     // SHA-256 of the referenced file manifest
 	Size          int64             // byte length of the referenced file manifest
-	Selector      Selector          // five-field file-entry identity
+	Selector      Selector          // six-field file-entry identity
 	ContentDigest digest.Digest     // SHA-256 of the decoded content
 	ContentSize   int64             // byte length of the decoded content
 	Filename      string            // io.imgoci.filename
 	Annotations   map[string]string // every descriptor annotation, including unknown keys
 }
 ```
+
+### Usage sets
+
+```go
+type Usage struct{ /* unexported */ }
+
+func NewUsage(values ...string) (Usage, error)
+func (u Usage) String() string
+func (u Usage) Values() []string
+```
+
+`Usage` is an immutable, comparable set of usage tokens. Its zero value and
+`NewUsage()` both represent the empty set. Values built with `NewUsage` can be
+compared with `==` or used as map keys.
+
+`NewUsage` accepts tokens in any order, sorts them in ascending UTF-8 byte
+order, and removes duplicates. Each token must be a spec section 5.3 basic
+token, and the canonical comma-separated value must not exceed 4096 bytes. It
+rejects a set that contains `install-offline` without `install`. It does not
+restrict syntactically valid values to a registry of known usage values.
+
+`String` returns the canonical comma-separated form, or `""` for the empty
+set. `Values` returns a freshly allocated sorted slice, or nil for the empty
+set. Usage values are producer assertions: validation and retrieval do not run
+the deliverable or prove that it behaves as asserted.
 
 Selector values compare exactly and case-sensitively (spec section 5.3).
 `MediaType` and `ArtifactType` are preserved as written; compare them with
@@ -91,6 +117,7 @@ type ListQuery struct {
 	Architecture   string   // exact filter; "" matches every architecture
 	Target         string   // exact filter; "" matches every target
 	Representation string   // exact filter; "" matches every representation
+	Usage          []string // nil: no filter; non-nil: required contained values
 	Roles          []string // nil: no role filter; non-nil must be non-empty
 }
 
@@ -98,10 +125,14 @@ func (x *Index) List(q ListQuery) ([]Deliverable, error)
 ```
 
 Returns every deliverable that matches `q`, sorted per spec section 7.2:
-deliverables by architecture, target, then representation; roles and
-alternatives in ascending UTF-8 byte order. An empty result is valid. Listing
-does not filter by consumer capabilities. A non-nil `Roles` names every role a
-matching deliverable must contain.
+deliverables by architecture, target, representation, then exact usage set;
+roles and alternatives in ascending UTF-8 byte order. An empty result is
+valid. Listing does not filter by consumer capabilities.
+
+A nil `ListQuery.Usage` applies no usage filter and matches every usage set. A
+non-nil slice must be non-empty and duplicate-free; order is irrelevant. A
+deliverable matches when its usage set contains every requested value. A
+non-nil `Roles` names every role a matching deliverable must contain.
 
 `List` validates `q` before it inspects any entry; see [query validation
 ordering](#query-validation-ordering).
@@ -111,6 +142,7 @@ type Deliverable struct {
 	Architecture   string
 	Target         string
 	Representation string
+	Usage          Usage // the deliverable's exact usage set
 	Roles          []DeliverableRole
 }
 
@@ -130,6 +162,7 @@ type ResolveQuery struct {
 	Architecture   string       // required exact selector
 	Target         string       // required exact selector
 	Representation string       // required exact selector
+	Usage          []string     // complete exact set; nil and empty mean the empty set
 	Roles          []string     // nil: default-role rule; non-nil must be non-empty
 	Compressions   []string     // required; most preferred first; no duplicates
 	Capabilities   Capabilities // Index.Resolve zero: StandardCapabilities; Client.Resolve zero: Client.Capabilities
@@ -138,12 +171,18 @@ type ResolveQuery struct {
 func (x *Index) Resolve(q ResolveQuery) (*Resolved, error)
 ```
 
-Selects one deliverable per spec section 7.3. Selection is atomic: each step
-completes for every selected role before the next starts, and any failure
-returns a nil result with no partial entries. `Compressions` accepts only the
-v1 spec tokens `none`, `gzip`, `xz`, and `zstd`. Only the capability filter
-wraps `ErrUnsupportedType`; the other selection failures are deliberately
-sentinel-free (see the [error reference](errors.md#offline-resolve-failures)).
+Selects one deliverable per spec section 7.3. `ResolveQuery.Usage` is the
+complete requested usage set and is compared by exact set equality. Order is
+irrelevant and duplicates are invalid. Nil and an empty slice both request the
+empty usage set. A resolve query with no usage does not match a deliverable
+that carries any usage value.
+
+Selection is atomic: each step completes for every selected role before the
+next starts, and any failure returns a nil result with no partial entries.
+`Compressions` accepts only the v1 spec tokens `none`, `gzip`, `xz`, and
+`zstd`. Only the capability filter wraps `ErrUnsupportedType`; the other
+selection failures are deliberately sentinel-free (see the [error
+reference](errors.md#offline-resolve-failures)).
 
 `Resolve` validates `q` before it inspects any entry; see [query validation
 ordering](#query-validation-ordering).
@@ -374,7 +413,7 @@ Publishes `spec` as an imgoci release at `ref` and returns the canonical index
 digest. Publish is tag-only: digest-only, tag+digest, and name-only references
 are `ErrInvalidSpec` before any I/O. Spec validation (producer rules 1–8,
 `Name` and `Version` grammar, UTF-8 of every caller string, reserved
-`io.imgoci.*` keys, selector and filename grammar, duplicate five-tuples,
+`io.imgoci.*` keys, selector and filename grammar, duplicate six-field tuples,
 required roles, filename collisions, and shared-source consistency) also
 runs before any network I/O. A multipart
 plan must satisfy `ceil(storedSize/effectivePartSize) <= 4096`, where a

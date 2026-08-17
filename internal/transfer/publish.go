@@ -46,7 +46,7 @@ type PublishRequest struct {
 	// rejected by the root package before this request is built.
 	Annotations map[string]string
 	// Entries are the files to publish. Order is caller order; [index.Build]
-	// sorts by the five-field tuple.
+	// sorts by the six-field tuple.
 	Entries []PublishEntry
 	// Workers is the maximum concurrent unique-blob uploads. Values <= 0
 	// become 4. The effective count never exceeds the number of unique
@@ -70,7 +70,7 @@ type PublishEntry struct {
 	// SourcePath is the path-backed stored file. A Source must not change
 	// during Publish; pass-1 stat is re-checked before upload.
 	SourcePath string
-	// Selector is the five-field transport-alternative identity. Compression
+	// Selector is the six-field transport-alternative identity. Compression
 	// declares what the stored file already is.
 	Selector index.Selector
 	// Filename is io.imgoci.filename.
@@ -175,7 +175,7 @@ func (h *hashCounter) digest() digest.Digest {
 // into [decomp.Decoder] so decoded bytes are hashed and counted with the same
 // strictness as fetch. Unique stored digests share one blob push and one
 // manifest PUT, even when they came from different paths. After pass 1,
-// entries that share (architecture, target, representation, role) must agree
+// entries that share (architecture, target, representation, usage, role) must agree
 // on content digest, content size, and filename (spec §6 rule 6) before any
 // network write. Unique stored digests that disagree on decoded content or
 // compression fail as [ErrSharedBlob] (spec §6 rule 8), also before any
@@ -267,13 +267,13 @@ func hashSources(entries []PublishEntry, maxWindow uint64) (map[string]hashedFil
 }
 
 // checkFileIdentity enforces spec §6 rule 6 against pass-1 content identity.
-// Entries sharing (architecture, target, representation, role) must agree on
+// Entries sharing (architecture, target, representation, usage, role) must agree on
 // content digest, content size, and filename. This runs after hashing and
 // before any network write. The error wraps [index.ErrRule] so the public
 // mapper can classify it as caller input.
 func checkFileIdentity(entries []PublishEntry, hashed map[string]hashedFile) error {
 	type fileID struct {
-		architecture, target, representation, role string
+		architecture, target, representation, usage, role string
 	}
 	type fileContent struct {
 		digest   digest.Digest
@@ -287,6 +287,7 @@ func checkFileIdentity(entries []PublishEntry, hashed map[string]hashedFile) err
 			architecture:   entry.Selector.Architecture,
 			target:         entry.Selector.Target,
 			representation: entry.Selector.Representation,
+			usage:          entry.Selector.Usage,
 			role:           entry.Selector.Role,
 		}
 		got := fileContent{digest: h.contentDigest, size: h.contentSize, filename: entry.Filename}
@@ -297,10 +298,11 @@ func checkFileIdentity(entries []PublishEntry, hashed map[string]hashedFile) err
 		}
 		if prev.digest != got.digest || prev.size != got.size || prev.filename != got.filename {
 			return fmt.Errorf(
-				"transport alternatives for file %s, %s, %s, %s must have the same content digest, content size, and filename: %w",
+				"transport alternatives for file %s, %s, %s, %s, %s must have the same content digest, content size, and filename: %w",
 				id.architecture,
 				id.target,
 				id.representation,
+				id.usage,
 				id.role,
 				index.ErrRule,
 			)

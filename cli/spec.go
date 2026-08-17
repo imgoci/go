@@ -40,6 +40,9 @@ type publishFile struct {
 	Target string `json:"target"`
 	// Representation is io.imgoci.representation.
 	Representation string `json:"representation"`
+	// Usage is the optional io.imgoci.usage set. Omitted, null, and [] are
+	// the empty set.
+	Usage []string `json:"usage"`
 	// Role is io.imgoci.role.
 	Role string `json:"role"`
 	// Compression is io.imgoci.compression. It declares what Path already is.
@@ -152,12 +155,18 @@ func fileToFileSpec(file publishFile, baseDir string) (imgoci.FileSpec, error) {
 		path = filepath.Join(baseDir, path)
 	}
 
+	usage, err := imgoci.NewUsage(file.Usage...)
+	if err != nil {
+		return imgoci.FileSpec{}, err
+	}
+
 	spec := imgoci.FileSpec{
 		Source: imgoci.FromFile(path),
 		Selector: imgoci.Selector{
 			Architecture:   file.Architecture,
 			Target:         file.Target,
 			Representation: file.Representation,
+			Usage:          usage,
 			Role:           file.Role,
 			Compression:    file.Compression,
 		},

@@ -7,6 +7,8 @@ import (
 	"slices"
 
 	"github.com/opencontainers/go-digest"
+
+	"github.com/imgoci/go/internal/index"
 )
 
 const (
@@ -42,10 +44,11 @@ const (
 )
 
 // ResolveQuery selects one deliverable from a validated [Index]. Architecture,
-// Target, and Representation are required exact matches. A nil Roles slice
-// applies the spec section 7.3 default-role rule; a non-nil Roles slice must
-// be non-empty and selects exactly those roles. Compressions is a required
-// preference-ordered list. A zero Capabilities means [StandardCapabilities].
+// Target, Representation, and Usage are required exact matches. Nil and empty
+// Usage both request the empty usage set. A nil Roles slice applies the spec
+// section 7.3 default-role rule; a non-nil Roles slice must be non-empty and
+// selects exactly those roles. Compressions is a required preference-ordered
+// list. A zero Capabilities means [StandardCapabilities].
 type ResolveQuery struct {
 	// Architecture is the required exact architecture selector.
 	Architecture string
@@ -53,6 +56,12 @@ type ResolveQuery struct {
 	Target string
 	// Representation is the required exact representation selector.
 	Representation string
+	// Usage is the complete requested usage set, compared for exact equality
+	// with a deliverable's usage set. Nil and an empty slice both mean the
+	// empty usage set, which is what a deliverable whose descriptors omit
+	// io.imgoci.usage has. Duplicates are rejected. Order is irrelevant
+	// because the library canonicalizes the list before matching.
+	Usage []string
 	// Roles, when non-nil, selects exactly those roles. Nil applies the
 	// default-role rule. A non-nil empty slice is invalid per spec section 7.1.
 	Roles []string
@@ -109,25 +118,26 @@ func (x *Index) Resolve(q ResolveQuery) (*Resolved, error) {
 	if x == nil {
 		return nil, errors.New("resolve: nil index")
 	}
-	if err := validateResolveQuery(q); err != nil {
+	usage, err := validateResolveQuery(q)
+	if err != nil {
 		return nil, err
 	}
 
-	candidates := matchingDeliverable(x.entries, q)
+	candidates := matchingDeliverable(x.entries, q, usage)
 	if len(candidates) == 0 {
 		return nil, fmt.Errorf(
-			"resolve: no deliverable for architecture %q target %q representation %q",
-			q.Architecture, q.Target, q.Representation,
+			"resolve: no deliverable for architecture %q target %q representation %q %s",
+			q.Architecture, q.Target, q.Representation, formatResolveUsage(usage),
 		)
 	}
 
 	roles := selectedRoles(q, candidates)
 
 	byRole := groupByRole(candidates, roles)
-	if err := requireRolesPresent(roles, byRole); err != nil {
+	if err = requireRolesPresent(roles, byRole); err != nil {
 		return nil, err
 	}
-	if err := filterByCapabilities(roles, byRole, q.Capabilities.effective()); err != nil {
+	if err = filterByCapabilities(roles, byRole, q.Capabilities.effective()); err != nil {
 		return nil, err
 	}
 	chosen, err := pickCompressions(roles, byRole, q.Compressions)
@@ -137,38 +147,43 @@ func (x *Index) Resolve(q ResolveQuery) (*Resolved, error) {
 	return &Resolved{digest: x.digest, entries: chosen}, nil
 }
 
-// validateResolveQuery reports whether q satisfies spec section 7.1.
-func validateResolveQuery(q ResolveQuery) error {
+// validateResolveQuery reports whether q satisfies spec section 7.1 and
+// returns the canonical usage string so [Index.Resolve] can compare it once.
+func validateResolveQuery(q ResolveQuery) (string, error) {
 	if q.Architecture == "" {
-		return errors.New("resolve query: architecture is required")
+		return "", errors.New("resolve query: architecture is required")
 	}
 	if err := validateArchitecture(q.Architecture); err != nil {
-		return fmt.Errorf("resolve query architecture: %w", err)
+		return "", fmt.Errorf("resolve query architecture: %w", err)
 	}
 	if q.Target == "" {
-		return errors.New("resolve query: target is required")
+		return "", errors.New("resolve query: target is required")
 	}
 	if err := validateBasicToken(q.Target); err != nil {
-		return fmt.Errorf("resolve query target: %w", err)
+		return "", fmt.Errorf("resolve query target: %w", err)
 	}
 	if q.Representation == "" {
-		return errors.New("resolve query: representation is required")
+		return "", errors.New("resolve query: representation is required")
 	}
 	if err := validateBasicToken(q.Representation); err != nil {
-		return fmt.Errorf("resolve query representation: %w", err)
+		return "", fmt.Errorf("resolve query representation: %w", err)
+	}
+	usage, err := canonicalUsageQuery(q.Usage, "resolve query usage")
+	if err != nil {
+		return "", err
 	}
 	if err := validateRoleList(q.Roles); err != nil {
-		return fmt.Errorf("resolve query roles: %w", err)
+		return "", fmt.Errorf("resolve query roles: %w", err)
 	}
 	if len(q.Compressions) == 0 {
-		return errors.New("resolve query: compressions must be non-empty")
+		return "", errors.New("resolve query: compressions must be non-empty")
 	}
 	if err := validateUniqueBasicTokens(q.Compressions, "compression"); err != nil {
-		return fmt.Errorf("resolve query compressions: %w", err)
+		return "", fmt.Errorf("resolve query compressions: %w", err)
 	}
 	for _, compression := range q.Compressions {
 		if !allowedResolveCompression(compression) {
-			return fmt.Errorf(
+			return "", fmt.Errorf(
 				"resolve query compressions: %q is outside the spec section 5.4 set {%s, %s, %s, %s}",
 				compression,
 				compressionNone,
@@ -178,7 +193,7 @@ func validateResolveQuery(q ResolveQuery) error {
 			)
 		}
 	}
-	return nil
+	return usage, nil
 }
 
 // allowedResolveCompression reports whether s is one of the spec section 5.4 v1
@@ -193,17 +208,26 @@ func allowedResolveCompression(s string) bool {
 	}
 }
 
-// matchingDeliverable returns every entry whose deliverable key equals q.
-func matchingDeliverable(entries []FileEntry, q ResolveQuery) []FileEntry {
+// matchingDeliverable returns every entry whose deliverable key equals q and
+// usage. usage is the canonical serialized set, compared for exact equality.
+func matchingDeliverable(entries []FileEntry, q ResolveQuery, usage string) []FileEntry {
 	out := make([]FileEntry, 0)
 	for _, entry := range entries {
 		if entry.Selector.Architecture == q.Architecture &&
 			entry.Selector.Target == q.Target &&
-			entry.Selector.Representation == q.Representation {
+			entry.Selector.Representation == q.Representation &&
+			entry.Selector.Usage.String() == usage {
 			out = append(out, entry)
 		}
 	}
 	return out
+}
+
+// formatResolveUsage renders a canonical usage set for a resolve error. A
+// present value is quoted because it is itself comma-separated; the empty set
+// is usage=<empty>, which no basic token can spell.
+func formatResolveUsage(usage string) string {
+	return index.FormatUsage(usage)
 }
 
 // selectedRoles returns the role list to resolve, applying the default-role

@@ -93,6 +93,7 @@ paths are resolved against the directory that contains `<spec>`.
       "architecture": "amd64",
       "target": "qemu",
       "representation": "qcow2",
+      "usage": ["install-offline", "install"],
       "role": "disk",
       "compression": "none",
       "annotations": {"note": "file"},
@@ -110,10 +111,14 @@ paths are resolved against the directory that contains `<spec>`.
 | `files` | yes | The stored files to publish. |
 | `files[].path` | yes | Filesystem path of the stored file; relative paths resolve against the spec's directory. |
 | `files[].filename` | yes | `io.imgoci.filename`. 1–255 bytes, ASCII alphanumeric first and last, ASCII alphanumerics plus `.`, `_`, `+`, `-` internally. |
-| `files[].architecture`, `target`, `representation`, `role`, `compression` | yes | The five selector fields. `compression` declares what `path` already is. |
+| `files[].architecture`, `target`, `representation`, `role`, `compression` | yes | The required selector fields. `compression` declares what `path` already is. |
+| `files[].usage` | no | An array of usage tokens. Omitted, `null`, and `[]` mean the empty set. The CLI passes the array to `imgoci.NewUsage`, which sorts and de-duplicates it and rejects `install-offline` without `install`. |
 | `files[].annotations` | no | Extra descriptor annotations. `io.imgoci.*` keys are reserved. |
 | `files[].multipart` | no | Omitted or `null` selects the standard form; a present object requests BigOCI publication. |
 | `files[].multipart.partSize` | no | Part size in bytes. Must not be negative. `0` uses the library default (512 MiB) as the effective part size. A multipart plan must satisfy `ceil(storedSize/effectivePartSize) <= 4096`. |
+
+An invalid `files[].usage` value is a publish-spec usage error. The error names
+the offending file entry, and the command exits `2` before publication.
 
 ## imgoci list
 
@@ -129,14 +134,18 @@ to stdout. Flags: the shared set plus optional filters.
 | `-architecture` | Exact architecture filter (unset: match every architecture). |
 | `-target` | Exact target filter (unset: match every target). |
 | `-representation` | Exact representation filter (unset: match every representation). |
+| `-usage` | Require this usage value; repeat to require several. Matching is containment: the deliverable may contain additional usage values (unset: match every usage set). |
 | `-role` | Require this role; repeat to require several (unset: no role filter). |
 
 Output: one line per stored transport alternative, tab-separated, in the order
 `imgoci.Index.List` already sorts:
 
 ```
-<architecture>	<target>	<representation>	<role>	<compression>	<artifactType>
+<architecture>	<target>	<representation>	<usage>	<role>	<compression>	<artifactType>
 ```
+
+The `usage` field is the deliverable's exact comma-separated usage set. The
+empty set is an empty fourth field; the line still has seven fields.
 
 An empty match prints nothing and exits `0`.
 
@@ -149,12 +158,14 @@ imgoci resolve [flags] <ref>
 Fetches the release index, selects one deliverable, and writes each selected
 role to stdout. `-architecture`, `-target`, `-representation`, and at least
 one `-compression` are required and are checked before any network I/O.
+`-usage` is optional because omitting it requests the empty usage set.
 
 | Flag | Required | Meaning |
 |---|---|---|
 | `-architecture` | yes | Exact architecture selector. |
 | `-target` | yes | Exact target selector. |
 | `-representation` | yes | Exact representation selector. |
+| `-usage` | no | Complete usage set for exact matching; repeat once per value. Unset requests the empty usage set and does not match a deliverable that carries usage. |
 | `-compression` | at least one | Accepted compression, most preferred first; repeat to accept several. |
 | `-role` | no | Select this role; repeat to select several (unset: the default-role rule). |
 | `-capability` | no | Consumer file-manifest type; repeat to accept several (unset: the client's capabilities). A set that is given must include `application/vnd.imgoci.file.v1`. |
@@ -163,8 +174,11 @@ Output: one line per selected role, tab-separated, in
 `imgoci.Resolved.Entries` order:
 
 ```
-<architecture>	<target>	<representation>	<role>	<compression>	<filename>	<artifactType>	<contentDigest>	<contentSize>
+<architecture>	<target>	<representation>	<usage>	<role>	<compression>	<filename>	<artifactType>	<contentDigest>	<contentSize>
 ```
+
+The `usage` field is the exact comma-separated usage set. The empty set is an
+empty fourth field; the line still has ten fields.
 
 ## imgoci fetch
 
@@ -174,8 +188,20 @@ imgoci fetch [flags] <ref> <dest>
 
 Fetches the release index, selects one deliverable, and writes the verified
 files into directory `<dest>`, named by `io.imgoci.filename`. Stdout stays
-empty whether the fetch succeeds or fails. Flags: everything `resolve` takes
-plus `-workers` and `-progress`. The same selectors are required.
+empty whether the fetch succeeds or fails. The shared flags apply, as do these
+command-specific flags:
+
+| Flag | Required | Meaning |
+|---|---|---|
+| `-architecture` | yes | Exact architecture selector. |
+| `-target` | yes | Exact target selector. |
+| `-representation` | yes | Exact representation selector. |
+| `-usage` | no | Complete usage set for exact matching; repeat once per value. Unset requests the empty usage set and does not match a deliverable that carries usage. |
+| `-compression` | at least one | Accepted compression, most preferred first; repeat to accept several. |
+| `-role` | no | Select this role; repeat to select several (unset: the default-role rule). |
+| `-capability` | no | Consumer file-manifest type; repeat to accept several (unset: the client's capabilities). A set that is given must include `application/vnd.imgoci.file.v1`. |
+| `-workers` | no | How many files to fetch at once (unset: library default, 4). |
+| `-progress` | no | Print a progress line at this interval (unset: no progress output). |
 
 ## Output contract
 

@@ -140,6 +140,77 @@ func TestRunHelpForListOmitsTransferFlags(t *testing.T) {
 	assert.NotContains(t, got.stdout, "-compression")
 }
 
+func TestRunHelpDistinguishesUsageMatching(t *testing.T) {
+	t.Parallel()
+
+	list := runCLI(t, "help", "list")
+	assert.Equal(t, exitOK, list.code)
+	assert.Contains(t, list.stdout, "-usage")
+	assert.Contains(t, list.stdout, "match every usage set")
+	assert.Contains(t, list.stdout, "<representation>\t<usage>\t<role>")
+	assert.NotContains(t, list.stdout, "empty usage set")
+
+	resolve := runCLI(t, "help", "resolve")
+	assert.Equal(t, exitOK, resolve.code)
+	assert.Contains(t, resolve.stdout, "-usage")
+	assert.Contains(t, resolve.stdout, "complete exact usage set")
+	assert.Contains(t, resolve.stdout, "empty usage set")
+	assert.Contains(t, resolve.stdout, "<representation>\t<usage>\t<role>")
+	assert.Contains(t, resolve.stdout, "Unset -usage selects the")
+	assert.NotContains(t, resolve.stdout, "match every usage set")
+
+	fetch := runCLI(t, "help", "fetch")
+	assert.Equal(t, exitOK, fetch.code)
+	assert.Contains(t, fetch.stdout, "complete exact usage set")
+	assert.Contains(t, fetch.stdout, "empty usage set")
+	assert.Contains(t, fetch.stdout, "Unset -usage selects the")
+	assert.NotContains(t, fetch.stdout, "match every usage set")
+}
+
+func TestQueryFlagsParseRepeatedUsage(t *testing.T) {
+	t.Parallel()
+
+	var list queryFlags
+	listFS := newFlagSet(cmdList)
+	list.registerList(listFS)
+	require.NoError(t, listFS.Parse([]string{"-usage", "install", "-usage", "install-offline"}))
+	assert.Equal(t, []string{"install", "install-offline"}, list.listQuery().Usage)
+
+	var unsetList queryFlags
+	unsetListFS := newFlagSet(cmdList)
+	unsetList.registerList(unsetListFS)
+	require.NoError(t, unsetListFS.Parse(nil))
+	assert.Nil(t, unsetList.listQuery().Usage)
+
+	var resolve queryFlags
+	resolveFS := newFlagSet(cmdResolve)
+	resolve.registerResolve(resolveFS)
+	require.NoError(t, resolveFS.Parse([]string{
+		"-architecture", "amd64",
+		"-target", "qemu",
+		"-representation", "qcow2",
+		"-compression", "none",
+		"-usage", "install-offline",
+		"-usage", "install",
+	}))
+	got, err := resolve.resolveQuery()
+	require.NoError(t, err)
+	assert.Equal(t, []string{"install-offline", "install"}, got.Usage)
+
+	var unsetResolve queryFlags
+	unsetResolveFS := newFlagSet(cmdResolve)
+	unsetResolve.registerResolve(unsetResolveFS)
+	require.NoError(t, unsetResolveFS.Parse([]string{
+		"-architecture", "amd64",
+		"-target", "qemu",
+		"-representation", "qcow2",
+		"-compression", "none",
+	}))
+	got, err = unsetResolve.resolveQuery()
+	require.NoError(t, err)
+	assert.Nil(t, got.Usage)
+}
+
 func TestRunUsageErrors(t *testing.T) {
 	t.Parallel()
 
@@ -220,6 +291,22 @@ func TestRunUsageErrors(t *testing.T) {
 				`{"version":"1","files":[{"path":"a","architecture":"amd64","target":"qemu","representation":"qcow2","role":"disk","compression":"none"}]}`,
 			),
 			wants: []string{"name is required"},
+		},
+		{
+			name: "publish spec invalid usage names the file",
+			args: writeSpecArgs(
+				t,
+				`{"name":"n","version":"1","files":[{"path":"a","filename":"a.img","architecture":"amd64","target":"qemu","representation":"qcow2","usage":["INSTALL"],"role":"disk","compression":"none"}]}`,
+			),
+			wants: []string{"files[0]", "INSTALL"},
+		},
+		{
+			name: "publish spec install-offline without install names the file",
+			args: writeSpecArgs(
+				t,
+				`{"name":"n","version":"1","files":[{"path":"a","filename":"a.img","architecture":"amd64","target":"qemu","representation":"qcow2","usage":["install-offline"],"role":"disk","compression":"none"}]}`,
+			),
+			wants: []string{"files[0]", "install-offline"},
 		},
 		{name: "version with an operand", args: []string{"version", "extra"}, wants: []string{"takes no operands"}},
 	}

@@ -383,10 +383,13 @@ func TestPublishHappyPath(t *testing.T) {
 		t.Fatal("expected index digest")
 	}
 	puts := manifests.putRefs()
-	if len(puts) < 2 || puts[len(puts)-1] != "v1" {
+	if len(puts) < 2 || puts[len(puts)-1] != publishTestTag {
 		t.Fatalf("puts %v, want manifests then tag", puts)
 	}
 }
+
+// publishTestTag is the tag every publish test writes the release index to.
+const publishTestTag = "v1"
 
 type publishManifests struct {
 	mu     sync.Mutex
@@ -410,10 +413,11 @@ func (s *publishManifests) Put(_ context.Context, ref, _ string, raw []byte) err
 	return s.putErr
 }
 
-func (s *publishManifests) body(ref string) []byte {
+// body returns the manifest body published at the tag these tests publish to.
+func (s *publishManifests) body() []byte {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return s.bodies[ref]
+	return s.bodies[publishTestTag]
 }
 
 func (s *publishManifests) putRefs() []string {
@@ -704,7 +708,7 @@ func TestPublishClonesAnnotations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	raw := manifests.body("v1")
+	raw := manifests.body()
 	if len(raw) == 0 {
 		t.Fatal("index PUT body missing")
 	}
@@ -717,5 +721,188 @@ func TestPublishClonesAnnotations(t *testing.T) {
 	}
 	if v.Manifests[0].Annotations["extra"] != "keep" {
 		t.Fatalf("file annotation = %q, want keep", v.Manifests[0].Annotations["extra"])
+	}
+}
+
+func TestPublishUsageAnnotation(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name      string
+		usage     Usage
+		wantKey   bool
+		wantValue string
+	}{
+		{name: "zero usage omits annotation", wantKey: false},
+		{
+			name:      "non-empty usage is emitted canonically",
+			usage:     mustUsage(t, "live", "install"),
+			wantKey:   true,
+			wantValue: `"io.imgoci.usage":"install,live"`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			manifests := &publishManifests{}
+			c := clientWithTransferPorts(t, manifests, &publishBlobs{}, nil)
+			spec := validReleaseSpec(t, []byte("payload"))
+			spec.Files[0].Selector.Usage = tt.usage
+			if _, err := c.Publish(t.Context(), "example.com/os/example:v1", spec); err != nil {
+				t.Fatal(err)
+			}
+			raw := manifests.body()
+			if len(raw) == 0 {
+				t.Fatal("index PUT body missing")
+			}
+			const usageKey = `"io.imgoci.usage"`
+			if tt.wantKey {
+				if !bytes.Contains(raw, []byte(tt.wantValue)) {
+					t.Fatalf("encoded index missing %s\ngot: %s", tt.wantValue, raw)
+				}
+				return
+			}
+			if bytes.Contains(raw, []byte(usageKey)) {
+				t.Fatalf("encoded index contains %s\ngot: %s", usageKey, raw)
+			}
+		})
+	}
+}
+
+func TestPublishDifferentUsageDifferentContent(t *testing.T) {
+	t.Parallel()
+	spec := ReleaseSpec{
+		Name:    "example",
+		Version: "1",
+		Files: []FileSpec{
+			{
+				Source: FromFile(writePublishFile(t, "a.bin", []byte("content-a"))),
+				Selector: Selector{
+					Architecture:   "amd64",
+					Target:         "x-test-target",
+					Representation: "x-test-format",
+					Role:           "x-test-file",
+					Compression:    "none",
+				},
+				Filename: "a",
+			},
+			{
+				Source: FromFile(writePublishFile(t, "b.bin", []byte("content-b"))),
+				Selector: Selector{
+					Architecture:   "amd64",
+					Target:         "x-test-target",
+					Representation: "x-test-format",
+					Usage:          mustUsage(t, "live"),
+					Role:           "x-test-file",
+					Compression:    "none",
+				},
+				Filename: "b",
+			},
+		},
+	}
+	manifests := &publishManifests{}
+	c := clientWithTransferPorts(t, manifests, &publishBlobs{}, nil)
+	if _, err := c.Publish(t.Context(), "example.com/os/example:v1", spec); err != nil {
+		t.Fatal(err)
+	}
+	raw := manifests.body()
+	if len(raw) == 0 {
+		t.Fatal("index PUT body missing")
+	}
+	if !bytes.Contains(raw, []byte(`"io.imgoci.usage":"live"`)) {
+		t.Fatalf("encoded index missing live usage\ngot: %s", raw)
+	}
+}
+
+func TestPublishSameSourceDifferentUsage(t *testing.T) {
+	t.Parallel()
+	source := FromFile(writePublishFile(t, "shared.bin", []byte("shared-bytes")))
+	base := Selector{
+		Architecture:   "amd64",
+		Target:         "x-test-target",
+		Representation: "x-test-format",
+		Role:           "x-test-file",
+		Compression:    "none",
+	}
+	live := base
+	live.Usage = mustUsage(t, "live")
+	spec := ReleaseSpec{
+		Name:    "example",
+		Version: "1",
+		Files: []FileSpec{
+			{Source: source, Selector: base, Filename: "shared.bin"},
+			{Source: source, Selector: live, Filename: "shared.bin"},
+		},
+	}
+	manifests := &publishManifests{}
+	c := clientWithTransferPorts(t, manifests, &publishBlobs{}, nil)
+	if _, err := c.Publish(t.Context(), "example.com/os/example:v1", spec); err != nil {
+		t.Fatal(err)
+	}
+	idx, err := ParseIndex(manifests.body())
+	if err != nil {
+		t.Fatalf("ParseIndex: %v", err)
+	}
+	entries := idx.Entries()
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want 2 distinct descriptors", len(entries))
+	}
+	wantContent := digest.FromBytes([]byte("shared-bytes"))
+	got := map[string]FileEntry{}
+	for _, entry := range entries {
+		got[entry.Selector.Usage.String()] = entry
+	}
+	empty, okEmpty := got[""]
+	liveEntry, okLive := got["live"]
+	if !okEmpty || !okLive {
+		t.Fatalf("usage sets = %v, want empty and live", keysOf(got))
+	}
+	if empty.Filename != "shared.bin" || liveEntry.Filename != "shared.bin" {
+		t.Fatalf("filenames = %q, %q; want shared.bin for both", empty.Filename, liveEntry.Filename)
+	}
+	if empty.ContentDigest != wantContent || liveEntry.ContentDigest != wantContent {
+		t.Fatalf("content digests = %s, %s; want %s", empty.ContentDigest, liveEntry.ContentDigest, wantContent)
+	}
+	if empty.Digest == "" || empty.Digest != liveEntry.Digest {
+		t.Fatalf("manifest digests = %s, %s; want the same non-empty digest", empty.Digest, liveEntry.Digest)
+	}
+}
+
+func keysOf(got map[string]FileEntry) []string {
+	out := make([]string, 0, len(got))
+	for key := range got {
+		out = append(out, key)
+	}
+	return out
+}
+
+func TestPlaceholderIdentityKeyIncludesUsage(t *testing.T) {
+	t.Parallel()
+	base := Selector{
+		Architecture:   "amd64",
+		Target:         "x-test-target",
+		Representation: "x-test-format",
+		Role:           "x-test-file",
+	}
+	empty := placeholderIdentityKey(base)
+	live := placeholderIdentityKey(Selector{
+		Architecture:   base.Architecture,
+		Target:         base.Target,
+		Representation: base.Representation,
+		Usage:          mustUsage(t, "live"),
+		Role:           base.Role,
+	})
+	if empty == live {
+		t.Fatal("usage must distinguish placeholder content identity")
+	}
+	got := placeholderIdentityKey(Selector{
+		Architecture:   base.Architecture,
+		Target:         base.Target,
+		Representation: base.Representation,
+		Usage:          mustUsage(t, "install", "live"),
+		Role:           base.Role,
+	})
+	const want = "amd64/x-test-target/x-test-format/install,live/x-test-file"
+	if got != want {
+		t.Fatalf("placeholderIdentityKey = %q, want %q", got, want)
 	}
 }

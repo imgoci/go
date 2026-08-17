@@ -41,7 +41,7 @@ type FileSpec struct {
 	// Source is the path-backed stored file. It must not change during
 	// Publish; see [FromFile].
 	Source Source
-	// Selector is the five-field identity. Compression declares what Source
+	// Selector is the six-field identity. Compression declares what Source
 	// already is; the library does not compress on the caller's behalf.
 	Selector Selector
 	// Filename is io.imgoci.filename.
@@ -93,7 +93,7 @@ type publishSettings struct {
 // The spec is validated against producer rules 1–8 before network: Name
 // grammar (spec §5.1 and §5.3), Version grammar (spec §5.1), UTF-8 of every
 // caller string, reserved io.imgoci.* keys, selector and filename grammar,
-// duplicate five-tuples, required representation roles, incus-vm→incus,
+// duplicate six-field tuples, required representation roles, incus-vm→incus,
 // filename collisions, and shared-source consistency.
 // Content digest/size/filename annotations are computed from Source; two
 // FileSpecs naming the same Source path cannot carry different content
@@ -304,24 +304,19 @@ func checkMultipartAndSources(spec ReleaseSpec) error {
 }
 
 // checkProducerRules runs [index.Build] on a placeholder model so selector
-// grammar, required roles, duplicate five-tuples, incus-vm→incus, filename
+// grammar, required roles, duplicate six-field tuples, incus-vm→incus, filename
 // collisions, and rule 6's filename agreement surface as [ErrInvalidSpec]
 // rather than [ErrInvalidIndex].
 //
 // Placeholder content digest and size are identical for every entry that
-// shares (architecture, target, representation, role). That lets
+// shares (architecture, target, representation, usage, role). That lets
 // [index.Build] enforce rule 6's filename component without pretending to
 // know content identity. Real content digest and size are checked after
 // pass-1 hashing, before any network write.
 func checkProducerRules(spec ReleaseSpec) error {
 	entries := make([]index.ModelEntry, len(spec.Files))
 	for i, file := range spec.Files {
-		identityKey := strings.Join([]string{
-			file.Selector.Architecture,
-			file.Selector.Target,
-			file.Selector.Representation,
-			file.Selector.Role,
-		}, "/")
+		identityKey := placeholderIdentityKey(file.Selector)
 		entries[i] = index.ModelEntry{
 			Digest:        digest.FromBytes([]byte("manifest:" + strconv.Itoa(i))),
 			Size:          1,
@@ -344,12 +339,27 @@ func checkProducerRules(spec ReleaseSpec) error {
 	return nil
 }
 
+// placeholderIdentityKey is the spec §2 file key used to share placeholder
+// content identity across transport alternatives during [checkProducerRules].
+// Fields are joined with "/" so a comma-separated usage set cannot collide
+// with a neighboring field.
+func placeholderIdentityKey(s Selector) string {
+	return strings.Join([]string{
+		s.Architecture,
+		s.Target,
+		s.Representation,
+		s.Usage.String(),
+		s.Role,
+	}, "/")
+}
+
 // toIndexSelector copies a public selector onto the index model type.
 func toIndexSelector(s Selector) index.Selector {
 	return index.Selector{
 		Architecture:   s.Architecture,
 		Target:         s.Target,
 		Representation: s.Representation,
+		Usage:          s.Usage.String(),
 		Role:           s.Role,
 		Compression:    s.Compression,
 	}

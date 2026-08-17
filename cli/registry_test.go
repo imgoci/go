@@ -65,7 +65,7 @@ func TestRegistryPublishListResolveFetch(t *testing.T) {
 
 	listed := runCLI(t, "list", "-plain-http", "-architecture", "amd64", ref)
 	assert.Equal(t, exitOK, listed.code, listed.stderr)
-	assert.Equal(t, "amd64\tqemu\tqcow2\tdisk\tnone\tapplication/vnd.imgoci.file.v1\n", listed.stdout)
+	assert.Equal(t, "amd64\tqemu\tqcow2\t\tdisk\tnone\tapplication/vnd.imgoci.file.v1\n", listed.stdout)
 	assert.NotContains(t, listed.stdout, "imgoci:")
 	assert.Contains(t, listed.stderr, "imgoci: list ")
 
@@ -82,7 +82,7 @@ func TestRegistryPublishListResolveFetch(t *testing.T) {
 		t,
 		strings.HasPrefix(
 			resolved.stdout,
-			"amd64\tqemu\tqcow2\tdisk\tnone\tdisk.bin\tapplication/vnd.imgoci.file.v1\tsha256:",
+			"amd64\tqemu\tqcow2\t\tdisk\tnone\tdisk.bin\tapplication/vnd.imgoci.file.v1\tsha256:",
 		),
 	)
 	assert.Contains(t, resolved.stdout, "\t25\n")
@@ -103,6 +103,93 @@ func TestRegistryPublishListResolveFetch(t *testing.T) {
 	got, err := os.ReadFile(filepath.Join(dest, "disk.bin"))
 	require.NoError(t, err)
 	assert.Equal(t, payload, got)
+}
+
+func TestRegistryUsageRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	host := startLocalRegistry(t)
+	dir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "empty.bin"), []byte("empty-usage"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(dir, "install.bin"), []byte("install-offline-set"), 0o600))
+	spec := filepath.Join(dir, "spec.json")
+	require.NoError(t, os.WriteFile(spec, []byte(`{
+  "name": "cli-usage",
+  "version": "1",
+  "files": [
+    {
+      "path": "empty.bin",
+      "filename": "empty.bin",
+      "architecture": "amd64",
+      "target": "qemu",
+      "representation": "qcow2",
+      "role": "disk",
+      "compression": "none"
+    },
+    {
+      "path": "install.bin",
+      "filename": "install.bin",
+      "architecture": "amd64",
+      "target": "qemu",
+      "representation": "qcow2",
+      "usage": ["install-offline", "install"],
+      "role": "disk",
+      "compression": "none"
+    }
+  ]
+}`), 0o600))
+
+	ref := host + "/cli/usage:v1"
+	published := runCLI(t, "publish", "-plain-http", spec, ref)
+	assert.Equal(t, exitOK, published.code, published.stderr)
+
+	listed := runCLI(t, "list", "-plain-http", ref)
+	assert.Equal(t, exitOK, listed.code, listed.stderr)
+	assert.Equal(t, ""+
+		"amd64\tqemu\tqcow2\t\tdisk\tnone\tapplication/vnd.imgoci.file.v1\n"+
+		"amd64\tqemu\tqcow2\tinstall,install-offline\tdisk\tnone\tapplication/vnd.imgoci.file.v1\n",
+		listed.stdout,
+	)
+
+	empty := runCLI(
+		t, "resolve", "-plain-http",
+		"-architecture", "amd64",
+		"-target", "qemu",
+		"-representation", "qcow2",
+		"-compression", "none",
+		ref,
+	)
+	assert.Equal(t, exitOK, empty.code, empty.stderr)
+	assert.True(t, strings.HasPrefix(empty.stdout, "amd64\tqemu\tqcow2\t\tdisk\tnone\tempty.bin\t"), empty.stdout)
+
+	compound := runCLI(
+		t, "resolve", "-plain-http",
+		"-architecture", "amd64",
+		"-target", "qemu",
+		"-representation", "qcow2",
+		"-usage", "install",
+		"-usage", "install-offline",
+		"-compression", "none",
+		ref,
+	)
+	assert.Equal(t, exitOK, compound.code, compound.stderr)
+	assert.True(
+		t,
+		strings.HasPrefix(compound.stdout, "amd64\tqemu\tqcow2\tinstall,install-offline\tdisk\tnone\tinstall.bin\t"),
+		compound.stdout,
+	)
+
+	subset := runCLI(
+		t, "resolve", "-plain-http",
+		"-architecture", "amd64",
+		"-target", "qemu",
+		"-representation", "qcow2",
+		"-usage", "install",
+		"-compression", "none",
+		ref,
+	)
+	assert.Equal(t, exitFailure, subset.code, subset.stderr)
+	assert.Contains(t, subset.stderr, `usage="install"`)
 }
 
 // startLocalRegistry launches registry:2 and returns host:port for plain HTTP.

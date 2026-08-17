@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/opencontainers/go-digest"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func testEntry(arch, target, repr, role, compression, artifactType string) FileEntry {
@@ -170,4 +172,192 @@ func TestListUTF8RoleSort(t *testing.T) {
 	if !slices.Equal(roles, want) {
 		t.Fatalf("roles = %v, want %v", roles, want)
 	}
+}
+
+func TestListQueryUsageValidation(t *testing.T) {
+	t.Parallel()
+	idx := testIndex(testEntry("amd64", "metal", "iso", "disk", "none", standardFileMediaType))
+
+	got, err := idx.List(ListQuery{Usage: nil})
+	require.NoError(t, err, "nil usage applies no filter")
+	assert.NotEmpty(t, got, "nil usage must match every usage set")
+
+	_, err = idx.List(ListQuery{Usage: []string{}})
+	require.Error(t, err, "non-nil empty usage must be rejected")
+	assert.Contains(t, err.Error(), "usage", "error must name the usage field")
+
+	_, err = idx.List(ListQuery{Usage: []string{"install", "install"}})
+	require.Error(t, err, "duplicate usage tokens must be rejected")
+	assert.Contains(t, err.Error(), "usage", "error must name the usage field")
+
+	_, err = idx.List(ListQuery{Usage: []string{"Live"}})
+	require.Error(t, err, "non-basic usage token must be rejected")
+	assert.Contains(t, err.Error(), "usage", "error must name the usage field")
+}
+
+func TestListUsageFilterAndExactSet(t *testing.T) {
+	t.Parallel()
+	idx := usageSplitIndex()
+
+	got, err := idx.List(ListQuery{})
+	require.NoError(t, err)
+	require.Len(t, got, 5, "nil usage returns every deliverable")
+	assertDeliverableKeys(t, got, [][4]string{
+		{"amd64", "metal", "iso", ""},
+		{"amd64", "metal", "iso", "install"},
+		{"amd64", "metal", "iso", "install,install-offline"},
+		{"amd64", "metal", "iso", "live"},
+		{"amd64", "metal", "qcow2", ""},
+	})
+	assert.Empty(t, got[0].Usage.String(), "empty usage set sorts first and is reported exactly")
+	assert.Equal(t, "install", got[1].Usage.String())
+	assert.Equal(t, "install,install-offline", got[2].Usage.String())
+	assert.Equal(t, "live", got[3].Usage.String())
+	assert.Empty(t, got[4].Usage.String())
+
+	got, err = idx.List(ListQuery{Usage: []string{"install"}})
+	require.NoError(t, err)
+	require.Len(t, got, 2, "install filter matches every set that contains install")
+	assertDeliverableKeys(t, got, [][4]string{
+		{"amd64", "metal", "iso", "install"},
+		{"amd64", "metal", "iso", "install,install-offline"},
+	})
+	assert.Equal(t, "install", got[0].Usage.String(), "result reports the exact set, not the filter")
+	assert.Equal(t, "install,install-offline", got[1].Usage.String())
+
+	got, err = idx.List(ListQuery{Usage: []string{"install-offline"}})
+	require.NoError(t, err)
+	require.Len(t, got, 1, "install-offline-only filter is containment, not equality")
+	assert.Equal(t, "install,install-offline", got[0].Usage.String())
+
+	got, err = idx.List(ListQuery{Usage: []string{"live", "install"}})
+	require.NoError(t, err)
+	assert.Empty(t, got, "unsorted live+install matches only a set containing both")
+
+	got, err = idx.List(ListQuery{Usage: []string{"install", "install-offline", "live"}})
+	require.NoError(t, err)
+	assert.Empty(t, got, "a usage filter that is a superset of every deliverable matches nothing")
+
+	got, err = idx.List(ListQuery{Usage: []string{"custom-usage"}})
+	require.NoError(t, err)
+	assert.Empty(t, got, "unmatched usage returns an empty result, not an error")
+}
+
+func TestListUnknownAndPrivateUsage(t *testing.T) {
+	t.Parallel()
+	custom := testEntry("amd64", "metal", "iso", "disk", "none", standardFileMediaType)
+	custom.Selector.Usage = usageFromCanonical("custom-usage")
+	private := testEntry("amd64", "metal", "iso", "disk", "none", standardFileMediaType)
+	private.Selector.Usage = usageFromCanonical("x-owner-name")
+	combined := testEntry("amd64", "metal", "iso", "disk", "none", standardFileMediaType)
+	combined.Selector.Usage = usageFromCanonical("custom-usage,x-owner-name")
+	idx := testIndex(custom, private, combined)
+
+	got, err := idx.List(ListQuery{})
+	require.NoError(t, err)
+	require.Len(t, got, 3, "unknown and private usage tokens must list normally")
+	assert.Equal(t, "custom-usage", got[0].Usage.String())
+	assert.Equal(t, "custom-usage,x-owner-name", got[1].Usage.String())
+	assert.Equal(t, "x-owner-name", got[2].Usage.String())
+
+	got, err = idx.List(ListQuery{Usage: []string{"custom-usage"}})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "custom-usage", got[0].Usage.String())
+	assert.Equal(t, "custom-usage,x-owner-name", got[1].Usage.String())
+
+	got, err = idx.List(ListQuery{Usage: []string{"x-owner-name"}})
+	require.NoError(t, err)
+	require.Len(t, got, 2)
+	assert.Equal(t, "custom-usage,x-owner-name", got[0].Usage.String())
+	assert.Equal(t, "x-owner-name", got[1].Usage.String())
+
+	got, err = idx.List(ListQuery{Usage: []string{"x-owner-name", "custom-usage"}})
+	require.NoError(t, err)
+	require.Len(t, got, 1, "list reports the exact combined unknown and private set")
+	assert.Equal(t, "custom-usage,x-owner-name", got[0].Usage.String())
+}
+
+func TestListRoleFilterIsPerUsageSet(t *testing.T) {
+	t.Parallel()
+	empty := testEntry("amd64", "metal", "iso", "disk", "none", standardFileMediaType)
+	liveKernel := testEntry("amd64", "metal", "iso", "kernel", "none", standardFileMediaType)
+	liveKernel.Selector.Usage = usageFromCanonical("live")
+	idx := testIndex(empty, liveKernel)
+
+	got, err := idx.List(ListQuery{Roles: []string{"kernel"}})
+	require.NoError(t, err)
+	require.Len(t, got, 1, "a role present only under live must not satisfy the empty-usage deliverable")
+	assert.Equal(t, "live", got[0].Usage.String())
+	require.Len(t, got[0].Roles, 1)
+	assert.Equal(t, "kernel", got[0].Roles[0].Role)
+
+	got, err = idx.List(ListQuery{Roles: []string{"disk"}})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Empty(t, got[0].Usage.String())
+}
+
+func TestListSameRoleUnderTwoUsageSets(t *testing.T) {
+	t.Parallel()
+	empty := testEntry("amd64", "metal", "iso", "disk", "none", standardFileMediaType)
+	live := testEntry("amd64", "metal", "iso", "disk", "none", standardFileMediaType)
+	live.Selector.Usage = usageFromCanonical("live")
+	idx := testIndex(empty, live)
+
+	got, err := idx.List(ListQuery{Roles: []string{"disk"}})
+	require.NoError(t, err)
+	require.Len(t, got, 2, "the same role under two usage sets lists both deliverables")
+	assert.Empty(t, got[0].Usage.String())
+	assert.Equal(t, "live", got[1].Usage.String())
+
+	got, err = idx.List(ListQuery{Roles: []string{"disk"}, Usage: []string{"live"}})
+	require.NoError(t, err)
+	require.Len(t, got, 1, "adding a usage filter narrows the same-role pair to one deliverable")
+	assert.Equal(t, "live", got[0].Usage.String())
+}
+
+func TestListSortsByUsage(t *testing.T) {
+	t.Parallel()
+	idx := usageSplitIndex()
+
+	got, err := idx.List(ListQuery{Architecture: "amd64", Target: "metal", Representation: "iso"})
+	require.NoError(t, err)
+	require.Len(t, got, 4)
+	assert.Equal(t, []string{"", "install", "install,install-offline", "live"}, usageStrings(got))
+	assert.Empty(t, got[0].Usage.String(), "empty usage set sorts first when other key fields match")
+}
+
+func usageSplitIndex() *Index {
+	empty := testEntry("amd64", "metal", "iso", "disk", "none", standardFileMediaType)
+	install := testEntry("amd64", "metal", "iso", "disk", "none", standardFileMediaType)
+	install.Selector.Usage = usageFromCanonical("install")
+	offline := testEntry("amd64", "metal", "iso", "disk", "none", standardFileMediaType)
+	offline.Selector.Usage = usageFromCanonical("install,install-offline")
+	live := testEntry("amd64", "metal", "iso", "disk", "none", standardFileMediaType)
+	live.Selector.Usage = usageFromCanonical("live")
+	other := testEntry("amd64", "metal", "qcow2", "disk", "none", standardFileMediaType)
+	return testIndex(live, offline, other, install, empty)
+}
+
+func assertDeliverableKeys(t *testing.T, got []Deliverable, want [][4]string) {
+	t.Helper()
+	keys := make([][4]string, 0, len(got))
+	for _, deliverable := range got {
+		keys = append(keys, [4]string{
+			deliverable.Architecture,
+			deliverable.Target,
+			deliverable.Representation,
+			deliverable.Usage.String(),
+		})
+	}
+	assert.Equal(t, want, keys)
+}
+
+func usageStrings(got []Deliverable) []string {
+	out := make([]string, 0, len(got))
+	for _, deliverable := range got {
+		out = append(out, deliverable.Usage.String())
+	}
+	return out
 }
