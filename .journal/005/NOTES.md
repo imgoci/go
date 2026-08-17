@@ -1065,3 +1065,63 @@ Remaining before `0.1.0`: owner review and squash merge of #17, then re-run
 `REL-04` against the merge commit to flip the campaign verdict to READY, then
 #18 and #19, then let Release Please refresh PR #9 and merge it. No v1 while the
 spec is draft.
+
+## 2026-08-17 00:45 — Campaign sign-off: READY
+
+All three remediation PRs squash-merged on GitHub; `origin/master` is now
+`e4b0d53`:
+
+- `1a0db9d` — PR #17 `docs: publish the security policy` (the blocker fix)
+- `bc83f74` — PR #18 `docs: correct release-readiness contracts`
+- `e4b0d53` — PR #19 `fix(cli): reject a missing publish filename`
+
+Master CI, GitHub Pages, and Release Please all completed successfully on
+`e4b0d53`.
+
+**`REL-04` re-run: PASS.** Executed in full against a clean worktree at
+`e4b0d53`; evidence at
+`/tmp/imgoci-functional-0b4be41/evidence/REL-04-rerun/` with the baseline
+BLOCKER evidence preserved untouched at `.../REL-04/`.
+
+Blocker before/after:
+
+- `0b4be41`: `SECURITY.md` 1039 bytes, sha256 `e33835a0…`; lines 7-8 were the
+  entire body of `## Supported Versions` and lines 24-25 told the author what to
+  write; line 12 hedged the route with "when it is enabled for this repository".
+- `e4b0d53`: 901 bytes, sha256 `9fdf9ae1…`; `## Supported Versions` states which
+  revision is supported before and after the first release; the private route is
+  unconditional with a live link; grep for all four authoring directives returns
+  **zero** matches, as do broader scans for placeholders and for invented
+  windows, SLAs, or disclosure deadlines.
+
+The artifact check is what actually closes the finding: the module zip derived
+from `e4b0d53` (pseudo-version `v0.0.0-20260817003540-e4b0d53a1907`, module sum
+`h1:xAa4orvDZuf58w0c1vF1ymeSgUg8fYfzfMcXVbacsrg=`) carries the corrected
+901-byte `SECURITY.md`, both licenses, no `cli/`, 298 entries. `proxy.golang.org`
+had already indexed the commit, so the published artifact — not a local file —
+was inspected. I re-derived the zip independently and confirmed zero
+authoring-directive matches in the shipped copy.
+
+Every other `REL-04` item re-verified green: issues enabled; private
+vulnerability reporting `200` / `{"enabled":true}`; `LICENSE-APACHE` the complete
+202-line Apache-2.0 text and `LICENSE-MIT` complete; **10/10** docs pages now
+carry both the draft date and spec commit `5b957102…` (PR #18 closed the
+landing-page gap); all five `root:` tasks present with pinned tools resolving;
+release guard intact with zero `v*` tags and zero releases.
+
+**Campaign verdict: READY.** 8 phases, 28 scenarios, one blocker found and now
+fixed, verified in the distributed artifact.
+
+Release posture, unchanged and still guarded: Release Please refreshed PR #9
+after the merges; it remains `chore(master): release 0.1.0` touching only
+`.release-please-manifest.json` and `CHANGELOG.md`, with `initial-version:
+0.1.0`, manifest `{".": "0.0.0"}`, and `draft: true`. The spec remains
+`Status: draft, 2026-08-11`, so no v1 may be proposed or released. **PR #9 was
+deliberately not merged**: "merge all PRs" was read as the three remediation PRs,
+because merging #9 ships the first release and that decision stays with the
+owner. Dependabot PRs #2/#4/#5 were likewise left alone.
+
+Worktree cleanup: my four implementation/verification worktrees were removed.
+The `master` checkout was left dirty at `0b4be41` by request — another agent owns
+that `fetch.go`/`list.go`/`resolve.go`/`internal/decomp` work — and was never
+read as state under test, pulled, cleaned, or reset.
