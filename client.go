@@ -5,13 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"sync"
 
+	"github.com/imgoci/go/internal/adapters"
 	"github.com/imgoci/go/internal/auth"
 	"github.com/imgoci/go/internal/decomp"
-	"github.com/imgoci/go/internal/multipart"
-	"github.com/imgoci/go/internal/registry"
-	"github.com/imgoci/go/internal/transfer"
 )
 
 // Client fetches imgoci releases from OCI registries.
@@ -23,14 +20,8 @@ import (
 type Client struct {
 	// settings are the option-configurable parts applied by [New].
 	settings clientSettings
-	// mu guards adapters.
-	mu sync.Mutex
-	// adapters caches Manifests, Blobs, and Multipart ports per host+repository.
-	adapters map[adapterKey]adapterPorts
-	// newAdapter constructs ports for one repository. Nil means
-	// [defaultAdapter]. Tests assign this unexported field; it is not a
-	// public knob.
-	newAdapter adapterFactory
+	// pool caches Manifests, Blobs, and Multipart ports per host+repository.
+	pool *adapters.Pool
 }
 
 // clientSettings are the option-configurable parts of a client, collected so
@@ -57,30 +48,6 @@ type clientSettings struct {
 	// it to [decomp.DefaultDecoderMaxWindow] and rejects zero.
 	decoderMaxWindow uint64
 }
-
-// adapterKey identifies one cached repository adapter.
-type adapterKey struct {
-	// host is the registry domain, including a port when present.
-	host string
-	// repository is the path under /v2.
-	repository string
-}
-
-// adapterPorts is the Manifests, Blobs, and Multipart triple for one repository.
-type adapterPorts struct {
-	// manifests is the distribution-spec manifest surface.
-	manifests transfer.Manifests
-	// blobs is the distribution-spec blob surface.
-	blobs transfer.Blobs
-	// multipart is the BigOCI surface. Not bound to the repository at
-	// construction; [transfer.Multipart.Push] takes repo per call.
-	multipart transfer.Multipart
-}
-
-// adapterFactory constructs Manifests, Blobs, and Multipart for one host and repository.
-//
-// ctx bounds Docker credential helper lookups during construction.
-type adapterFactory func(ctx context.Context, host, repository string, settings clientSettings) (adapterPorts, error)
 
 // Option configures a [Client] as [New] builds it.
 //
@@ -131,7 +98,7 @@ func New(opts ...Option) (*Client, error) {
 
 	return &Client{
 		settings: settings,
-		adapters: make(map[adapterKey]adapterPorts),
+		pool:     adapters.NewPool(nil),
 	}, nil
 }
 
@@ -208,7 +175,7 @@ func WithDecoderMaxWindow(maxBytes uint64) Option {
 // This client only ever reads. No transfer writes a credential anywhere.
 func WithDockerCredentials() Option {
 	return func(s *clientSettings) {
-		s.credentials = dockerCredentials
+		s.credentials = auth.NewDockerCredentials
 	}
 }
 
@@ -264,101 +231,25 @@ func (c *Client) Capabilities() Capabilities {
 // repository, constructing them on first use.
 //
 // ctx bounds Docker credential helper lookups during adapter construction.
-func (c *Client) portsFor(ctx context.Context, host, repository string) (adapterPorts, error) {
-	key := adapterKey{host: host, repository: repository}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if ports, ok := c.adapters[key]; ok {
-		return ports, nil
-	}
-
-	factory := c.newAdapter
-	if factory == nil {
-		factory = defaultAdapter
-	}
-	ports, err := factory(ctx, host, repository, c.settings)
+func (c *Client) portsFor(ctx context.Context, host, repository string) (adapters.Ports, error) {
+	ports, err := c.pool.PortsFor(ctx, host, repository, adapterConfig(c.settings))
 	if err != nil {
 		if errors.Is(err, auth.ErrAuth) {
-			return adapterPorts{}, fmt.Errorf("%w: %w", ErrUnauthorized, err)
+			return adapters.Ports{}, fmt.Errorf("%w: %w", ErrUnauthorized, err)
 		}
-		return adapterPorts{}, err
+		return adapters.Ports{}, err
 	}
-	c.adapters[key] = ports
 
 	return ports, nil
 }
 
-// defaultAdapter opens a registry adapter for one host and repository.
-//
-// ctx bounds Docker credential helper lookups while the multipart adapter
-// resolves stored credentials.
-func defaultAdapter(ctx context.Context, host, repository string, settings clientSettings) (adapterPorts, error) {
-	client, err := registry.New(registry.Config{
-		Host:                        host,
-		Repository:                  repository,
+// adapterConfig maps client settings onto [adapters.Config]: HTTP client,
+// plain HTTP, unverified-external-transport, and resolved credentials.
+func adapterConfig(settings clientSettings) adapters.Config {
+	return adapters.Config{
 		HTTPClient:                  settings.httpClient,
 		PlainHTTP:                   settings.plainHTTP,
-		Credentials:                 settings.resolved,
 		UnverifiedExternalTransport: settings.allowUnverifiedExternal,
-	})
-	if err != nil {
-		return adapterPorts{}, fmt.Errorf("open registry %s/%s: %w", host, repository, err)
+		Credentials:                 settings.resolved,
 	}
-
-	mpCfg, err := multipartConfig(ctx, host, settings)
-	if err != nil {
-		return adapterPorts{}, fmt.Errorf("open multipart %s/%s: %w", host, repository, err)
-	}
-	mp, err := multipart.New(mpCfg)
-	if err != nil {
-		return adapterPorts{}, fmt.Errorf("open multipart %s/%s: %w", host, repository, err)
-	}
-
-	return adapterPorts{
-		manifests: client.Manifests(),
-		blobs:     client.Blobs(),
-		multipart: mp,
-	}, nil
-}
-
-// multipartConfig maps client settings onto [multipart.Config] the same way
-// [defaultAdapter] maps them onto [registry.Config]: HTTP client, plain HTTP,
-// and credentials. The unverified-external-transport option is never forwarded.
-//
-// ctx is the operation's caller context, so a cancelled or expired transfer
-// interrupts a credential helper instead of waiting out the auth lookup cap.
-func multipartConfig(ctx context.Context, host string, settings clientSettings) (multipart.Config, error) {
-	cfg := multipart.Config{
-		HTTPClient: settings.httpClient,
-		PlainHTTP:  settings.plainHTTP,
-	}
-	if settings.resolved == nil {
-		return cfg, nil
-	}
-	cred, err := settings.resolved.Credential(ctx, host)
-	if err != nil {
-		return multipart.Config{}, err
-	}
-	cfg.Username = cred.Username
-	cfg.Secret = cred.Password
-	return cfg, nil
-}
-
-// dockerCredentials builds the credential source [WithDockerCredentials]
-// names: the Docker configuration file wherever this machine keeps it.
-//
-// A machine that cannot say where its configuration would be — no home
-// directory and no $DOCKER_CONFIG, the shape of a scratch container — has no
-// configuration, which is the same answer as a configuration file that does
-// not exist: no source is installed and every registry resolves anonymously.
-// The error [New] reports is reserved for a configuration that exists and
-// cannot be read, because that is the one case where failing quietly would
-// hide a credential the user meant to be used.
-func dockerCredentials() (auth.Credentials, error) {
-	path, err := auth.DefaultConfigPath()
-	if err != nil {
-		return nil, nil //nolint:nilnil,nilerr // no locatable configuration is the anonymous case, not a failure
-	}
-
-	return auth.NewStore(path)
 }

@@ -53,7 +53,7 @@ func (c *Client) Fetch(ctx context.Context, ref Reference) (*Release, error) {
 		return nil, err
 	}
 
-	body, err := transfer.FetchIndex(ctx, ports.manifests, parsed.manifestRef(), parsed.digest)
+	body, err := transfer.FetchIndex(ctx, ports.Manifests, parsed.manifestRef(), parsed.digest)
 	if err != nil {
 		return nil, mapFetchError(err)
 	}

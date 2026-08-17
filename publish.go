@@ -117,9 +117,9 @@ func (c *Client) Publish(
 		return "", err
 	}
 	dgst, err := transfer.Publish(ctx, transfer.Ports{
-		Manifests: ports.manifests,
-		Blobs:     ports.blobs,
-		Multipart: ports.multipart,
+		Manifests: ports.Manifests,
+		Blobs:     ports.Blobs,
+		Multipart: ports.Multipart,
 	}, toPublishRequest(parsed.host+"/"+parsed.repository, parsed.tag, spec, settings, c.settings.decoderMaxWindow))
 	return dgst, mapPublishError(err)
 }

@@ -13,6 +13,7 @@ import (
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/imgoci/go/internal/adapters"
 	"github.com/imgoci/go/internal/filemanifest"
 	"github.com/imgoci/go/internal/index"
 	mpmocks "github.com/imgoci/go/internal/multipart/mocks"
@@ -92,9 +93,9 @@ func TestPublishMixedStandardAndMultipart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.newAdapter = func(context.Context, string, string, clientSettings) (adapterPorts, error) {
-		return adapterPorts{manifests: manifests, blobs: blobs, multipart: mp}, nil
-	}
+	c.pool = adapters.NewPool(func(context.Context, string, string, adapters.Config) (adapters.Ports, error) {
+		return adapters.Ports{Manifests: manifests, Blobs: blobs, Multipart: mp}, nil
+	})
 
 	spec := ReleaseSpec{
 		Name:    "example",
@@ -158,14 +159,14 @@ func TestPublishMixedStandardAndMultipart(t *testing.T) {
 
 func TestDefaultAdapterWiresMultipart(t *testing.T) {
 	t.Parallel()
-	ports, err := defaultAdapter(t.Context(), "example.com", "os/example", clientSettings{})
+	ports, err := adapters.Open(t.Context(), "example.com", "os/example", adapters.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ports.multipart == nil {
+	if ports.Multipart == nil {
 		t.Fatal("defaultAdapter must wire the BigOCI adapter")
 	}
-	if ports.manifests == nil || ports.blobs == nil {
+	if ports.Manifests == nil || ports.Blobs == nil {
 		t.Fatal("defaultAdapter must wire Manifests and Blobs")
 	}
 }
