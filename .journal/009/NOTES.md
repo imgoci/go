@@ -95,3 +95,28 @@ tested. CI on #27 was still running at this checkpoint.
 
 Next: confirm CI green on #27, then squash-merge. Follow-up slice the user
 flagged: the remaining ~3754 lines of root unit tests.
+
+## 2026-08-17 16:20 — PR #27 merged; one number corrected
+Squash-merged as `686d4f3`; CI green on every gate (`ci` = `root:check`, which
+includes `root:test-e2e`, plus CodeQL and Pages). `master` fast-forwarded and the
+implementation worktree removed. `internal/e2e/` holds 16 files; `go test -race .`
+on the root package passes on the merged tree.
+
+Correction to the earlier PR body: I wrote that the root package dropped to
+"34 files / 2977 lines". That was wrong — 2977 corresponded to nothing measured.
+Accurate: 44 files / 10050 lines -> 33 files / 6712 lines (2759 production, 3953
+test, the increase being the 199-line relocated `publish_ports_test.go`). The PR
+body on GitHub has been corrected in place with the error called out.
+
+Durable context worth promoting at close:
+- e2e suite now lives in `internal/e2e` (`package e2e`, `//go:build e2e`,
+  testcontainers/Docker). It imports the library as a consumer, so a test needing
+  an unexported seam belongs in the root package instead. `bigOCIFixtureDir` is
+  relative to the package dir.
+- For any future cross-package test move: do the qualification type-aware via a
+  dot-import + `x/tools/go/packages` rewrite (skip `SelectorExpr.Sel` and
+  composite-literal keys), never a text regex.
+- `moon run root:test-e2e` needs no change when adding packages; it is
+  `go test -race -tags e2e ./...`. golangci-lint sets no build tags, so
+  e2e-tagged files are still unlinted — gofmt and compile are the only automatic
+  gates on them.
