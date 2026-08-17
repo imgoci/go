@@ -106,3 +106,53 @@ Two amendments I intend to make before implementation:
 
 Sequencing note: slices 1 and 3 change public API/behavior and must land before
 Release Please PR #9 finalizes 0.1.0.
+
+## 2026-08-16 18:25 — Remediation merged into one PR, CI green
+
+Orchestrated the nine-slice plan across three phases plus a lint phase.
+PR #20 (`fix/spec-conformance`, rebased onto e4b0d53), CI pass in 2m19s.
+
+Commits: `0d1f1a1` (F1-F7 behavior + producer rules + oracle repairs),
+`a7739e7` (§8 integrity matrix + valid BigOCI fixtures).
+
+Both amendments held: architecture stayed syntax-only (OCI owns that registry),
+and the standard-manifest golden was produced with an out-of-repo CPython
+canonicalizer whose command and ASCII/integer-subset caveat are recorded in
+`internal/filemanifest/testdata/README.md`.
+
+Two corrections I did not anticipate:
+
+1. `xz.ReaderConfig.DictCap` — I told the agent the zero-value 8 MiB
+   substitution in `lzma/reader2.go` was a cap that had to be overridden. The
+   agent proved out of tree that `lzmafilter.go:70-77` raises DictCap to the
+   Block Header's declared capacity whenever that is larger, so it is a FLOOR:
+   the library already allocated the declared dictionary, and `inspectXZDictCap`
+   was the only real bound. It kept the explicit DictCap (still worth doing) and
+   refused to write a test claiming to prove wrong-dictionary bytes. Good catch
+   against my instruction.
+2. §6 rule 8 descriptor-mediaType disagreement is unreachable: rule 2 already
+   forces every descriptor mediaType to identify MediaTypeManifest, and rule 8
+   compares with equalMediaType, so anything surviving rule 2 compares equal.
+   The agent documented the omission instead of writing a test that would assert
+   a false rule.
+
+Operational lessons for next time:
+
+- The `programmer` agent type failed 5/5 at ~4m15s, all after reads and before
+  edits. Session 002 recorded the same pattern. Switching to the general-purpose
+  `task` type fixed it outright: 13/13 clean. Do not spend another session
+  rediscovering this.
+- Relative paths in subagent edit calls resolve against the SESSION cwd, not the
+  agent's worktree. Three agents leaked edits into the main checkout. In every
+  case the worktree copy was the superset and main held a superseded draft, so
+  `git restore` was safe, but I had to diff every file to establish that. Always
+  give subagents absolute worktree paths and make them check
+  `git -C <main> status --porcelain` before yielding.
+- moon's test tasks all set `cache: false`, so a missing `inputs` entry (raised
+  for the new `testdata/bigoci`) cannot cause a stale-cache miss. No change made.
+- Local golangci found 47 issues the per-package agent runs had not seen;
+  running the real gate before commit remains non-negotiable.
+
+Open: PR #20 awaits review. It should merge before Release Please PR #9
+finalizes 0.1.0, or the release ships the obsolete 8 MiB decode contract and
+omits WithDecoderMaxWindow.
