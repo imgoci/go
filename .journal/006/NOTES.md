@@ -72,3 +72,37 @@ Fixture pin verified: SPEC_COMMIT == spec HEAD 5b95710, 12 pass + 21 fail
 byte-identical, fail harness maps every fixture to its specified §6 rule.
 
 Next: user decision on F1, then F2 fix, then the test-oracle repairs.
+
+## 2026-08-16 17:05 — Resolution plan received
+
+Planner produced a nine-slice plan (one PR each), full text in agent output;
+key decisions captured here.
+
+F1: one shared `WithDecoderMaxWindow(uint64)` client option, 128 MiB default
+(matches zstd CLI ZSTD_WINDOWLOG_LIMIT_DEFAULT=27; covers xz -9's 64 MiB dict),
+plumbed Client -> transfer request -> `decomp.Decoder(name, maxWindow)` for both
+fetch and publish pass-1. Zero rejected in New. Verified the wiring assumptions:
+`Option func(*clientSettings)` with `New(...) (*Client, error)` supports
+validation, and `checkProducerRules` (publish.go:302-312) already runs
+`index.Build` before any network write, so producer-only rules land there
+without duplicating tables in the root package.
+
+F2: BoundedReader gains `ErrSizeMismatch` on early EOF, preserved through the
+gzip/xz/zstd wrappers, mapped to public ErrDigestMismatch. Planner confirmed the
+BigOCI path is already covered by decodeStored's post-adapter digest+count check.
+
+Two amendments I intend to make before implementation:
+
+1. Architecture registry (slice 3). Planner proposes table-or-`x-` enforcement
+   for architecture using a GOARCH list. That risks rejecting a legitimately
+   correct future OCI spelling — a false rejection we invent. imgoci owns the
+   target/representation/role/compression registries and pins them to
+   SPEC_COMMIT; OCI owns architecture and moves independently. Enforce
+   table-or-`x-` for the four imgoci-owned fields only; keep architecture
+   syntax-only.
+2. Golden provenance (slice 4). Plan says "an independent RFC 8785
+   implementation" without naming one. Must name the tool and record the exact
+   command in testdata README, or the independence claim is unverifiable.
+
+Sequencing note: slices 1 and 3 change public API/behavior and must land before
+Release Please PR #9 finalizes 0.1.0.
