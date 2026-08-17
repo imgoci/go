@@ -5,10 +5,12 @@ description: Every public sentinel error, what produces it, and how to respond.
 
 # Error reference
 
-The public error surface is nine sentinel values in `errors.go`. Failures wrap
-a sentinel, so match with `errors.Is`; the message keeps the underlying
-detail. This page describes the implemented spec revision: imgoci v1 draft,
-2026-08-11 (`imgoci/spec` commit `5b957102eeda16498fdcb80a738431b83abd4197`).
+The public error surface is nine sentinel values in `errors.go`. Failures that
+carry a sentinel wrap it, so match with `errors.Is`. Most messages keep the
+underlying detail. On the standard blob path, `go-oci-blob` can redact a
+transport cause from the top-level message while retaining it in the
+`errors.Unwrap` chain. This page describes the implemented spec revision:
+imgoci v1 draft, 2026-08-11 (`imgoci/spec` commit `5b957102eeda16498fdcb80a738431b83abd4197`).
 
 The private reference CLI maps each sentinel onto a fixed exit code; see the
 [CLI reference](cli.md#exit-codes).
@@ -79,3 +81,15 @@ ordinary errors; the CLI exits `1` for them.
 - On publish, an index self-oracle failure (the library's own output failing
   its own validator) stays unclassified on purpose: it is a bug report, not a
   caller mistake.
+- A `401 Unauthorized` response without `WWW-Authenticate` cannot start an
+  authentication exchange. It matches no public sentinel and returns
+  `the registry refused the request without saying how to authenticate`;
+  the CLI exits `1`.
+- `Client.Publish` rejects a syntactically valid but unsupported compression,
+  such as `x-ft-brotli`, before registry I/O. The error matches no public
+  sentinel.
+- A standard blob transport failure may render as `registry request failed`.
+  The underlying cause remains in the `errors.Unwrap` chain. For example, a
+  proxy that applies a non-identity content coding retains
+  `the response is not identity coded` in that chain. The BigOCI path
+  reports that cause directly.

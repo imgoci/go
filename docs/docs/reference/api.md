@@ -297,12 +297,20 @@ file from a map keyed by `io.imgoci.role`; the map must contain every selected
 role and nothing else, and it is cloned at construction so later mutation
 cannot race preflight.
 
+`ToDir` reserves `.imgoci-stage` beneath each destination parent for private
+working state. A standard fetch removes its per-call workspace when cleanup
+succeeds. A BigOCI fetch also creates `.imgoci-stage/stored` for its
+content-addressed stored-file cache. Successful commit removes the cache
+entries and lock files, but the empty `.imgoci-stage/stored/` directory
+remains. Treat `.imgoci-stage` as library-owned working state, not as a
+fetched release file.
+
 ## Publishing
 
 ```go
 type ReleaseSpec struct {
-	Name        string            // io.imgoci.name
-	Version     string            // org.opencontainers.image.version
+	Name        string            // 1–128-byte io.imgoci.name basic token
+	Version     string            // 1–128 printable ASCII characters; no whitespace or controls
 	Annotations map[string]string // extra root annotations; io.imgoci.* keys rejected
 	Files       []FileSpec
 }
@@ -318,7 +326,15 @@ type FileSpec struct {
 type MultipartSpec struct {
 	PartSize int64 // bytes; 0 means the bigoci default (512 MiB); negative is ErrInvalidSpec
 }
+```
 
+`ReleaseSpec.Name` is `io.imgoci.name`. It must be a basic token: 1 to 128
+ASCII bytes matching `^[a-z0-9]+([._-][a-z0-9]+)*$` (spec sections 5.1 and
+5.3). `ReleaseSpec.Version` is `org.opencontainers.image.version`. It must
+contain 1 to 128 printable ASCII characters and must not contain whitespace
+or control characters (spec section 5.1).
+
+```go
 type PublishOption interface{ /* sealed */ }
 
 func (c *Client) Publish(
@@ -332,9 +348,10 @@ func (c *Client) Publish(
 Publishes `spec` as an imgoci release at `ref` and returns the canonical index
 digest. Publish is tag-only: digest-only, tag+digest, and name-only references
 are `ErrInvalidSpec` before any I/O. Spec validation (producer rules 1–8,
-UTF-8 of every caller string, reserved `io.imgoci.*` keys, selector and
-filename grammar, duplicate five-tuples, required roles, filename collisions,
-shared-source consistency) also runs before any network I/O. A multipart
+`Name` and `Version` grammar, UTF-8 of every caller string, reserved
+`io.imgoci.*` keys, selector and filename grammar, duplicate five-tuples,
+required roles, filename collisions, and shared-source consistency) also
+runs before any network I/O. A multipart
 plan must satisfy `ceil(storedSize/effectivePartSize) <= 4096`, where a
 zero `PartSize` uses 512 MiB; a plan above that ceiling is
 `ErrInvalidSpec` before any I/O. The index is

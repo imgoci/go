@@ -104,8 +104,8 @@ paths are resolved against the directory that contains `<spec>`.
 
 | Member | Required | Meaning |
 |---|---|---|
-| `name` | yes | `io.imgoci.name` |
-| `version` | yes | `org.opencontainers.image.version` |
+| `name` | yes | `io.imgoci.name`. A basic token: 1 to 128 ASCII bytes matching `^[a-z0-9]+([._-][a-z0-9]+)*$`. |
+| `version` | yes | `org.opencontainers.image.version`. 1 to 128 printable ASCII characters; no whitespace or control characters. |
 | `annotations` | no | Extra root annotations. `io.imgoci.*` keys are reserved by the library. |
 | `files` | yes | The stored files to publish. |
 | `files[].path` | yes | Filesystem path of the stored file; relative paths resolve against the spec's directory. |

@@ -58,9 +58,12 @@
 //	  ]
 //	}
 //
-// name, version, and files are required. Each file requires path, filename,
-// and the five selector fields. filename is 1–255 bytes, ASCII alphanumeric
-// first and last, with ASCII alphanumerics plus ".", "_", "+", "-" internally.
+// name, version, and files are required. name must be a basic token: 1 to 128
+// ASCII bytes matching ^[a-z0-9]+([._-][a-z0-9]+)*$. version must contain 1
+// to 128 printable ASCII characters and no whitespace or control characters.
+// Each file requires path, filename, and the five selector fields. filename is
+// 1–255 bytes, ASCII alphanumeric first and last, with ASCII alphanumerics plus
+// ".", "_", "+", "-" internally.
 // annotations may be omitted. multipart omitted or null selects the standard
 // form; a present object requests BigOCI publication. partSize must not be
 // negative; 0 uses the library default (512 MiB) as the effective part size.

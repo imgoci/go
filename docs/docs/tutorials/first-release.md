@@ -13,7 +13,7 @@ The CLI is a private reference tool inside this repository. It is not released o
 
 - Go 1.26.5 or later
 - Docker
-- `git`, `curl`, and `shasum`
+- `git`, `curl`, `shasum`, and `cmp`
 - about fifteen minutes
 
 ## Build the CLI
@@ -44,13 +44,13 @@ imgoci (private reference CLI)
 Run zot, an OCI registry, in a container:
 
 ```sh
-docker run --rm -d --name imgoci-zot -p 5000:5000 ghcr.io/project-zot/zot:v2.1.20
+docker run --rm -d --name imgoci-zot -p 5500:5000 ghcr.io/project-zot/zot:v2.1.20
 ```
 
 Wait a few seconds, then confirm the registry answers:
 
 ```sh
-curl -sf -o /dev/null -w '%{http_code}\n' http://localhost:5000/v2/
+curl -sf -o /dev/null -w '%{http_code}\n' http://localhost:5500/v2/
 ```
 
 You see:
@@ -59,7 +59,7 @@ You see:
 200
 ```
 
-The registry speaks plain HTTP on `localhost:5000`. That is why every command below passes `-plain-http`; without it the CLI talks `https://`.
+The registry speaks plain HTTP on `localhost:5500`. That is why every command below passes `-plain-http`; without it the CLI talks `https://`.
 
 ## Create a file to release
 
@@ -103,7 +103,7 @@ Each file carries five selector fields — `architecture`, `target`, `representa
 Publish the release under the tag `v1`:
 
 ```sh
-./imgoci publish -plain-http release.json localhost:5000/tutorial/example:v1
+./imgoci publish -plain-http release.json localhost:5500/tutorial/example:v1
 ```
 
 Standard output is exactly one line — the canonical digest of the release index the command just published:
@@ -119,7 +119,7 @@ Everything else (what the command is doing, how long it took) goes to standard e
 List every stored alternative in the release:
 
 ```sh
-./imgoci list -plain-http localhost:5000/tutorial/example:v1
+./imgoci list -plain-http localhost:5500/tutorial/example:v1
 ```
 
 You see one tab-separated line, matching the spec you published:
@@ -136,7 +136,7 @@ amd64	qemu	raw	disk	none	application/vnd.imgoci.file.v1
 ./imgoci resolve -plain-http \
   -architecture amd64 -target qemu -representation raw \
   -compression none \
-  localhost:5000/tutorial/example:v1
+  localhost:5500/tutorial/example:v1
 ```
 
 You see one tab-separated line per selected file:
@@ -157,7 +157,7 @@ Fetch the same selection into a directory. The directory is created if it does n
 ./imgoci fetch -plain-http \
   -architecture amd64 -target qemu -representation raw \
   -compression none \
-  localhost:5000/tutorial/example:v1 out
+  localhost:5500/tutorial/example:v1 out
 ```
 
 Standard output stays empty; standard error reports `imgoci: fetched in ...`. The fetch verified every byte against the digests in the release index before placing `out/disk.img`.

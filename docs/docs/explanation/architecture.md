@@ -113,6 +113,8 @@ poisoned or corrupted entry can only cause a re-pull, never a wrong output.
 Cache entries are removed on successful commit and retained on failure for
 reuse.
 
+After a successful BigOCI commit, the cache entries and their lock files are removed, but the empty `<parent>/.imgoci-stage/stored/` directory remains. The directory is reserved library working state, not a deliverable from the release.
+
 ## Standard and BigOCI forms
 
 Standard form is the default: one blob per file, streamed with no stored
