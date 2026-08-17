@@ -211,3 +211,48 @@ notice until I checked `git -C <main> status --porcelain` mid-flight and steered
 it via `hub send`. Next brief MUST say: use absolute paths for every edit, and
 verify the main checkout is clean before yielding. Checking the main checkout
 after each fan-out is now mandatory for me.
+
+## 2026-08-17 19:05 — Slice 1 merged; slice 2 implemented, reviewed, PR #29 open
+Slice 1 merged as `0ed6081` (#28) after the user's LGTM.
+
+Slice 2 = adapter cache and construction out of client.go.
+- New `internal/adapters` (doc.go, pool.go, open.go): `Config`, `Ports`,
+  `Factory`, unexported `adapterKey`, `Pool`, `NewPool`, `PortsFor`, `Open`
+  (moved `defaultAdapter`), unexported `multipartConfig` (moved).
+- `internal/auth.NewDockerCredentials` = moved root `dockerCredentials`.
+- client.go 364 -> 255 lines; no longer imports sync, internal/multipart,
+  internal/registry, internal/transfer. Root keeps `clientSettings`/`Option`
+  (public `Option` is `func(*clientSettings)`), one `adapterConfig` mapper, and
+  the `auth.ErrAuth` -> `ErrUnauthorized` classification (internal cannot import
+  root sentinels). Root `adapterPorts` DTO deleted; 3 call sites read
+  `adapters.Ports` fields.
+- PR: https://github.com/imgoci/go/pull/29, CI green, reviewer approve with one
+  minor doc nit that I fixed before commit.
+
+DESIGN BUG I INTRODUCED AND HAD TO CORRECT (worth remembering): my first contract
+had `Pool` hold a `Config` snapshot taken at `New`. Two existing tests
+(`TestFetchUnsupportedStoredTokenIsUnauthorized`,
+`TestFetchCancelledContextReachesCredentialResolution`) failed because they
+assign `client.settings.resolved` AFTER `New`, and master's `portsFor` passed
+`c.settings` into the factory on EVERY construction. Config is call-time state,
+not construction-time state. Fixed by `NewPool(factory)` +
+`PortsFor(ctx, host, repo, cfg)`. Lesson: when writing a move contract, check
+whether the old code read shared state per call or once, and let the existing
+tests arbitrate — they encoded the invariant I had missed.
+
+Reviewer method worth reusing: it extracted master's `defaultAdapter` /
+`multipartConfig`, applied the authorized renames with sed, and diffed against
+the new file to prove verbatim; then ran an 8-fact probe under -race in two
+extracted trees (master vs branch) and got byte-identical output, including
+`maxInFlight=1` with 16 concurrent callers to prove the mutex is still held
+across construction.
+
+Also confirmed: `internal/adapters` has no test file, but no coverage was lost —
+only attribution. There is no per-package coverage gate in CI.
+
+PATH BUG, THIRD OCCURRENCE: `RootClientRewire` edited all eight of its files in
+the MAIN checkout despite an explicit absolute-path instruction in the brief.
+Caught by my scheduled mid-flight `git -C <main> status --porcelain` check ~2
+minutes in, steered via `hub send`, agent recovered by copying content across and
+restoring the main checkout. The mid-flight check is now non-negotiable for every
+fan-out.
