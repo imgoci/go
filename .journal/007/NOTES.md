@@ -310,3 +310,25 @@ comparable Selector, producer/consumer split), the `cli/` replace-directive trap
 the `programmer`-agent rehabilitation (9/9 this session, against 0/5 in sessions
 002 and 006), the stale golangci-lint cache after `wt remove`, the PATH-vs-mise
 `cue` version trap, and the old-pin grep habit above.
+
+## 2026-08-17 14:10 — Close
+PR #23 squash-merged as `885feee`. All three usage PRs are in:
+- #21 `41719ff` — internal value layer, §6 rules 3-7, §9 order
+- #22 `46a2efb` — public `Usage`, list containment, resolve exact equality,
+  publish/transfer plumbing, CLI `-usage` and TSV column, docs
+- #23 `885feee` — §5.4 producer registry, `SPEC_COMMIT` `46d18b7`, five upstream
+  fixtures (13/25), eight repo-owned canonical fixtures, cue minima, docs
+
+Handoff state: `master` at `885feee`, local default fast-forwarded, all three
+implementation worktrees removed, only `journal/jmgilman` remains under `.wt/`.
+The implementation matches spec `46d18b7` on every usage requirement and the
+upstream oracle runs in CI.
+
+`TECH_NOTES.md` updated with the usage design, the producer/consumer asymmetry,
+the `cli/` replace-directive trap, the corrected `programmer`-agent record, the
+fence-by-rule fan-out lesson, and the golangci-cache / `cue`-version / old-pin
+traps. `SUMMARY.md` written; `INDEX.md` row 007 set to complete.
+
+Carried forward, untouched by this session: Release Please PR #9 and the `0.1.0`
+guard, session 005 still `in-progress` without a summary, and two Dependabot
+alerts (1 high, 1 moderate) on the default branch.
