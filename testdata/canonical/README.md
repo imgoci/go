@@ -25,6 +25,8 @@ directory against `#ReleaseIndex`.
 | `multiple-transport-alternatives.json` | gzip, none, and zstd alternatives of one file, including a BigOCI zstd alternative. |
 | `unknown-annotations.json` | Unknown annotation keys, including `io.imgoci.*`, are preserved. |
 | `unknown-manifest-type.json` | Syntactically valid unknown file-manifest type is accepted. |
+| `usage-empty-and-present.json` | Two otherwise identical deliverables, one with usage absent and one with `live`, in section 9 order (absent sorts first because the empty string precedes any present value). |
+| `usage-variants.json` | Independently canonicalized twin of the pretty-printed spec `conformance/v1/pass/usage-variants.json`. Exercises ascending usage order across `install`, `install,install-offline`, `install,install-offline,live`, and `live`. |
 
 ## fail/
 
@@ -43,6 +45,12 @@ fails the suite.
 | `invalid-utf8-value.json` | `index.Decode` | Invalid UTF-8 byte `0xff` inside a string value. |
 | `invalid-utf8-key.json` | `index.Decode` | Invalid UTF-8 byte `0xff` inside an object key. |
 | `canonical-wrong-descriptor-order.json` | `index.Validate` | Rule 9: object keys and numbers are RFC 8785 canonical (`VerifyCanonical` accepts these bytes), but the `manifests` array is not in section 9 descriptor order. Isolates rule 9 (array order) from rule 10 (canonical bytes). Source array order is zstd, none, gzip. |
+| `canonical-wrong-usage-descriptor-order.json` | `index.Validate` | Rule 9: object keys and numbers are RFC 8785 canonical (`VerifyCanonical` accepts these bytes), but `live` is placed before the absent-usage entry. Isolates rule 9 (array order keyed on usage) from rule 10 (canonical bytes). |
+| `duplicate-six-field-selector.json` | `index.Validate` | Rule 5: two descriptors share the same non-empty `(architecture, target, representation, usage, role, compression)`. They agree on content digest, size, and filename so rule 6 cannot trip first, and they have distinct manifest digests so rule 8 cannot. |
+| `duplicate-usage-value.json` | `index.Validate` | Rule 3: `install,install` is a present usage value with a duplicate token. Bytes are RFC 8785 canonical so rule 10 cannot mask it. |
+| `install-offline-without-install.json` | `index.Validate` | Rule 4: syntactically valid `install-offline` alone. Rule 3 accepts the token; only the usage-value relationship rejects it. |
+| `noncanonical-usage-order.json` | `index.Validate` | Rule 3: `live,install` is not strictly ascending UTF-8 token order. Bytes are RFC 8785 canonical so rule 10 cannot mask it. |
+| `present-empty-usage-value.json` | `index.Validate` | Rule 3: a present empty string is invalid; the empty usage set is represented by omitting the annotation. Bytes are RFC 8785 canonical so rule 10 cannot mask it. |
 | `pretty-printed.json` | `index.VerifyCanonical` | Rule 10: insignificant whitespace is non-canonical. |
 | `unsorted-keys.json` | `index.VerifyCanonical` | Rule 10: root `schemaVersion` is written first instead of in RFC 8785 key order. It appears exactly once, so the duplicate-key scan does not fire and only key ordering is wrong. |
 | `exponent-1e0.json` | `index.VerifyCanonical` | Rule 10: `1e0` is a non-canonical spelling of `1`. The exponent sits in the ignored unknown member `x-exp`, not in `size`: `size` is a known member and `index.Decode` rejects non-integer tokens there before rule 10 runs. |

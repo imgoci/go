@@ -186,4 +186,4 @@ remains usable. The Go `Resolve` call itself does no network I/O.
 - [CLI reference](../reference/cli.md) — full flag, output, and exit-code contract.
 - [API reference](../reference/api.md) — `ListQuery`, `ResolveQuery`, `Resolved`.
 
-Implemented spec revision: imgoci v1 draft, 2026-08-11 ([imgoci/spec](https://github.com/imgoci/spec) commit `5b957102eeda16498fdcb80a738431b83abd4197`).
+Implemented spec revision: imgoci v1 draft, 2026-08-16 ([imgoci/spec](https://github.com/imgoci/spec) commit `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`).

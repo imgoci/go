@@ -17,8 +17,8 @@ fields (see the [API reference](api.md)). `-timeout` is not a library
 option: it is the CLI command-context deadline. There is no
 transfer logic in the CLI, no retry, resume, or authentication logic of
 its own. This page describes the implemented spec revision: imgoci v1
-draft, 2026-08-11 (`imgoci/spec` commit
-`5b957102eeda16498fdcb80a738431b83abd4197`).
+draft, 2026-08-16 (`imgoci/spec` commit
+`46d18b74cc407ac7d61ded7692fc42b644f4d1e2`).
 
 ## Commands
 
@@ -112,13 +112,20 @@ paths are resolved against the directory that contains `<spec>`.
 | `files[].path` | yes | Filesystem path of the stored file; relative paths resolve against the spec's directory. |
 | `files[].filename` | yes | `io.imgoci.filename`. 1–255 bytes, ASCII alphanumeric first and last, ASCII alphanumerics plus `.`, `_`, `+`, `-` internally. |
 | `files[].architecture`, `target`, `representation`, `role`, `compression` | yes | The required selector fields. `compression` declares what `path` already is. |
-| `files[].usage` | no | An array of usage tokens. Omitted, `null`, and `[]` mean the empty set. The CLI passes the array to `imgoci.NewUsage`, which sorts and de-duplicates it and rejects `install-offline` without `install`. |
+| `files[].usage` | no | An array of usage tokens. Omitted, `null`, and `[]` mean the empty set. Each value must be public (`live`, `install`, or `install-offline`) or use the private `x-<owner>-<name>` form. The CLI passes the array to `imgoci.NewUsage`, which sorts and de-duplicates it and rejects `install-offline` without `install`. |
 | `files[].annotations` | no | Extra descriptor annotations. `io.imgoci.*` keys are reserved. |
 | `files[].multipart` | no | Omitted or `null` selects the standard form; a present object requests BigOCI publication. |
 | `files[].multipart.partSize` | no | Part size in bytes. Must not be negative. `0` uses the library default (512 MiB) as the effective part size. A multipart plan must satisfy `ceil(storedSize/effectivePartSize) <= 4096`. |
 
-An invalid `files[].usage` value is a publish-spec usage error. The error names
-the offending file entry, and the command exits `2` before publication.
+A malformed `files[].usage` token, an overlong canonical set, or
+`install-offline` without `install` is a publish-spec usage error. The error
+names the offending file entry, and the command exits `2` before calling
+`Client.Publish`.
+
+A syntactically valid bare value outside the public registry passes publish-spec
+decoding but fails producer validation before registry I/O. The command writes
+no digest to stdout, reports the matched `imgoci.ErrInvalidSpec` sentinel on
+stderr, and exits `6`.
 
 ## imgoci list
 

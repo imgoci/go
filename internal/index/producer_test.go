@@ -11,7 +11,7 @@ import (
 	"github.com/opencontainers/go-digest"
 )
 
-const pinnedSpecCommit = "5b957102eeda16498fdcb80a738431b83abd4197"
+const pinnedSpecCommit = "46d18b74cc407ac7d61ded7692fc42b644f4d1e2"
 
 func TestProducerRegistriesMatchPinnedSpec(t *testing.T) {
 	t.Parallel()
@@ -27,6 +27,7 @@ func TestProducerRegistriesMatchPinnedSpec(t *testing.T) {
 	assertRegistrySet(t, "representations", producerRepresentations(), pinnedRepresentations())
 	assertRegistrySet(t, "roles", producerRoles(), pinnedRoles())
 	assertRegistrySet(t, "compressions", producerCompressions(), pinnedCompressions())
+	assertRegistrySet(t, "usages", producerUsages(), pinnedUsages())
 }
 
 func TestBuildAcceptsPinnedPublicSelectorValues(t *testing.T) {
@@ -71,6 +72,32 @@ func TestBuildAcceptsPinnedPublicSelectorValues(t *testing.T) {
 	}
 }
 
+func TestBuildAcceptsPinnedPublicUsageValues(t *testing.T) {
+	t.Parallel()
+	for _, usage := range pinnedUsages() {
+		t.Run(usage, func(t *testing.T) {
+			t.Parallel()
+			m := minimalModel()
+			if usage == "install-offline" {
+				m.Entries[0].Selector.Usage = "install,install-offline"
+			} else {
+				m.Entries[0].Selector.Usage = usage
+			}
+			if _, err := Build(m); err != nil {
+				t.Fatalf("Build rejected public usage %q: %v", usage, err)
+			}
+		})
+	}
+	t.Run("empty", func(t *testing.T) {
+		t.Parallel()
+		m := minimalModel()
+		m.Entries[0].Selector.Usage = ""
+		if _, err := Build(m); err != nil {
+			t.Fatalf("Build rejected empty usage set: %v", err)
+		}
+	})
+}
+
 func TestBuildAcceptsPrivateSelectorForm(t *testing.T) {
 	t.Parallel()
 	fields := []struct {
@@ -81,6 +108,7 @@ func TestBuildAcceptsPrivateSelectorForm(t *testing.T) {
 		{name: "representation", mutate: func(s *Selector) { s.Representation = "x-acme-cloud" }},
 		{name: "role", mutate: func(s *Selector) { s.Role = "x-acme-cloud" }},
 		{name: "compression", mutate: func(s *Selector) { s.Compression = "x-acme-cloud" }},
+		{name: "usage", mutate: func(s *Selector) { s.Usage = "x-acme-cloud" }},
 	}
 	for _, tc := range fields {
 		t.Run(tc.name, func(t *testing.T) {
@@ -162,6 +190,32 @@ func TestProducerOnlyViolations(t *testing.T) {
 				))
 			},
 			wantSub: AnnotationCompression,
+		},
+		{
+			name: "bare unknown usage",
+			mutate: func(m *Model) {
+				m.Entries[0].Selector.Usage = "custom-usage"
+			},
+			value: func() *Value {
+				return validValue(withUsage(validDescriptor(
+					"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+					"a", testContentDigestA, "0", testManifestDigest1, 1,
+				), "custom-usage"))
+			},
+			wantSub: AnnotationUsage,
+		},
+		{
+			name: "unknown token after public usage",
+			mutate: func(m *Model) {
+				m.Entries[0].Selector.Usage = "live,unknown-usage"
+			},
+			value: func() *Value {
+				return validValue(withUsage(validDescriptor(
+					"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+					"a", testContentDigestA, "0", testManifestDigest1, 1,
+				), "live,unknown-usage"))
+			},
+			wantSub: "unknown-usage",
 		},
 		{
 			name: "descriptor org.opencontainers.image.version",
@@ -363,5 +417,14 @@ func pinnedCompressions() []string {
 		"gzip",
 		"xz",
 		"zstd",
+	}
+}
+
+// pinnedUsages returns the spec §5.4 public usage registry.
+func pinnedUsages() []string {
+	return []string{
+		"live",
+		"install",
+		"install-offline",
 	}
 }

@@ -127,4 +127,4 @@ The CLI maps the same sentinels one-to-one onto exit codes 3–11; see the [CLI 
 - [About the architecture](../explanation/architecture.md) — why verification is structured this way.
 - [Error reference](../reference/errors.md) — every public sentinel and how to respond.
 
-Implemented spec revision: imgoci v1 draft, 2026-08-11 ([imgoci/spec](https://github.com/imgoci/spec) commit `5b957102eeda16498fdcb80a738431b83abd4197`).
+Implemented spec revision: imgoci v1 draft, 2026-08-16 ([imgoci/spec](https://github.com/imgoci/spec) commit `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`).

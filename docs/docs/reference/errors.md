@@ -10,7 +10,7 @@ carry a sentinel wrap it, so match with `errors.Is`. Most messages keep the
 underlying detail. On the standard blob path, `go-oci-blob` can redact a
 transport cause from the top-level message while retaining it in the
 `errors.Unwrap` chain. This page describes the implemented spec revision:
-imgoci v1 draft, 2026-08-11 (`imgoci/spec` commit `5b957102eeda16498fdcb80a738431b83abd4197`).
+imgoci v1 draft, 2026-08-16 (`imgoci/spec` commit `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`).
 
 The private reference CLI maps each sentinel onto a fixed exit code; see the
 [CLI reference](cli.md#exit-codes).
@@ -22,12 +22,17 @@ The private reference CLI maps each sentinel onto a fixed exit code; see the
 | `ErrNotFound` | `Client.Fetch`, `Client.FetchFiles`, `Client.Publish` | The registry does not hold the requested release, manifest, or blob. | Check the reference and repository; nothing local to fix. |
 | `ErrUnauthorized` | `Client.Fetch`, `Client.FetchFiles`, `Client.Publish` | The registry refused a request for lack of credentials or insufficient permission. | Supply credentials (`WithCredentials` or `WithDockerCredentials`) or fix registry permissions. |
 | `ErrInvalidIndex` | `ParseIndex`, `Client.Fetch`, `Client.FetchFiles`, `Client.Publish` | A retrieved imgoci document is invalid: the release index failed a spec section 6 rule (decode, structure, canonical bytes, identity), an `io.imgoci.usage` value has invalid syntax, a usage set contains `install-offline` without `install`, the index response `Content-Type` did not identify the index type, a retrieved file manifest failed its rules — including a BigOCI profile violation — or `Client.Publish` read back an invalid BigOCI file manifest or profile after multipart push. | Do not retry with the same bytes; the producer published a non-conforming document. The wrapped error names the failed check. |
-| `ErrInvalidSpec` | `Client.Publish` | A producer-side specification violation: an illegal publish reference form (digest-only, tag+digest, or name-only), a producer rule 1–8 failure, invalid UTF-8 in a caller string, a reserved `io.imgoci.*` annotation key, a negative `MultipartSpec.PartSize`, or inconsistent shared sources. | Fix the `ReleaseSpec` or the reference; nothing was written. |
+| `ErrInvalidSpec` | `Client.Publish` | A producer-side specification violation: an illegal publish reference form (digest-only, tag+digest, or name-only), a producer rule 1–8 failure, an `io.imgoci.usage` value that is neither public (`live`, `install`, or `install-offline`) nor private-form (`x-<owner>-<name>`), invalid UTF-8 in a caller string, a reserved `io.imgoci.*` annotation key, a negative `MultipartSpec.PartSize`, or inconsistent shared sources. | Fix the `ReleaseSpec` or the reference; nothing was written. |
 | `ErrInvalidDest` | `Client.FetchFiles` | The fetch destination plan failed preflight: a zero `Dest`, a `ToFiles` map missing a selected role or naming an extra one, duplicate resolved paths, a path that is an existing directory, or a shadowed staging reservation. | Fix the destination; preflight fails before any network I/O. |
 | `ErrDigestMismatch` | `Client.Fetch`, `Client.FetchFiles`, `Client.Publish` | Retrieved or published bytes did not match a declared digest or size: a fetched index that fails the reference's digest pin, a manifest or blob that fails verification, a decoded stream that exceeds its declared size, or a `Source` that changed between pass 1 and upload. | On fetch: retry may help against a transient corruption, but a stable mismatch means the published content is wrong. On publish: stop mutating the `Source` during `Publish`. |
 | `ErrUnsupportedType` | `Index.Resolve`, `Client.Resolve`, `Client.FetchFiles` | A selected file-manifest type is outside the consumer capability set: capability filtering left a selected role with no remaining transport alternative, or a selected entry's `ArtifactType` is outside `Client.Capabilities`. | Widen the capability set with `NewCapabilities` (see the [capabilities reference](capabilities.md)) or select a different deliverable. |
 | `ErrSelectionMismatch` | `Client.FetchFiles` | The `Resolved` value was not derived from the release being retrieved. Binding is by canonical index digest, not pointer identity. | Re-run `Client.Resolve` against the `Release` you are fetching from. |
 | `ErrDecode` | `Client.FetchFiles`, `Client.Publish` | Strict decompression of a stored file failed — for example a two-member gzip stream, or a zstd frame or xz stream that needs a decoder working set above the configured ceiling (128 MiB by default). The producer path is as strict as the consumer: `Publish` fails such a file before any upload. | Re-encode the stored file as one compression unit. For a working-set rejection, either re-encode with a smaller window or dictionary, or raise the ceiling with `WithDecoderMaxWindow`. |
+
+Registry membership alone never causes `ErrInvalidIndex`. A retrieved index may
+contain a syntactically valid unknown or private usage value; consumer
+validation preserves it. Consumer validation still rejects usage syntax and
+canonical-encoding violations and `install-offline` without `install`.
 
 `ErrNotFound`, `ErrUnauthorized`, and `ErrDigestMismatch` on the fetch path
 wrap the transfer orchestrator's detail; `ErrDigestMismatch` also covers a
