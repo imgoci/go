@@ -9,6 +9,7 @@ import (
 
 	"github.com/opencontainers/go-digest"
 
+	"github.com/imgoci/go/internal/adapters"
 	"github.com/imgoci/go/internal/index"
 	"github.com/imgoci/go/internal/transfer"
 )
@@ -74,13 +75,13 @@ func clientWithPorts(t *testing.T, manifests transfer.Manifests, constructed *in
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.newAdapter = func(context.Context, string, string, clientSettings) (adapterPorts, error) {
+	c.pool = adapters.NewPool(func(context.Context, string, string, adapters.Config) (adapters.Ports, error) {
 		if constructed != nil {
 			*constructed++
 		}
 
-		return adapterPorts{manifests: manifests, blobs: stubBlobs{}}, nil
-	}
+		return adapters.Ports{Manifests: manifests, Blobs: stubBlobs{}}, nil
+	})
 
 	return c
 }

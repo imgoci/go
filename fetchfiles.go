@@ -120,9 +120,9 @@ func (c *Client) FetchFiles(
 	}
 
 	return mapFetchError(transfer.FetchFiles(ctx, transfer.FetchFilesRequest{
-		Manifests:        ports.manifests,
-		Blobs:            ports.blobs,
-		Multipart:        ports.multipart,
+		Manifests:        ports.Manifests,
+		Blobs:            ports.Blobs,
+		Multipart:        ports.Multipart,
 		Repository:       rel.host + "/" + rel.repository,
 		Entries:          transferEntries(entries),
 		ByRole:           byRole,

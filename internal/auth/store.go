@@ -105,6 +105,25 @@ func DefaultConfigPath() (string, error) {
 	return filepath.Join(home, configDirName, configFileName), nil
 }
 
+// NewDockerCredentials is the credential source built from the Docker
+// configuration file wherever the machine keeps it.
+//
+// A machine that cannot say where its configuration would be — no home
+// directory and no $DOCKER_CONFIG, the shape of a scratch container — has no
+// configuration, which is the same answer as a configuration file that does
+// not exist: no source is installed and every registry resolves anonymously.
+// The error returned here is reserved for a configuration that exists and
+// cannot be read, because that is the one case where failing quietly would
+// hide a credential the user meant to be used.
+func NewDockerCredentials() (Credentials, error) {
+	path, err := DefaultConfigPath()
+	if err != nil {
+		return nil, nil //nolint:nilnil,nilerr // no locatable configuration is the anonymous case, not a failure
+	}
+
+	return NewStore(path)
+}
+
 // ConfigPath returns the configuration file this store reads.
 //
 // It is what a caller reports when they need to say where a credential came

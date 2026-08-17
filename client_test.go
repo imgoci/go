@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/imgoci/go/internal/adapters"
 	"github.com/imgoci/go/internal/auth"
 	"github.com/imgoci/go/internal/decomp"
 )
@@ -226,9 +227,9 @@ func clientWithDecoderMaxWindow(t *testing.T, maxWindow uint64) *Client {
 	}
 	manifests := &publishManifests{}
 	blobs := &publishBlobs{}
-	c.newAdapter = func(context.Context, string, string, clientSettings) (adapterPorts, error) {
-		return adapterPorts{manifests: manifests, blobs: blobs}, nil
-	}
+	c.pool = adapters.NewPool(func(context.Context, string, string, adapters.Config) (adapters.Ports, error) {
+		return adapters.Ports{Manifests: manifests, Blobs: blobs}, nil
+	})
 	return c
 }
 
