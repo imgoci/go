@@ -1,16 +1,18 @@
 //go:build e2e
 
-package imgoci
+package e2e
 
 import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	imgoci "github.com/imgoci/go"
 )
 
-// TestE2EGzippedManifestFetch fails Fetch when a reverse proxy gzip-codes
+// TestGzippedManifestFetch fails Fetch when a reverse proxy gzip-codes
 // the index GET.
-func TestE2EGzippedManifestFetch(t *testing.T) {
+func TestGzippedManifestFetch(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eDistribution)
 	repo := testRepo(t)
@@ -22,9 +24,9 @@ func TestE2EGzippedManifestFetch(t *testing.T) {
 	assertNotRetried(t, err)
 }
 
-// TestE2EGzippedBlobFetchFiles fails FetchFiles on a gzip-coded blob GET
+// TestGzippedBlobFetchFiles fails FetchFiles on a gzip-coded blob GET
 // after Fetch of the index has already succeeded through the same proxy.
-func TestE2EGzippedBlobFetchFiles(t *testing.T) {
+func TestGzippedBlobFetchFiles(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eDistribution)
 	repo := testRepo(t)
@@ -34,7 +36,7 @@ func TestE2EGzippedBlobFetchFiles(t *testing.T) {
 	rel := mustFetch(t, client, tagRef(front, repo))
 	sel := resolveQEMU(t, client, rel)
 	dir := t.TempDir()
-	err := client.FetchFiles(t.Context(), rel, sel, ToDir(dir))
+	err := client.FetchFiles(t.Context(), rel, sel, imgoci.ToDir(dir))
 	assertIdentityError(t, err)
 	assertNotRetried(t, err)
 	assertNoFile(t, filepath.Join(dir, seeded.qemu.filename))
@@ -49,13 +51,13 @@ func assertNotRetried(t *testing.T, err error) {
 	}
 }
 
-// TestE2EGzippedTokenRealm completes Fetch and FetchFiles when the bearer
+// TestGzippedTokenRealm completes Fetch and FetchFiles when the bearer
 // realm gzips its token document.
 //
 // An in-process 401-challenge reverse proxy fronts an anonymous registry:2. The
 // test does not drive distribution's token authenticator. [Client.Fetch] and
 // [Client.FetchFiles] run against the proxy.
-func TestE2EGzippedTokenRealm(t *testing.T) {
+func TestGzippedTokenRealm(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eDistribution)
 	repo := testRepo(t)
@@ -66,6 +68,6 @@ func TestE2EGzippedTokenRealm(t *testing.T) {
 	rel := mustFetch(t, client, tagRef(front, repo))
 	sel := resolveQEMU(t, client, rel)
 	dir := t.TempDir()
-	mustFetchFiles(t, client, rel, sel, ToDir(dir))
+	mustFetchFiles(t, client, rel, sel, imgoci.ToDir(dir))
 	assertFileContent(t, filepath.Join(dir, seeded.qemu.filename), seeded.qemu.content)
 }

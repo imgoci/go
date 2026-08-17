@@ -1,6 +1,6 @@
 //go:build e2e
 
-package imgoci
+package e2e
 
 import (
 	"bytes"
@@ -8,16 +8,18 @@ import (
 	"testing"
 
 	"github.com/opencontainers/go-digest"
+
+	imgoci "github.com/imgoci/go"
 )
 
-// TestE2EPublishRoundTrip is the self-hosting matrix: Publish, Fetch, Resolve,
+// TestPublishRoundTrip is the self-hosting matrix: Publish, Fetch, Resolve,
 // and FetchFiles against zot and CNCF Distribution, every v1 compression the
 // producer can emit, and three release shapes.
 //
 // linux-netboot follows spec §5.4: kernel is required; initramfs and rootfs
 // are optional. Nil Roles applies the default-role rule, which returns every
 // present role, so the kernel+initramfs pair is fetched together.
-func TestE2EPublishRoundTrip(t *testing.T) {
+func TestPublishRoundTrip(t *testing.T) {
 	t.Parallel()
 	compressions := []string{"none", "gzip", "xz", "zstd"}
 	shapes := []string{"single-role", "linux-netboot", "shared-digest"}
@@ -76,20 +78,20 @@ func runPublishRoundTrip(t *testing.T, host, compression, shape string) {
 
 	sel := mustResolve(t, client, rel, query)
 	dir := t.TempDir()
-	mustFetchFiles(t, client, rel, sel, ToDir(dir))
+	mustFetchFiles(t, client, rel, sel, imgoci.ToDir(dir))
 	for _, file := range files {
 		assertFileContent(t, filepath.Join(dir, file.filename), file.content)
 	}
 
 	if shape == "shared-digest" {
-		metal := mustResolve(t, client, rel, ResolveQuery{
+		metal := mustResolve(t, client, rel, imgoci.ResolveQuery{
 			Architecture:   "amd64",
 			Target:         "metal",
 			Representation: "raw",
 			Compressions:   []string{compression},
 		})
 		metalDir := t.TempDir()
-		mustFetchFiles(t, client, rel, metal, ToDir(metalDir))
+		mustFetchFiles(t, client, rel, metal, imgoci.ToDir(metalDir))
 		assertFileContent(t, filepath.Join(metalDir, "disk.raw"), files[0].content)
 	}
 }
@@ -99,19 +101,22 @@ type roundTripFile struct {
 	content  []byte
 }
 
-func roundTripSpec(t *testing.T, compression, shape string) (ReleaseSpec, ResolveQuery, []roundTripFile, bool) {
+func roundTripSpec(
+	t *testing.T,
+	compression, shape string,
+) (imgoci.ReleaseSpec, imgoci.ResolveQuery, []roundTripFile, bool) {
 	t.Helper()
 	dir := t.TempDir()
 	switch shape {
 	case "single-role":
 		content := repeatingBytes("roundtrip-qcow2-", 1024)
 		path := writeStoredSource(t, dir, "disk.qcow2", compression, content)
-		spec := ReleaseSpec{
+		spec := imgoci.ReleaseSpec{
 			Name:    "e2e",
 			Version: "1",
-			Files: []FileSpec{{
-				Source: FromFile(path),
-				Selector: Selector{
+			Files: []imgoci.FileSpec{{
+				Source: imgoci.FromFile(path),
+				Selector: imgoci.Selector{
 					Architecture:   "amd64",
 					Target:         "qemu",
 					Representation: "qcow2",
@@ -121,7 +126,7 @@ func roundTripSpec(t *testing.T, compression, shape string) (ReleaseSpec, Resolv
 				Filename: "disk.qcow2",
 			}},
 		}
-		query := ResolveQuery{
+		query := imgoci.ResolveQuery{
 			Architecture:   "amd64",
 			Target:         "qemu",
 			Representation: "qcow2",
@@ -133,8 +138,8 @@ func roundTripSpec(t *testing.T, compression, shape string) (ReleaseSpec, Resolv
 		initramfs := repeatingBytes("roundtrip-initramfs-", 512)
 		kernelPath := writeStoredSource(t, dir, "vmlinuz", compression, kernel)
 		initramfsPath := writeStoredSource(t, dir, "initramfs.img", compression, initramfs)
-		sel := func(role string) Selector {
-			return Selector{
+		sel := func(role string) imgoci.Selector {
+			return imgoci.Selector{
 				Architecture:   "amd64",
 				Target:         "metal",
 				Representation: "linux-netboot",
@@ -142,15 +147,15 @@ func roundTripSpec(t *testing.T, compression, shape string) (ReleaseSpec, Resolv
 				Compression:    compression,
 			}
 		}
-		spec := ReleaseSpec{
+		spec := imgoci.ReleaseSpec{
 			Name:    "e2e",
 			Version: "1",
-			Files: []FileSpec{
-				{Source: FromFile(kernelPath), Selector: sel("kernel"), Filename: "vmlinuz"},
-				{Source: FromFile(initramfsPath), Selector: sel("initramfs"), Filename: "initramfs.img"},
+			Files: []imgoci.FileSpec{
+				{Source: imgoci.FromFile(kernelPath), Selector: sel("kernel"), Filename: "vmlinuz"},
+				{Source: imgoci.FromFile(initramfsPath), Selector: sel("initramfs"), Filename: "initramfs.img"},
 			},
 		}
-		query := ResolveQuery{
+		query := imgoci.ResolveQuery{
 			Architecture:   "amd64",
 			Target:         "metal",
 			Representation: "linux-netboot",
@@ -163,13 +168,13 @@ func roundTripSpec(t *testing.T, compression, shape string) (ReleaseSpec, Resolv
 	case "shared-digest":
 		content := repeatingBytes("roundtrip-shared-", 1024)
 		path := writeStoredSource(t, dir, "shared.bin", compression, content)
-		spec := ReleaseSpec{
+		spec := imgoci.ReleaseSpec{
 			Name:    "e2e",
 			Version: "1",
-			Files: []FileSpec{
+			Files: []imgoci.FileSpec{
 				{
-					Source: FromFile(path),
-					Selector: Selector{
+					Source: imgoci.FromFile(path),
+					Selector: imgoci.Selector{
 						Architecture:   "amd64",
 						Target:         "qemu",
 						Representation: "qcow2",
@@ -179,8 +184,8 @@ func roundTripSpec(t *testing.T, compression, shape string) (ReleaseSpec, Resolv
 					Filename: "disk.qcow2",
 				},
 				{
-					Source: FromFile(path),
-					Selector: Selector{
+					Source: imgoci.FromFile(path),
+					Selector: imgoci.Selector{
 						Architecture:   "amd64",
 						Target:         "metal",
 						Representation: "raw",
@@ -191,7 +196,7 @@ func roundTripSpec(t *testing.T, compression, shape string) (ReleaseSpec, Resolv
 				},
 			},
 		}
-		query := ResolveQuery{
+		query := imgoci.ResolveQuery{
 			Architecture:   "amd64",
 			Target:         "qemu",
 			Representation: "qcow2",
@@ -200,7 +205,7 @@ func roundTripSpec(t *testing.T, compression, shape string) (ReleaseSpec, Resolv
 		return spec, query, []roundTripFile{{filename: "disk.qcow2", content: content}}, true
 	default:
 		t.Fatalf("unknown shape %q", shape)
-		return ReleaseSpec{}, ResolveQuery{}, nil, false
+		return imgoci.ReleaseSpec{}, imgoci.ResolveQuery{}, nil, false
 	}
 }
 

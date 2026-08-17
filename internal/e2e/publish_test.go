@@ -1,6 +1,6 @@
 //go:build e2e
 
-package imgoci
+package e2e
 
 import (
 	"bytes"
@@ -12,13 +12,14 @@ import (
 
 	"github.com/opencontainers/go-digest"
 
+	imgoci "github.com/imgoci/go"
 	"github.com/imgoci/go/internal/index"
 )
 
-// TestE2EPublishNonCanonicalIndexRejected fails Fetch with ErrInvalidIndex when
+// TestPublishNonCanonicalIndexRejected fails Fetch with ErrInvalidIndex when
 // the tag names pretty-printed index bytes. A conforming [Client.Publish] RFC
 // 8785-encodes the index, so it cannot store indented JSON at the tag.
-func TestE2EPublishNonCanonicalIndexRejected(t *testing.T) {
+func TestPublishNonCanonicalIndexRejected(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eDistribution)
 	repo := testRepo(t)
@@ -41,15 +42,15 @@ func TestE2EPublishNonCanonicalIndexRejected(t *testing.T) {
 	seedManifest(t, host, repo, e2eTag, index.MediaTypeIndex, pretty.Bytes(), e2eCreds{})
 
 	_, err := client.Fetch(t.Context(), tagRef(host, repo))
-	if !errors.Is(err, ErrInvalidIndex) {
+	if !errors.Is(err, imgoci.ErrInvalidIndex) {
 		t.Fatalf("err = %v, want ErrInvalidIndex", err)
 	}
 }
 
-// TestE2EPublishWrongSizeDescriptorRejected fails FetchFiles when the index
+// TestPublishWrongSizeDescriptorRejected fails FetchFiles when the index
 // entry declares a file-manifest size that is not the retrieved byte length. A
 // conforming [Client.Publish] records the size from filemanifest.BuildStandard.
-func TestE2EPublishWrongSizeDescriptorRejected(t *testing.T) {
+func TestPublishWrongSizeDescriptorRejected(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eDistribution)
 	repo := testRepo(t)
@@ -83,34 +84,34 @@ func TestE2EPublishWrongSizeDescriptorRejected(t *testing.T) {
 	seedManifest(t, host, repo, e2eTag, index.MediaTypeIndex, mutated, e2eCreds{})
 
 	rel = mustFetch(t, client, tagRef(host, repo))
-	sel := mustResolve(t, client, rel, ResolveQuery{
+	sel := mustResolve(t, client, rel, imgoci.ResolveQuery{
 		Architecture:   entries[0].Selector.Architecture,
 		Target:         entries[0].Selector.Target,
 		Representation: entries[0].Selector.Representation,
 		Compressions:   []string{entries[0].Selector.Compression},
 	})
-	err = client.FetchFiles(t.Context(), rel, sel, ToDir(t.TempDir()))
-	if !errors.Is(err, ErrDigestMismatch) {
+	err = client.FetchFiles(t.Context(), rel, sel, imgoci.ToDir(t.TempDir()))
+	if !errors.Is(err, imgoci.ErrDigestMismatch) {
 		t.Fatalf("err = %v, want ErrDigestMismatch", err)
 	}
 }
 
-// TestE2EPublishDigestRefIsTagOnly rejects a digest-only Publish reference
+// TestPublishDigestRefIsTagOnly rejects a digest-only Publish reference
 // with ErrInvalidSpec before any registry traffic.
-func TestE2EPublishDigestRefIsTagOnly(t *testing.T) {
+func TestPublishDigestRefIsTagOnly(t *testing.T) {
 	t.Parallel()
 	hits := &hitTransport{}
-	client, err := New(WithHTTPClient(&http.Client{Transport: hits}), WithPlainHTTP())
+	client, err := imgoci.New(imgoci.WithHTTPClient(&http.Client{Transport: hits}), imgoci.WithPlainHTTP())
 	if err != nil {
 		t.Fatal(err)
 	}
 	pin := digest.FromBytes([]byte("x"))
 	_, err = client.Publish(
 		t.Context(),
-		Reference("example.com/e2e/tagonly@"+pin.String()),
+		imgoci.Reference("example.com/e2e/tagonly@"+pin.String()),
 		simpleReleaseSpec(t, []byte("payload")),
 	)
-	if !errors.Is(err, ErrInvalidSpec) {
+	if !errors.Is(err, imgoci.ErrInvalidSpec) {
 		t.Fatalf("err = %v, want ErrInvalidSpec", err)
 	}
 	if n := hits.n.Load(); n != 0 {
@@ -132,14 +133,14 @@ func (h *hitTransport) RoundTrip(*http.Request) (*http.Response, error) {
 
 // simpleReleaseSpec is a one-file release spec over the given stored bytes,
 // declaring no compression.
-func simpleReleaseSpec(t *testing.T, data []byte) ReleaseSpec {
+func simpleReleaseSpec(t *testing.T, data []byte) imgoci.ReleaseSpec {
 	t.Helper()
-	return ReleaseSpec{
+	return imgoci.ReleaseSpec{
 		Name:    "example",
 		Version: "1",
-		Files: []FileSpec{{
-			Source: FromFile(writeTempBytes(t, t.TempDir(), "file.bin", data)),
-			Selector: Selector{
+		Files: []imgoci.FileSpec{{
+			Source: imgoci.FromFile(writeTempBytes(t, t.TempDir(), "file.bin", data)),
+			Selector: imgoci.Selector{
 				Architecture:   "amd64",
 				Target:         "x-test-target",
 				Representation: "x-test-format",
@@ -153,7 +154,7 @@ func simpleReleaseSpec(t *testing.T, data []byte) ReleaseSpec {
 
 // indexSelectorOf copies a public selector onto the index model type so a test
 // can rebuild index bytes from a fetched release.
-func indexSelectorOf(s Selector) index.Selector {
+func indexSelectorOf(s imgoci.Selector) index.Selector {
 	return index.Selector{
 		Architecture:   s.Architecture,
 		Target:         s.Target,

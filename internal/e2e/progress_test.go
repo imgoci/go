@@ -1,19 +1,21 @@
 //go:build e2e
 
-package imgoci
+package e2e
 
 import (
 	"path/filepath"
 	"testing"
+
+	imgoci "github.com/imgoci/go"
 )
 
-// TestE2EProgressRoundTripBothForms publishes and fetches a standard file and
+// TestProgressRoundTripBothForms publishes and fetches a standard file and
 // a BigOCI file, requiring one serialized absolute stream for each call.
 //
 // Fetch ends in commit exactly once. Publish ends in index exactly once.
 // WireBytes is positive on both forms: standard counts the stored blob, and
 // BigOCI counts the multipart transfer's latest-absolute wire total.
-func TestE2EProgressRoundTripBothForms(t *testing.T) {
+func TestProgressRoundTripBothForms(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eRegistries()[0].image)
 	client := newE2EClient(t, e2eCreds{})
@@ -23,7 +25,7 @@ func TestE2EProgressRoundTripBothForms(t *testing.T) {
 		repo := testRepo(t)
 		spec, query, files, _ := roundTripSpec(t, "none", "single-role")
 		var pub progressSink
-		if _, err := client.Publish(t.Context(), tagRef(host, repo), spec, WithProgress(pub.fn())); err != nil {
+		if _, err := client.Publish(t.Context(), tagRef(host, repo), spec, imgoci.WithProgress(pub.fn())); err != nil {
 			t.Fatal(err)
 		}
 		assertE2EPublishProgress(t, pub.snapshots(), 1)
@@ -32,7 +34,10 @@ func TestE2EProgressRoundTripBothForms(t *testing.T) {
 		sel := mustResolve(t, client, rel, query)
 		dir := t.TempDir()
 		var fetch progressSink
-		if err := client.FetchFiles(t.Context(), rel, sel, ToDir(dir), WithProgress(fetch.fn())); err != nil {
+		err := client.FetchFiles(
+			t.Context(), rel, sel, imgoci.ToDir(dir), imgoci.WithProgress(fetch.fn()),
+		)
+		if err != nil {
 			t.Fatal(err)
 		}
 		assertE2EFetchProgress(t, fetch.snapshots(), 1, int64(len(files[0].content)))
@@ -45,7 +50,7 @@ func TestE2EProgressRoundTripBothForms(t *testing.T) {
 		content := randomBytes(t, e2eBigOCIFileSize)
 		spec, _, filename := singleRoleMultipartSpec(t, "none", content, e2eBigOCIPartSize)
 		var pub progressSink
-		if _, err := client.Publish(t.Context(), tagRef(host, repo), spec, WithProgress(pub.fn())); err != nil {
+		if _, err := client.Publish(t.Context(), tagRef(host, repo), spec, imgoci.WithProgress(pub.fn())); err != nil {
 			t.Fatal(err)
 		}
 		assertE2EPublishProgress(t, pub.snapshots(), 1)
@@ -54,7 +59,10 @@ func TestE2EProgressRoundTripBothForms(t *testing.T) {
 		sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
 		dir := t.TempDir()
 		var fetch progressSink
-		if err := client.FetchFiles(t.Context(), rel, sel, ToDir(dir), WithProgress(fetch.fn())); err != nil {
+		err := client.FetchFiles(
+			t.Context(), rel, sel, imgoci.ToDir(dir), imgoci.WithProgress(fetch.fn()),
+		)
+		if err != nil {
 			t.Fatal(err)
 		}
 		assertE2EFetchProgress(t, fetch.snapshots(), 1, int64(len(content)))
@@ -64,7 +72,7 @@ func TestE2EProgressRoundTripBothForms(t *testing.T) {
 
 // assertE2EPublishProgress requires a monotone publish stream that ends in
 // index exactly once and reports a positive wire total.
-func assertE2EPublishProgress(t *testing.T, snaps []Progress, files int) {
+func assertE2EPublishProgress(t *testing.T, snaps []imgoci.Progress, files int) {
 	t.Helper()
 	if len(snaps) < 3 {
 		t.Fatalf("got %d publish snapshots, want at least hashing+upload+index", len(snaps))
@@ -112,7 +120,7 @@ func assertE2EPublishProgress(t *testing.T, snaps []Progress, files int) {
 
 // assertE2EFetchProgress requires a monotone fetch stream that ends in
 // commit exactly once and reports a positive wire total.
-func assertE2EFetchProgress(t *testing.T, snaps []Progress, files int, contentBytes int64) {
+func assertE2EFetchProgress(t *testing.T, snaps []imgoci.Progress, files int, contentBytes int64) {
 	t.Helper()
 	if len(snaps) < 3 {
 		t.Fatalf("got %d fetch snapshots, want at least staging+verified+commit", len(snaps))

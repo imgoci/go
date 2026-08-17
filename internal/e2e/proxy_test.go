@@ -1,6 +1,6 @@
 //go:build e2e
 
-package imgoci
+package e2e
 
 import (
 	"bytes"

@@ -1,6 +1,6 @@
 //go:build e2e
 
-package imgoci
+package e2e
 
 import (
 	"encoding/base64"
@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	imgoci "github.com/imgoci/go"
 )
 
 // dockerConfigEnv is the directory override [WithDockerCredentials] reads.
@@ -17,14 +19,14 @@ const dockerConfigEnv = "DOCKER_CONFIG"
 // dockerConfigName is the configuration file inside that directory.
 const dockerConfigName = "config.json"
 
-// TestE2EDockerCredentialsAuthenticatesFromATemporaryConfig proves the
+// TestDockerCredentialsAuthenticatesFromATemporaryConfig proves the
 // opt-in Docker store is what authenticates a transfer: the same htpasswd
 // registry that refuses an anonymous client serves a fetch when the
 // credential is filed under the dialed host, and refuses it when the same
 // credential is filed under a host this transfer never dials.
 //
 // It runs sequentially: DOCKER_CONFIG belongs to the process, not to the test.
-func TestE2EDockerCredentialsAuthenticatesFromATemporaryConfig(t *testing.T) {
+func TestDockerCredentialsAuthenticatesFromATemporaryConfig(t *testing.T) {
 	host := startHtpasswdRegistry(t)
 	repo := testRepo(t)
 	cred := e2eCreds{user: e2eUser, pass: e2ePass}
@@ -33,25 +35,25 @@ func TestE2EDockerCredentialsAuthenticatesFromATemporaryConfig(t *testing.T) {
 
 	t.Run("the matching host authenticates", func(t *testing.T) {
 		useDockerConfig(t, host, e2ePass)
-		client, err := New(WithPlainHTTP(), WithDockerCredentials())
+		client, err := imgoci.New(imgoci.WithPlainHTTP(), imgoci.WithDockerCredentials())
 		if err != nil {
 			t.Fatal(err)
 		}
 		rel := mustFetch(t, client, ref)
 		sel := resolveQEMU(t, client, rel)
 		dir := t.TempDir()
-		mustFetchFiles(t, client, rel, sel, ToDir(dir))
+		mustFetchFiles(t, client, rel, sel, imgoci.ToDir(dir))
 		assertFileContent(t, filepath.Join(dir, seeded.qemu.filename), seeded.qemu.content)
 	})
 
 	t.Run("a different host is not sent", func(t *testing.T) {
 		useDockerConfig(t, "other.example:5000", e2ePass)
-		client, err := New(WithPlainHTTP(), WithDockerCredentials())
+		client, err := imgoci.New(imgoci.WithPlainHTTP(), imgoci.WithDockerCredentials())
 		if err != nil {
 			t.Fatal(err)
 		}
 		_, err = client.Fetch(t.Context(), ref)
-		if !errors.Is(err, ErrUnauthorized) {
+		if !errors.Is(err, imgoci.ErrUnauthorized) {
 			t.Fatalf("credential stored for another host: err = %v, want ErrUnauthorized", err)
 		}
 	})

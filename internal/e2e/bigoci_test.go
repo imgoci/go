@@ -1,6 +1,6 @@
 //go:build e2e
 
-package imgoci
+package e2e
 
 import (
 	"errors"
@@ -8,10 +8,11 @@ import (
 	"sync"
 	"testing"
 
+	imgoci "github.com/imgoci/go"
 	"github.com/imgoci/go/internal/index"
 )
 
-// TestE2EBigOCIRoundTrip publishes a BigOCI file (small PartSize, at least
+// TestBigOCIRoundTrip publishes a BigOCI file (small PartSize, at least
 // two parts), then Fetch → Resolve → FetchFiles, requiring byte-identical
 // decoded output.
 //
@@ -19,7 +20,7 @@ import (
 // Shared-digest once-semantics (one PullTo per stored digest per destination
 // parent) is unit-covered by internal/transfer.TestFetchFilesBigOCISharedFileDigestSequential;
 // this test asserts correctness only.
-func TestE2EBigOCIRoundTrip(t *testing.T) {
+func TestBigOCIRoundTrip(t *testing.T) {
 	t.Parallel()
 	compressions := []string{"none", "gzip"}
 	shapes := []string{"single-role", "shared-digest"}
@@ -47,7 +48,7 @@ func runBigOCIRoundTrip(t *testing.T, host, compression, shape string) {
 	repo := testRepo(t)
 	content := randomBytes(t, e2eBigOCIFileSize)
 	client := newE2EClient(t, e2eCreds{})
-	var spec ReleaseSpec
+	var spec imgoci.ReleaseSpec
 	switch shape {
 	case "single-role":
 		spec, _, _ = singleRoleMultipartSpec(t, compression, content, e2eBigOCIPartSize)
@@ -65,33 +66,33 @@ func runBigOCIRoundTrip(t *testing.T, host, compression, shape string) {
 		t.Fatalf("Fetch digest %s, want published %s", rel.Digest(), published)
 	}
 	entry := firstFileEntry(t, rel)
-	if !EqualMediaType(entry.ArtifactType, index.ArtifactTypeBigOCI) {
+	if !imgoci.EqualMediaType(entry.ArtifactType, index.ArtifactTypeBigOCI) {
 		t.Fatalf("artifactType %q, want BigOCI", entry.ArtifactType)
 	}
 
 	sel := mustResolve(t, client, rel, qemuDiskQuery(compression))
 	dir := t.TempDir()
-	mustFetchFiles(t, client, rel, sel, ToDir(dir))
+	mustFetchFiles(t, client, rel, sel, imgoci.ToDir(dir))
 	assertFileContent(t, filepath.Join(dir, "disk.qcow2"), content)
 
 	if shape != "shared-digest" {
 		return
 	}
-	metal := mustResolve(t, client, rel, ResolveQuery{
+	metal := mustResolve(t, client, rel, imgoci.ResolveQuery{
 		Architecture:   "amd64",
 		Target:         "metal",
 		Representation: "raw",
 		Compressions:   []string{compression},
 	})
 	metalDir := t.TempDir()
-	mustFetchFiles(t, client, rel, metal, ToDir(metalDir))
+	mustFetchFiles(t, client, rel, metal, imgoci.ToDir(metalDir))
 	assertFileContent(t, filepath.Join(metalDir, "disk.raw"), content)
 }
 
-// TestE2EBigOCIMultipartFallback publishes a tiny file with Multipart
+// TestBigOCIMultipartFallback publishes a tiny file with Multipart
 // requested. Fewer than two planned parts uses the standard path,
 // Progress.Fallbacks is 1, and the consumer retrieves a standard file.
-func TestE2EBigOCIMultipartFallback(t *testing.T) {
+func TestBigOCIMultipartFallback(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eRegistries()[0].image)
 	repo := testRepo(t)
@@ -99,7 +100,7 @@ func TestE2EBigOCIMultipartFallback(t *testing.T) {
 	spec, _, filename := singleRoleMultipartSpec(t, "none", content, 0)
 	client := newE2EClient(t, e2eCreds{})
 	var sink progressSink
-	if _, err := client.Publish(t.Context(), tagRef(host, repo), spec, WithProgress(sink.fn())); err != nil {
+	if _, err := client.Publish(t.Context(), tagRef(host, repo), spec, imgoci.WithProgress(sink.fn())); err != nil {
 		t.Fatal(err)
 	}
 	got := sink.snapshot()
@@ -108,23 +109,23 @@ func TestE2EBigOCIMultipartFallback(t *testing.T) {
 	}
 	rel := mustFetch(t, client, tagRef(host, repo))
 	entry := firstFileEntry(t, rel)
-	if !EqualMediaType(entry.ArtifactType, index.ArtifactTypeFile) {
+	if !imgoci.EqualMediaType(entry.ArtifactType, index.ArtifactTypeFile) {
 		t.Fatalf("fallback artifactType %q, want standard file", entry.ArtifactType)
 	}
 	sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
 	dir := t.TempDir()
-	mustFetchFiles(t, client, rel, sel, ToDir(dir))
+	mustFetchFiles(t, client, rel, sel, imgoci.ToDir(dir))
 	assertFileContent(t, filepath.Join(dir, filename), content)
 }
 
-// TestE2EBigOCIConcurrentFetchFiles runs two FetchFiles of the same
+// TestBigOCIConcurrentFetchFiles runs two FetchFiles of the same
 // selection into different dest files that share a parent directory.
 //
 // The stored cache is keyed per destination parent
 // (`<parent>/.imgoci-stage/stored/`), so both calls lock the same cache entry.
 // That once-per-parent lock is unit-covered by internal/file and
 // internal/transfer.
-func TestE2EBigOCIConcurrentFetchFiles(t *testing.T) {
+func TestBigOCIConcurrentFetchFiles(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eRegistries()[0].image)
 	repo := testRepo(t)
@@ -145,7 +146,7 @@ func TestE2EBigOCIConcurrentFetchFiles(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			errCh <- client.FetchFiles(t.Context(), rel, sel, ToFiles(map[string]string{"disk": path}))
+			errCh <- client.FetchFiles(t.Context(), rel, sel, imgoci.ToFiles(map[string]string{"disk": path}))
 		}()
 	}
 	wg.Wait()
@@ -160,12 +161,12 @@ func TestE2EBigOCIConcurrentFetchFiles(t *testing.T) {
 	}
 }
 
-// TestE2EBigOCITruncatedPart fails FetchFiles when a part blob is corrupted
+// TestBigOCITruncatedPart fails FetchFiles when a part blob is corrupted
 // after publish. Content-addressed registries refuse a digest-mismatched
 // overwrite, so a reverse proxy bit-flips the part GET (same length: a short
 // read is retried via Range and would reassemble). The consumer reports
 // [ErrDigestMismatch] (bigoci.ErrDigestMismatch mapped) and commits nothing.
-func TestE2EBigOCITruncatedPart(t *testing.T) {
+func TestBigOCITruncatedPart(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eRegistries()[0].image)
 	repo := testRepo(t)
@@ -187,19 +188,19 @@ func TestE2EBigOCITruncatedPart(t *testing.T) {
 	rel = mustFetch(t, client, tagRef(front, repo))
 	sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
 	dir := t.TempDir()
-	err := client.FetchFiles(t.Context(), rel, sel, ToDir(dir))
-	if !errors.Is(err, ErrDigestMismatch) {
+	err := client.FetchFiles(t.Context(), rel, sel, imgoci.ToDir(dir))
+	if !errors.Is(err, imgoci.ErrDigestMismatch) {
 		t.Fatalf("err = %v, want ErrDigestMismatch", err)
 	}
 	assertNoFile(t, filepath.Join(dir, filename))
 }
 
-// TestE2EBigOCIWrongFileSize raw-seeds a BigOCI file whose io.bigoci.file.size
+// TestBigOCIWrongFileSize raw-seeds a BigOCI file whose io.bigoci.file.size
 // lies. A negative size is rejected by the imgoci BigOCI profile
 // ([filemanifest.ValidateBigOCI]); FetchFiles maps that to [ErrInvalidIndex] or
 // [ErrDigestMismatch]. A numeric lie that remains a valid token fails bigoci
 // Decode with an unmapped split error instead.
-func TestE2EBigOCIWrongFileSize(t *testing.T) {
+func TestBigOCIWrongFileSize(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eRegistries()[0].image)
 	repo := testRepo(t)
@@ -229,14 +230,14 @@ func TestE2EBigOCIWrongFileSize(t *testing.T) {
 	rel = mustFetch(t, client, tagRef(host, repo))
 	sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
 	dir := t.TempDir()
-	err := client.FetchFiles(t.Context(), rel, sel, ToDir(dir))
-	if !errors.Is(err, ErrInvalidIndex) && !errors.Is(err, ErrDigestMismatch) {
+	err := client.FetchFiles(t.Context(), rel, sel, imgoci.ToDir(dir))
+	if !errors.Is(err, imgoci.ErrInvalidIndex) && !errors.Is(err, imgoci.ErrDigestMismatch) {
 		t.Fatalf("err = %v, want ErrInvalidIndex or ErrDigestMismatch", err)
 	}
 	assertNoFile(t, filepath.Join(dir, filename))
 }
 
-// TestE2EBigOCICommittedFixture seeds the committed two-part artifact from
+// TestBigOCICommittedFixture seeds the committed two-part artifact from
 // testdata/bigoci/v1 and retrieves it through the ordinary Client path.
 //
 // Nothing here is published by imgoci: the manifest, both part blobs, and the
@@ -245,7 +246,7 @@ func TestE2EBigOCIWrongFileSize(t *testing.T) {
 //
 // The fixture's OCI title differs from io.imgoci.filename, so the retrieved
 // file also proves the title has no imgoci meaning (spec §8).
-func TestE2EBigOCICommittedFixture(t *testing.T) {
+func TestBigOCICommittedFixture(t *testing.T) {
 	t.Parallel()
 	const filename = "disk.qcow2"
 	host := startRegistry(t, e2eRegistries()[0].image)
@@ -259,24 +260,24 @@ func TestE2EBigOCICommittedFixture(t *testing.T) {
 	client := newE2EClient(t, e2eCreds{})
 	rel := mustFetch(t, client, tagRef(host, repo))
 	entry := firstFileEntry(t, rel)
-	if !EqualMediaType(entry.ArtifactType, index.ArtifactTypeBigOCI) {
+	if !imgoci.EqualMediaType(entry.ArtifactType, index.ArtifactTypeBigOCI) {
 		t.Fatalf("artifactType %q, want BigOCI", entry.ArtifactType)
 	}
 	sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
 	dir := t.TempDir()
-	mustFetchFiles(t, client, rel, sel, ToDir(dir))
+	mustFetchFiles(t, client, rel, sel, imgoci.ToDir(dir))
 	assertFileContent(t, filepath.Join(dir, filename), fx.stored)
 	assertNoFile(t, filepath.Join(dir, fx.title))
 }
 
-// TestE2EBigOCIWrongPartLength fails FetchFiles when a part body arrives one
+// TestBigOCIWrongPartLength fails FetchFiles when a part body arrives one
 // byte short or one byte long.
 //
 // Spec §8 rule 2 verifies each part's digest and size before the parts are
 // assembled, so neither length can produce a committed destination. Only the
 // read path is fronted by [startResizingBlobProxy], so the length fault is the
 // single difference from a passing round trip.
-func TestE2EBigOCIWrongPartLength(t *testing.T) {
+func TestBigOCIWrongPartLength(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eRegistries()[0].image)
 	tests := []struct {
@@ -300,7 +301,7 @@ func TestE2EBigOCIWrongPartLength(t *testing.T) {
 			rel := mustFetch(t, client, tagRef(front, repo))
 			sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
 			dir := t.TempDir()
-			if err := client.FetchFiles(t.Context(), rel, sel, ToDir(dir)); err == nil {
+			if err := client.FetchFiles(t.Context(), rel, sel, imgoci.ToDir(dir)); err == nil {
 				t.Fatal("FetchFiles accepted a part body of the wrong length")
 			}
 			assertNoFile(t, filepath.Join(dir, filename))
