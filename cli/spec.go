@@ -128,6 +128,9 @@ func fileToFileSpec(file publishFile, baseDir string) (imgoci.FileSpec, error) {
 	if file.Path == "" {
 		return imgoci.FileSpec{}, errors.New("path is required")
 	}
+	if file.Filename == "" {
+		return imgoci.FileSpec{}, errors.New("filename is required")
+	}
 	if file.Architecture == "" {
 		return imgoci.FileSpec{}, errors.New("architecture is required")
 	}
