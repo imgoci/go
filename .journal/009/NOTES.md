@@ -172,3 +172,42 @@ Biggest risk noted for the list/resolve slice: `Index` currently stores public
 that root tests are coupled to (`list_test.go:37` builds `Index.entries` directly,
 `fetchfiles_test.go:26` builds `Resolved.entries`, `resolve_test.go:226,357` test
 the private validator). Sequence that slice last.
+
+## 2026-08-17 18:05 — Slice 1 implemented, reviewed, PR #28 open (awaiting user)
+Orchestration pattern for the slice campaign, working as intended: two
+`programmer` agents with disjoint file ownership and a contract I fixed up front
+(exact export names/signatures), then one `reviewer` agent, then the PR.
+
+Slice 1 = delete root reimplementations of internal/index spec grammar.
+- internal/index/validate.go: +3 exported wrappers (`IsBasicToken`, `IsMediaType`,
+  `ASCIILower` — the last is the verbatim moved body of root `asciiToLower`).
+- Deleted 13 root declarations across list.go, capabilities.go, mediatype.go,
+  index.go; 4 call expressions rerouted. Root production -122 lines,
+  internal +25.
+- Deliberately deferred: `validateArchitecture` keeps composing
+  `validateBasicToken` (its 3 distinct error messages cannot come from a boolean
+  `IsArchitecture`); publish.go `requireUTF8`, root `deliverableKey`, and
+  `supportsType` move with their callers in slices 5/6.
+
+Pre-flight evidence I generated myself before writing the agent briefs: a
+differential test over 371,165 inputs proving root `validBasicToken` ≡
+`isBasicToken`, `validRFC6838TypeSubtype` ≡ `isMediaType`, `validRestrictedName`
+≡ `isRestrictedName`. Reviewer independently swept 1,780,132 inputs (0
+mismatches), diffed `go doc -all` before/after, ran a master-vs-branch probe
+program (130/130 output lines byte-identical), and measured allocs to confirm
+`EqualMediaType` still allocates nothing. Verdict: approve, zero findings.
+One subtlety settled by review: the deleted root `sub == ""` guard in
+`validRFC6838TypeSubtype` was redundant because `isRestrictedName` rejects the
+empty string on its length check.
+
+Full gates green locally (build, vet ±e2e tag, race tests, golangci-lint run and
+fmt --diff, cli module). PR: https://github.com/imgoci/go/pull/28. Paused for the
+user's review per instruction; slices 2-6 follow on approval.
+
+OPERATIONAL LESSON (again, worse this time): BOTH programmer agents resolved
+relative edit paths against the session cwd instead of their assigned worktree.
+`RootCapsAndDupes` caught and reverted it itself; `IndexExportsAndList` did not
+notice until I checked `git -C <main> status --porcelain` mid-flight and steered
+it via `hub send`. Next brief MUST say: use absolute paths for every edit, and
+verify the main checkout is clean before yielding. Checking the main checkout
+after each fan-out is now mandatory for me.
