@@ -8,7 +8,7 @@ A **release blocker** is any result that makes the `0.1.0` library unsafe or mat
 
 A **non-blocking finding** is a defect that preserves correctness, integrity, confidentiality, and the documented machine contract, and has an explicit safe workaround. Re-check the known Session 004 findings under that rule:
 
-- a misleading zstd single-segment/window diagnostic is non-blocking only if the failure still matches `imgoci.ErrDecode` before a large allocation;
+- the zstd single-segment decoded-size case is conforming only if it reports `zstd: decode: decompressed size exceeds configured limit`, matches `imgoci.ErrDecode`, and rejects before a codec-sized allocation;
 - unsupported publish compression remaining unclassified is non-blocking only if publication fails closed before any registry write;
 - a bare `401` remaining unclassified is non-blocking only if the request fails closed and no credential is disclosed;
 - a misnamed canonical fixture is non-blocking only if its bytes still exercise the intended rejection and `ParseIndex` rejects them with `imgoci.ErrInvalidIndex`;
@@ -233,6 +233,16 @@ For `BIG-02`, require at least 15 GiB free in both the host test volume and Dock
 
 ```sh
 mkfile -n 3g "$FT/work/bigoci-3g.img"
+python - <<'PY'
+from pathlib import Path
+
+path = Path("/tmp/imgoci-functional-0b4be41/work/bigoci-3g.img")
+part_size = 256 << 20
+with path.open("r+b") as f:
+    for part in range(12):
+        f.seek(part * part_size)
+        f.write(f"imgoci-part-{part:02d}\n".encode("ascii"))
+PY
 stat -f '%z' "$FT/work/bigoci-3g.img"
 shasum -a 256 "$FT/work/bigoci-3g.img" | tee "$EVIDENCE/BIG-02/source.sha256"
 ```
@@ -431,7 +441,7 @@ If Docker reports that host port `5000` is already allocated on macOS, capture t
 6. Exercise zero `Dest`, missing/extra role maps, two roles resolving to one path, an existing directory at a final path, and a symlinked-parent alias. Record the netshim request count before/after each call.
 7. Try Publish with digest-only, tag+digest, and name-only references; malformed/lowercase-invalid references; a zero `Source`; reserved `io.imgoci.*` annotations; and inconsistent shared source declarations.
 
-*Expected*: publish returns `sha256:<64 lowercase hex>`; tag/digest fetches agree; both destination forms contain byte-identical files; invalid destinations match `ErrInvalidDest` and cause zero request-count change; invalid publish reference/spec cases match `ErrInvalidSpec` and cause zero request-count change; malformed fetch references remain unclassified; no release tag appears for a rejected publication.
+*Expected*: publish returns `sha256:<64 lowercase hex>`; tag/digest fetches agree; both destination forms contain byte-identical files; invalid destinations match `ErrInvalidDest` and cause zero request-count change; digest-only, tag+digest, and name-only publish references match `ErrInvalidSpec`; grammar-malformed publish references fail before I/O without a public sentinel; invalid producer specs match `ErrInvalidSpec`; every rejected publication causes zero request-count change and writes no release tag.
 
 *Evidence to capture*: probe source, registry/proxy logs, index digest, source/output hashes and modes, tag listing, and sentinel matrix.
 
@@ -512,14 +522,14 @@ If Docker reports that host port `5000` is already allocated on macOS, capture t
 1. Publish and fetch one valid real file for each `none`, `gzip`, `xz`, and `zstd`; compare decoded bytes.
 2. Attempt to publish two-member gzip, padded/trailing xz, concatenated zstd, skippable-first zstd, and dictionary-required zstd.
 3. Attempt xz with a 64 MiB LZMA2 dictionary and non-single-segment zstd with a declared window above 8 MiB.
-4. Generate a self-confirmed single-segment zstd frame with decoded size above 8 MiB, publish it as zstd, and record the exact diagnostic and peak RSS. This is the known misleading-diagnostic re-check.
+4. Generate a self-confirmed single-segment zstd frame with decoded size above 8 MiB, publish it as zstd, and require the exact diagnostic `zstd: decode: decompressed size exceeds configured limit`, a match on `ErrDecode`, and rejection before a codec-sized allocation; record peak RSS.
 5. Publish a syntactically valid private compression token such as `x-ft-brotli` with real bytes, using a request-counting proxy. Check every public sentinel. This is the known unsupported-compression classification re-check.
 
-*Expected*: all four valid files round-trip byte-for-byte; every structural/working-set violation fails before upload and matches `ErrDecode`; xz/zstd limit failures occur before codec-sized allocation and the process does not approach the declared 64 MiB/large window merely to reject the header; the single-segment case still matches `ErrDecode` even if its wording misleadingly describes a window; unsupported compression fails before any registry request, matches none of the nine public sentinels, and leaves no tag.
+*Expected*: all four valid files round-trip byte-for-byte; every structural/working-set violation fails before upload and matches `ErrDecode`; xz/zstd limit failures occur before codec-sized allocation and the process does not approach the declared 64 MiB/large window merely to reject the header; the single-segment case reports exactly `zstd: decode: decompressed size exceeds configured limit`, matches `ErrDecode`, and rejects before a codec-sized allocation; unsupported compression fails before any registry request, matches none of the nine public sentinels, and leaves no tag.
 
 *Evidence to capture*: codecgen source/header dumps, source/stored/decoded hashes and sizes, exact errors, `errors.Is` matrix, request counts, `time -l` output, and tag listing.
 
-*Blocker if*: an invalid compression unit is accepted, the decoder allocates the hostile declared working set before rejection, any invalid publish writes, or unsupported compression is published. Diagnostic wording and missing unsupported-compression sentinel remain non-blocking under the stated expectations.
+*Blocker if*: an invalid compression unit is accepted, the decoder allocates the hostile declared working set before rejection, the single-segment diagnostic differs from `zstd: decode: decompressed size exceeds configured limit` or does not match `ErrDecode`, any invalid publish writes, or unsupported compression is published. Missing unsupported-compression sentinel remains non-blocking under the stated expectations.
 
 #### **ID** `ADV-04`
 
@@ -676,16 +686,16 @@ If Docker reports that host port `5000` is already allocated on macOS, capture t
 
 *Promise*: `P-BIG-01`, `P-OPT-01`.
 
-*Setup*: Confirm the stated 15 GiB budgets. Use the exact 3 GiB sparse source and `PartSize: 256 << 20` (expected 12 parts). Build the external probe once; measure the probe binary rather than `go run` compilation.
+*Setup*: Confirm the stated 15 GiB budgets. Use the exact 3 GiB sparse source and `PartSize: 256 << 20` (expected 12 parts). Configure the probe to assert that the raw BigOCI manifest contains 12 distinct layer digests. Build the external probe once; measure the probe binary rather than `go run` compilation.
 
 *Steps*:
 
 1. Publish `ft/big:3g` through zot or Distribution with public `Client.Publish`, `MultipartSpec{PartSize: 256 << 20}`, `WithWorkers(2)`, and progress; wrap execution with `/usr/bin/time -l`.
-2. Inspect the raw BigOCI manifest and count 12 parts. Record every part size/digest and the whole stored size/digest.
+2. Inspect the raw BigOCI manifest and require 12 parts with 12 distinct layer digests. Record every part size/digest and the whole stored size/digest.
 3. Fetch/resolve/fetch to a fresh volume with `WithWorkers(2)` and progress, also under `/usr/bin/time -l`.
-4. Require exact size, `shasum -a 256` equality, and `cmp` success. Confirm no `.imgoci-stage` residue after successful commit.
+4. Require exact size, `shasum -a 256` equality, and `cmp` success. Confirm that no staged or cache file remains after successful commit. An empty `<dest>/.imgoci-stage/stored/` directory may remain and must contain no files.
 
-*Expected*: publish/fetch complete without OOM; manifest has 12 parts and whole size `3221225472`; returned index/file digests are valid SHA-256; output is exactly `3221225472` bytes and byte-identical; progress is monotone and terminal with `WireBytes` reflecting real multipart transfer; only the release tag exists.
+*Expected*: publish/fetch complete without OOM; manifest has 12 parts with 12 distinct layer digests and whole size `3221225472`; returned index/file digests are valid SHA-256; output is exactly `3221225472` bytes and byte-identical; publish and fetch progress is monotone, and each terminal `WireBytes` value is exactly `3221225472`; only the release tag exists.
 
 *Evidence to capture*: free-space checks, wall time/peak RSS, all progress, raw manifest, part table, container storage growth, hashes/sizes, `cmp` status, and post-success directory tree.
 
