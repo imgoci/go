@@ -110,3 +110,60 @@ spec's requirement (§7.3 exact usage-set equality), not a regression, but it is
 the sharpest break for consumers.
 
 Next: implement, starting with step 1.
+
+## 2026-08-16 21:55 — Step 1 merged-ready: PR #21
+Worktree `.wt/feat-usage-value-layer` on `feat/usage-value-layer`, based on
+`origin/master` `140d3f4` (created with `wt switch --create`, then
+`git reset --hard origin/master` per the stale-tip note). Commit `a9dfe11`,
+PR https://github.com/imgoci/go/pull/21, CI green (ci, CodeQL, Analyze go +
+actions, Pages). Local `moon run root:check`: 17 tasks green.
+
+Scope landed: plan steps 1 AND 2 together, not step 1 alone. Step 1 in isolation
+would have left `CanonicalizeUsage`/`ValidateUsage`/`ValidateUsageRelationship`
+with zero callers, and this repo's golangci config would either flag the dead
+exported helpers or force a suppression. Wiring rules 3-7 and the §9 comparator in
+the same PR keeps every symbol consumed and every rule tested.
+
+Agent shape: 1 `programmer` (implementation, 18m) -> 3 read-only reviewers in
+parallel (`reviewer`, `conformance`, `qa`) -> 1 `programmer` (test gaps, 6m). The
+`programmer` type did NOT crash this time, contradicting the 0/5 record from
+sessions 002 and 006; two clean runs at 18m and 6m. Worth updating TECH_NOTES at
+close: the guidance should be "prefer `task`, but `programmer` is no longer
+known-broken", and the explicit absolute-worktree-path instruction did its job
+(both agents edited only the target worktree; main checkout stayed clean).
+
+Review value, in order of usefulness:
+- `reviewer` found a real blocker I had caused with my own brief: I told it not to
+  touch `producer.go`, but making `io.imgoci.usage` a DEFINED annotation means
+  §5.2 placement applies, so it had to join `isDescriptorOnlyAnnotation` or a
+  producer could emit it on the release-index root. Reproduced by the agent from
+  the emitted bytes. Fixed, with a paired test in `TestProducerOnlyViolations`
+  asserting Build rejects while Validate accepts. Mutation-checked: removing the
+  one line turns the test red.
+- `reviewer` also caught `usageTokenAt` reimplementing `strings.SplitSeq` (R3),
+  with benchmarks showing no perf cost (12.5 vs 12.2 ns/op, 0 allocs both).
+  Deleted ~19 lines of sentinel-offset cleverness.
+- `conformance` independently ran the five new upstream fixtures against the
+  branch through a /tmp harness with a replace directive: pass accepted, three
+  syntax fails at rule 3, `install-offline-without-install` at rule 4. That is the
+  only independent oracle on this PR, since the SPEC_COMMIT pin is a later step.
+- `qa` ran 29 mutants; 23 defended, 6 survived. All six were real gaps: Decode
+  dropping the annotation (the projection test built a Descriptor literal and
+  never called Decode), 129-byte tokens through either helper, the exact 4096-byte
+  canonicalization bound, trailing comma and unknown/private acceptance end to end
+  through Validate, and `incus-vm` roles split across usage sets. Closed and each
+  mutant re-run red.
+
+Lesson to promote at close: a brief that fences an agent out of a file can create
+the defect. "Do not touch producer.go" was right about the §5.4 registry and wrong
+about the §5.2 annotation-location table; the fence should name the RULE to skip,
+not the FILE.
+
+Also fixed by me during integration: 9 golangci findings the agent's targeted
+verification never saw (3x perfsprint fmt.Errorf -> errors.New, nonamedreturns,
+golines/goimports, modernize mapsloop) and a `<empty>`/comma ambiguity in
+`formatUsage` error text, now `usage=<empty>` / `usage="install,live"`.
+
+Next: step 3 of `UPDATE_PLAN.md` (public `Usage` domain type, `ListQuery`
+containment, `ResolveQuery` exact-set equality, `Deliverable.Usage`), still
+gated behind PR #21 review.
