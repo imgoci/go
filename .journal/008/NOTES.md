@@ -24,3 +24,7 @@ Release path is now: let Release Please refresh PR #9 on `a73f04e`, re-check it 
 
 ## 2026-08-17 15:00 — Both alerts fixed; PR #9 ready
 Dependabot alerts #1/#2 flipped to `fixed` after `a73f04e`. Release Please refreshed PR #9: manifest 0.0.0 -> 0.1.0, complete changelog dated 2026-08-17, only manifest+CHANGELOG touched, checks green. All 0.1.0 preconditions are met (spec stable+pinned, REL-04 PASS/READY, alerts fixed). Merge decision handed to owner; note `draft: true` in release-please-config means the GitHub release is created as a draft needing manual publish.
+
+## 2026-08-17 15:30 — README refreshed (PR #26 merged as `8d02009`)
+Rewrote README.md per readme-writer + language-style: description, factual feature list, install with the go.mod floor (1.26.5), a fetch/resolve/fetch-files example, Documentation section linking the Diátaxis site + pkg.go.dev, spec compatibility table pointing at the v0.1.0 tag and SPEC_COMMIT, related projects, contributing/security pointers, dual license.
+Verification: example compiled verbatim via scratch module with replace directive (go vet + go build); all 8 external links 200; 5 relative links exist; full root:check green. PR #9 remains the only open PR, awaiting owner merge for 0.1.0.
