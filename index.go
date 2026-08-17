@@ -8,12 +8,6 @@ import (
 	"github.com/imgoci/go/internal/index"
 )
 
-// annotationName is the spec section 5.1 release-name annotation.
-const annotationName = "io.imgoci.name"
-
-// annotationVersion is the spec section 5.1 release-version annotation.
-const annotationVersion = "org.opencontainers.image.version"
-
 // Index is an immutable view of a fully validated release index. [ParseIndex]
 // records the SHA-256 digest of the original input bytes; that digest is the
 // identity of the encoded release.
@@ -83,8 +77,8 @@ func indexFromValue(v *index.Value, dgst digest.Digest) *Index {
 	annotations := cloneAnnotations(v.Annotations)
 	return &Index{
 		digest:      dgst,
-		name:        annotations[annotationName],
-		version:     annotations[annotationVersion],
+		name:        annotations[index.AnnotationName],
+		version:     annotations[index.AnnotationVersion],
 		entries:     entries,
 		annotations: annotations,
 	}

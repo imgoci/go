@@ -3,6 +3,8 @@ package imgoci
 import (
 	"fmt"
 	"strings"
+
+	"github.com/imgoci/go/internal/index"
 )
 
 // standardFileMediaType is the imgoci v1 standard file-manifest type. A
@@ -11,10 +13,6 @@ const standardFileMediaType = "application/vnd.imgoci.file.v1"
 
 // bigociFileMediaType is the imgoci BigOCI file-manifest type.
 const bigociFileMediaType = "application/vnd.bigoci.file.v1"
-
-// restrictedNameMax is the RFC 6838 maximum length of a type or subtype name
-// (one leading character plus 126 more).
-const restrictedNameMax = 127
 
 // Capabilities is a validated set of file-manifest types a consumer can
 // retrieve. The set is normalized to ASCII-lowercase, parameter-free RFC 6838
@@ -40,10 +38,10 @@ func NewCapabilities(types ...string) (Capabilities, error) {
 		if strings.Contains(raw, ";") {
 			return Capabilities{}, fmt.Errorf("capability %q: media types must not contain parameters", raw)
 		}
-		if !validRFC6838TypeSubtype(raw) {
+		if !index.IsMediaType(raw) {
 			return Capabilities{}, fmt.Errorf("capability %q: not an RFC 6838 type/subtype", raw)
 		}
-		folded := asciiToLower(raw)
+		folded := index.ASCIILower(raw)
 		if _, ok := seen[folded]; ok {
 			return Capabilities{}, fmt.Errorf("capability %q: duplicate after ASCII case folding", raw)
 		}
@@ -88,66 +86,4 @@ func supportsType(types []string, mediaType string) bool {
 		}
 	}
 	return false
-}
-
-// validRFC6838TypeSubtype reports whether s is a parameter-free RFC 6838
-// type/subtype (one slash, two restricted names).
-func validRFC6838TypeSubtype(s string) bool {
-	typ, sub, ok := strings.Cut(s, "/")
-	if !ok || sub == "" || strings.Contains(sub, "/") {
-		return false
-	}
-	return validRestrictedName(typ) && validRestrictedName(sub)
-}
-
-// validRestrictedName reports whether s is an RFC 6838 restricted name:
-// 1 to 127 characters, starting with an ASCII letter or digit, followed by
-// letters, digits, or !#$&^_.+-.
-func validRestrictedName(s string) bool {
-	if len(s) == 0 || len(s) > restrictedNameMax {
-		return false
-	}
-	if !isRestrictedNameFirst(s[0]) {
-		return false
-	}
-	for i := 1; i < len(s); i++ {
-		if !isRestrictedNameChar(s[i]) {
-			return false
-		}
-	}
-	return true
-}
-
-// isRestrictedNameFirst reports whether c may start an RFC 6838 restricted name.
-func isRestrictedNameFirst(c byte) bool {
-	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
-}
-
-// isRestrictedNameChar reports whether c may appear after the first character
-// of an RFC 6838 restricted name.
-func isRestrictedNameChar(c byte) bool {
-	if isRestrictedNameFirst(c) {
-		return true
-	}
-	switch c {
-	case '!', '#', '$', '&', '^', '_', '.', '+', '-':
-		return true
-	default:
-		return false
-	}
-}
-
-// asciiToLower returns s with ASCII letters folded to lowercase. Media types
-// in this format are ASCII, so this is the case folding spec section 4 uses.
-func asciiToLower(s string) string {
-	for i := range len(s) {
-		if s[i] >= 'A' && s[i] <= 'Z' {
-			out := []byte(s)
-			for j := i; j < len(s); j++ {
-				out[j] = asciiFold(s[j])
-			}
-			return string(out)
-		}
-	}
-	return s
 }
