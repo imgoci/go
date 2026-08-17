@@ -10,9 +10,6 @@ import (
 	"github.com/imgoci/go/internal/index"
 )
 
-// maxBasicTokenBytes is the spec section 5.3 maximum length of a basic token.
-const maxBasicTokenBytes = 128
-
 // ListQuery selects deliverables from a validated [Index]. Empty scalar fields
 // match every value. A nil Usage slice applies no usage filter and matches
 // every usage set. A non-nil Usage slice must be non-empty and free of
@@ -334,42 +331,8 @@ func validateArchitecture(s string) error {
 // validateBasicToken reports whether s matches spec section 5.3 basic-token
 // syntax: 1 to 128 ASCII bytes of ^[a-z0-9]+([._-][a-z0-9]+)*$.
 func validateBasicToken(s string) error {
-	if !validBasicToken(s) {
+	if !index.IsBasicToken(s) {
 		return fmt.Errorf("%q is not a basic token", s)
 	}
 	return nil
-}
-
-// validBasicToken reports whether s is a spec section 5.3 basic token.
-func validBasicToken(s string) bool {
-	if len(s) == 0 || len(s) > maxBasicTokenBytes {
-		return false
-	}
-	if !isBasicTokenAlnum(s[0]) {
-		return false
-	}
-	needAlnum := false
-	for i := 1; i < len(s); i++ {
-		c := s[i]
-		if isBasicTokenAlnum(c) {
-			needAlnum = false
-			continue
-		}
-		if needAlnum || !isBasicTokenSep(c) {
-			return false
-		}
-		needAlnum = true
-	}
-	return !needAlnum
-}
-
-// isBasicTokenAlnum reports whether c is an ASCII lowercase letter or digit.
-func isBasicTokenAlnum(c byte) bool {
-	return (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
-}
-
-// isBasicTokenSep reports whether c may separate alphanumeric runs in a basic
-// token.
-func isBasicTokenSep(c byte) bool {
-	return c == '.' || c == '_' || c == '-'
 }

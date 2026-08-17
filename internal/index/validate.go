@@ -437,6 +437,21 @@ func equalMediaType(a, b string) bool {
 	return true
 }
 
+// ASCIILower returns s with ASCII letters folded to lowercase. Media types
+// in this format are ASCII, so this is the case folding spec section 4 uses.
+func ASCIILower(s string) string {
+	for i := range len(s) {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			out := []byte(s)
+			for j := i; j < len(s); j++ {
+				out[j] = asciiFold(s[j])
+			}
+			return string(out)
+		}
+	}
+	return s
+}
+
 // asciiFold returns c with ASCII 'A'..'Z' folded to 'a'..'z'. Other bytes,
 // including UTF-8 for U+017F and U+212A, are unchanged.
 func asciiFold(c byte) byte {
@@ -457,6 +472,11 @@ func isReleaseVersion(s string) bool {
 		}
 	}
 	return true
+}
+
+// IsBasicToken reports whether s matches the spec §5.3 basic-token grammar.
+func IsBasicToken(s string) bool {
+	return isBasicToken(s)
 }
 
 // isBasicToken reports whether s matches the spec §5.3 basic-token grammar.
@@ -570,6 +590,11 @@ func isNonNegativeDecimal(s string) bool {
 		}
 	}
 	return true
+}
+
+// IsMediaType reports whether s is an RFC 6838 type/subtype with no parameters.
+func IsMediaType(s string) bool {
+	return isMediaType(s)
 }
 
 // isMediaType reports whether s is an RFC 6838 type/subtype with no parameters.
