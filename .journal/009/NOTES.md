@@ -120,3 +120,55 @@ Durable context worth promoting at close:
   `go test -race -tags e2e ./...`. golangci-lint sets no build tags, so
   e2e-tagged files are still unlinted — gofmt and compile are the only automatic
   gates on them.
+
+## 2026-08-17 17:05 — Root package boundary audit (4 parallel agents)
+Fanned out 4 read-only `conformance` agents over the 19 root production files
+(2759 lines) with a shared verdict vocabulary (public-api / thin-wiring /
+borderline / extract / extract-heavy-body) and a hard constraint: no proposal may
+change the public API. Reports: agent://AuditPublishIndex, agent://AuditQueryPaths,
+agent://AuditClientWiring, agent://AuditFetchPaths.
+
+My own independent measurement before reading them: 1560 of 2759 root production
+lines (57%) sit in unexported declarations. Worst offenders: publish.go 327/421,
+resolve.go 251/364, list.go 250/375, fetchfiles.go 188/260, client.go 150/364,
+capabilities.go 99/153.
+
+Verdict: the root package is NOT a public-API facade. ~1050 lines are flagged for
+extraction. The strongest single finding, which I verified myself rather than
+taking on faith, is that root carries SECOND IMPLEMENTATIONS of rules
+`internal/index` already owns (~190 lines):
+- `EqualMediaType` + `asciiFold` (root mediatype.go) vs internal/index/validate.go:421,442
+- basic-token grammar `validBasicToken`/`isBasicTokenAlnum`/`isBasicTokenSep`/
+  `validateArchitecture`/`maxBasicTokenBytes` (root list.go) vs
+  internal/index/validate.go:463,491 and decode.go:57
+- RFC 6838 restricted-name chain + `asciiToLower` (root capabilities.go) vs
+  internal/index/validate.go:585-607
+- `requireUTF8` and the UTF-8 walk (root publish.go) vs internal/index/build.go:242
+- `deliverableKey` (root list.go) vs internal/index/validate.go:366
+- `annotationName`/`annotationVersion` (root index.go) vs internal/index/decode.go:32-34
+That duplication is exactly the boundary erosion the user predicted.
+
+Clean, no findings: entry.go, parse.go, errors.go, doc.go, fetch.go, progress.go,
+release.go, source.go. Near-clean: index.go (2 duplicate constants), usage.go (2
+query helpers).
+
+Three places I overrode an agent's recommendation:
+1. Rejected a new `internal/clientconfig` package for `New`'s body: one default
+   plus one zero-check is not a package. Keep `New` at root; only the Docker
+   credential discovery I/O moves (to internal/auth).
+2. `internal/ociref` for reference parsing: agree it must leave root, but prefer a
+   home in `internal/registry` (already owns distribution concerns) unless that
+   creates a cycle. Open decision, cheap to settle at implementation time.
+3. `mapFetchError`/`mapPublishError`: keep the internal-category -> public-sentinel
+   wrapping at root (an internal package cannot import root sentinels); move only
+   the deep chain knowledge of file/decomp/transfer errors.
+
+Also found: D1 gap at publish.go:70 (`PublishOption.applyPublish` has no doc
+comment).
+
+Biggest risk noted for the list/resolve slice: `Index` currently stores public
+`FileEntry` values, so moving the §7.2/§7.3 engines into `internal/index` implies
+`Index` retains internal descriptors instead — a private representation change
+that root tests are coupled to (`list_test.go:37` builds `Index.entries` directly,
+`fetchfiles_test.go:26` builds `Resolved.entries`, `resolve_test.go:226,357` test
+the private validator). Sequence that slice last.
