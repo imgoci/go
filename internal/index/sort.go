@@ -5,18 +5,18 @@ import (
 	"strings"
 )
 
-// sortManifests orders descriptors by the spec §9 five-field UTF-8 tuple.
+// sortManifests orders descriptors by the spec §9 six-field UTF-8 tuple.
 func sortManifests(manifests []Descriptor) {
 	slices.SortStableFunc(manifests, descriptorOrder)
 }
 
-// manifestsInCanonicalOrder reports whether manifests already follow spec §9 order.
+// manifestsInCanonicalOrder reports whether manifests already follow spec §9 six-field order.
 func manifestsInCanonicalOrder(manifests []Descriptor) bool {
 	return slices.IsSortedFunc(manifests, descriptorOrder)
 }
 
 // descriptorOrder compares two descriptors by architecture, target,
-// representation, role, and compression in ascending UTF-8 byte order.
+// representation, usage, role, and compression in ascending UTF-8 byte order.
 func descriptorOrder(a, b Descriptor) int {
 	as, bs := a.Selector(), b.Selector()
 	if c := strings.Compare(as.Architecture, bs.Architecture); c != 0 {
@@ -26,6 +26,9 @@ func descriptorOrder(a, b Descriptor) int {
 		return c
 	}
 	if c := strings.Compare(as.Representation, bs.Representation); c != 0 {
+		return c
+	}
+	if c := strings.Compare(as.Usage, bs.Usage); c != 0 {
 		return c
 	}
 	if c := strings.Compare(as.Role, bs.Role); c != 0 {

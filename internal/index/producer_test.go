@@ -175,6 +175,18 @@ func TestProducerOnlyViolations(t *testing.T) {
 			},
 			wantSub: AnnotationVersion,
 		},
+		{
+			name: "root io.imgoci.usage",
+			mutate: func(m *Model) {
+				m.Annotations = map[string]string{AnnotationUsage: "live"}
+			},
+			value: func() *Value {
+				v := validValue()
+				v.Annotations[AnnotationUsage] = "live"
+				return v
+			},
+			wantSub: AnnotationUsage,
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -48,6 +48,8 @@ const (
 	AnnotationContentSize = "io.imgoci.content.size"
 	// AnnotationFilename is io.imgoci.filename.
 	AnnotationFilename = "io.imgoci.filename"
+	// AnnotationUsage is io.imgoci.usage.
+	AnnotationUsage = "io.imgoci.usage"
 )
 
 const (
@@ -126,7 +128,7 @@ type Descriptor struct {
 	annotationsSet bool
 }
 
-// Selector is the five-field identity of a transport alternative.
+// Selector is the six-field identity of a transport alternative.
 type Selector struct {
 	// Architecture is io.imgoci.architecture.
 	Architecture string
@@ -134,6 +136,12 @@ type Selector struct {
 	Target string
 	// Representation is io.imgoci.representation.
 	Representation string
+	// Usage is the canonical serialized io.imgoci.usage value. The empty
+	// string means the annotation is absent (the empty usage set). A
+	// decoded value is untrusted until [Validate] succeeds: absent and
+	// present-empty both project to "" and a present value may be
+	// noncanonical.
+	Usage string
 	// Role is io.imgoci.role.
 	Role string
 	// Compression is io.imgoci.compression.
@@ -159,12 +167,13 @@ func Decode(b []byte) (*Value, error) {
 	return valueFromObject(obj)
 }
 
-// Selector returns the five-field selector read from the descriptor annotations.
+// Selector returns the six-field selector read from the descriptor annotations.
 func (d Descriptor) Selector() Selector {
 	return Selector{
 		Architecture:   d.annotation(AnnotationArchitecture),
 		Target:         d.annotation(AnnotationTarget),
 		Representation: d.annotation(AnnotationRepresentation),
+		Usage:          d.annotation(AnnotationUsage),
 		Role:           d.annotation(AnnotationRole),
 		Compression:    d.annotation(AnnotationCompression),
 	}

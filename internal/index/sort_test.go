@@ -3,7 +3,7 @@ package index
 import "testing"
 
 // TestDescriptorOrderUTF8ByteOrder covers spec §9: manifests sort by
-// (architecture, target, representation, role, compression), each field
+// (architecture, target, representation, usage, role, compression), each field
 // compared by ascending UTF-8 byte order.
 //
 // Cases come in two shapes. A "decides" case holds every earlier component
@@ -138,6 +138,86 @@ func TestDescriptorOrderUTF8ByteOrder(t *testing.T) {
 			want: -1,
 		},
 		{
+			name: "usage decides when architecture, target, and representation are equal",
+			a: Selector{
+				Architecture:   "amd64",
+				Target:         "t",
+				Representation: "r",
+				Usage:          "install",
+				Role:           "role",
+				Compression:    "none",
+			},
+			b: Selector{
+				Architecture:   "amd64",
+				Target:         "t",
+				Representation: "r",
+				Usage:          "live",
+				Role:           "role",
+				Compression:    "none",
+			},
+			want: -1,
+		},
+		{
+			name: "empty usage sorts before any present usage",
+			a: Selector{
+				Architecture:   "amd64",
+				Target:         "t",
+				Representation: "r",
+				Usage:          "",
+				Role:           "role",
+				Compression:    "none",
+			},
+			b: Selector{
+				Architecture:   "amd64",
+				Target:         "t",
+				Representation: "r",
+				Usage:          "live",
+				Role:           "role",
+				Compression:    "none",
+			},
+			want: -1,
+		},
+		{
+			name: "usage decides before role",
+			a: Selector{
+				Architecture:   "amd64",
+				Target:         "t",
+				Representation: "r",
+				Usage:          "",
+				Role:           "kernel",
+				Compression:    "none",
+			},
+			b: Selector{
+				Architecture:   "amd64",
+				Target:         "t",
+				Representation: "r",
+				Usage:          "live",
+				Role:           "disk",
+				Compression:    "none",
+			},
+			want: -1,
+		},
+		{
+			name: "representation dominates usage",
+			a: Selector{
+				Architecture:   "amd64",
+				Target:         "t",
+				Representation: "iso",
+				Usage:          "live",
+				Role:           "role",
+				Compression:    "none",
+			},
+			b: Selector{
+				Architecture:   "amd64",
+				Target:         "t",
+				Representation: "qcow2",
+				Usage:          "install",
+				Role:           "role",
+				Compression:    "none",
+			},
+			want: -1,
+		},
+		{
 			name: "role dominates compression",
 			a:    Selector{Architecture: "amd64", Target: "t", Representation: "r", Role: "disk", Compression: "zstd"},
 			b: Selector{
@@ -214,10 +294,14 @@ func TestSortManifests(t *testing.T) {
 }
 
 func descriptorFromSelector(s Selector) Descriptor {
-	return validDescriptor(
+	d := validDescriptor(
 		s.Architecture, s.Target, s.Representation, s.Role, s.Compression,
 		"a", testContentDigestA, "0", testManifestDigest1, 1,
 	)
+	if s.Usage != "" {
+		d.Annotations[AnnotationUsage] = s.Usage
+	}
+	return d
 }
 
 func sign(n int) int {

@@ -154,6 +154,7 @@ func isDescriptorOnlyAnnotation(key string) bool {
 	case AnnotationArchitecture,
 		AnnotationTarget,
 		AnnotationRepresentation,
+		AnnotationUsage,
 		AnnotationRole,
 		AnnotationCompression,
 		AnnotationContentDigest,

@@ -145,6 +145,24 @@ func TestDecodePreservesUnknownAnnotations(t *testing.T) {
 	}
 }
 
+// TestDecodePreservesUsageAnnotation feeds raw JSON through [Decode] so
+// io.imgoci.usage is asserted on the decoded descriptor, not only on a
+// constructed Descriptor literal.
+func TestDecodePreservesUsageAnnotation(t *testing.T) {
+	t.Parallel()
+	const raw = `{"manifests":[{"annotations":{"io.imgoci.usage":"install,live"}}]}`
+	v, err := Decode([]byte(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := v.Manifests[0].Annotations[AnnotationUsage]; got != "install,live" {
+		t.Fatalf("Annotations[%q] = %q, want %q", AnnotationUsage, got, "install,live")
+	}
+	if got := v.Manifests[0].Selector().Usage; got != "install,live" {
+		t.Fatalf("Selector().Usage = %q, want %q", got, "install,live")
+	}
+}
+
 func TestDescriptorAccessors(t *testing.T) {
 	t.Parallel()
 	d := validDescriptor(
@@ -172,6 +190,45 @@ func TestDescriptorAccessors(t *testing.T) {
 	}
 	if d.Filename() != "disk.qcow2" {
 		t.Fatalf("Filename() = %q", d.Filename())
+	}
+}
+
+func TestDescriptorSelectorUsage(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		ann  map[string]string
+		want string
+	}{
+		{name: "absent annotation projects to empty", want: ""},
+		{
+			name: "present valid value projects verbatim",
+			ann:  map[string]string{AnnotationUsage: "install,live"},
+			want: "install,live",
+		},
+		{
+			name: "present invalid value is still projected",
+			ann:  map[string]string{AnnotationUsage: "live,install"},
+			want: "live,install",
+		},
+		{
+			name: "present empty value projects to empty, like absence",
+			ann:  map[string]string{AnnotationUsage: ""},
+			want: "",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			d := validDescriptor(
+				"amd64", "qemu", "qcow2", "disk", "zstd",
+				"disk.qcow2", testContentDigestA, "42", testManifestDigest1, 7,
+			)
+			maps.Copy(d.Annotations, tc.ann)
+			if got := d.Selector().Usage; got != tc.want {
+				t.Fatalf("Selector().Usage = %q, want %q", got, tc.want)
+			}
+		})
 	}
 }
 
