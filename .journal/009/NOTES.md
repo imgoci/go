@@ -61,3 +61,37 @@ Survey facts (measured, `master` at `8d02009` after ff from `885feee`):
   e2e suite and is out of scope.
 
 Next: propose the migration plan, then implement on approval.
+
+## 2026-08-17 16:05 — e2e migration implemented, PR #27 open
+Branch `refactor/move-e2e-to-internal-package`, two commits, PR
+https://github.com/imgoci/go/pull/27.
+
+What landed:
+- `57b4ac1` moved the two fake-port publish tests (`newAdapter` injection, no
+  registry) into root `publish_ports_test.go` UNTAGGED, so they now run in the
+  default suite. `e2e_publish_test.go` kept the 3 public-API tests plus local
+  `simpleReleaseSpec` and `indexSelectorOf` helpers.
+- `30d70d5` moved all 12 e2e files to `internal/e2e` as `package e2e`, split the
+  1006-line fixture file into registry/release/client fixture files, split the
+  external bigoci CLI helpers into `fixture_bigocicli_test.go`, added `doc.go`,
+  stripped the `E2E` infix from 32 test names, fixed `bigOCIFixtureDir` to
+  `../../testdata/bigoci/v1`, and documented `root:test-e2e` in CONTRIBUTING.
+- Zero new exports. Root package: 44 files/6296 lines -> 34 files/2977 lines.
+
+Method worth reusing: qualification was done type-aware, not by regex. Move the
+files with a dot-import of the root package (compiles unchanged, and any missing
+symbol is exactly an unexported dependency), then a throwaway
+`x/tools/go/packages` program rewrites every ident whose `TypesInfo.Uses` object
+belongs to the root package into `imgoci.X`, skipping `SelectorExpr.Sel` and
+composite-literal keys, then swap the dot-import for the repo's
+`imgoci "github.com/imgoci/go"` alias. 174 insertions across 11 files, zero
+manual qualification errors. A naive text rewrite would have corrupted
+composite-literal keys such as `Selector:` inside `index.ModelEntry`.
+
+Verification: `go test -race -tags e2e ./...` green; all 32 e2e tests pass with
+no skips, including `TestBigOCICLIInterop`; count parity with master (34 -> 32 +
+2 relocated). golangci-lint run and fmt --diff clean. cli module built and
+tested. CI on #27 was still running at this checkpoint.
+
+Next: confirm CI green on #27, then squash-merge. Follow-up slice the user
+flagged: the remaining ~3754 lines of root unit tests.
