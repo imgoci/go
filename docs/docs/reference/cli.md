@@ -16,9 +16,9 @@ Transfer and selection flags map onto public library options or query
 fields (see the [API reference](api.md)). `-timeout` is not a library
 option: it is the CLI command-context deadline. There is no
 transfer logic in the CLI, no retry, resume, or authentication logic of
-its own. This page describes the implemented spec revision: imgoci v1
-draft, 2026-08-16 (`imgoci/spec` commit
-`46d18b74cc407ac7d61ded7692fc42b644f4d1e2`).
+its own. This page describes the implemented spec revision: imgoci v1,
+spec release v0.1.0 (`imgoci/spec` commit
+`8083159daebe15dc1d78da3e8a03b6b80526d427`).
 
 ## Commands
 

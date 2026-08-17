@@ -10,7 +10,7 @@ carry a sentinel wrap it, so match with `errors.Is`. Most messages keep the
 underlying detail. On the standard blob path, `go-oci-blob` can redact a
 transport cause from the top-level message while retaining it in the
 `errors.Unwrap` chain. This page describes the implemented spec revision:
-imgoci v1 draft, 2026-08-16 (`imgoci/spec` commit `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`).
+imgoci v1, spec release v0.1.0 (`imgoci/spec` commit `8083159daebe15dc1d78da3e8a03b6b80526d427`).
 
 The private reference CLI maps each sentinel onto a fixed exit code; see the
 [CLI reference](cli.md#exit-codes).

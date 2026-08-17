@@ -631,7 +631,7 @@ func TestValidateRule8(t *testing.T) {
 
 // TestValidateRule8PermittedDifferences covers spec §6 rule 8: descriptors that
 // share a file-manifest digest may differ in architecture, target,
-// representation, role, and filename.
+// representation, usage, role, and filename.
 //
 // The role case also changes filename, because rule 7 forbids two roles in one
 // deliverable from sharing a filename and would fire first. Filename is
@@ -810,6 +810,10 @@ func failFixtureRule(name string) int {
 		"noncanonical-usage-order.json":           specRuleSyntax,
 		"present-empty-usage-value.json":          specRuleSyntax,
 		"install-offline-without-install.json":    specRuleRoles,
+		"empty-manifests.json":                    specRuleRoot,
+		"missing-manifests.json":                  specRuleRoot,
+		"missing-schema-version.json":             specRuleRoot,
+		"wrong-schema-version.json":               specRuleRoot,
 	}
 	rule, ok := t[name]
 	if !ok {

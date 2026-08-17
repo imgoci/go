@@ -11,7 +11,7 @@ import (
 	"github.com/opencontainers/go-digest"
 )
 
-const pinnedSpecCommit = "46d18b74cc407ac7d61ded7692fc42b644f4d1e2"
+const pinnedSpecCommit = "8083159daebe15dc1d78da3e8a03b6b80526d427"
 
 func TestProducerRegistriesMatchPinnedSpec(t *testing.T) {
 	t.Parallel()
