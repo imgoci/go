@@ -167,3 +167,72 @@ golines/goimports, modernize mapsloop) and a `<empty>`/comma ambiguity in
 Next: step 3 of `UPDATE_PLAN.md` (public `Usage` domain type, `ListQuery`
 containment, `ResolveQuery` exact-set equality, `Deliverable.Usage`), still
 gated behind PR #21 review.
+
+## 2026-08-17 08:35 — Step 1 merged; step 3 shipped as PR #22
+PR #21 squash-merged as `41719ff`. Worktree removed. Step 3 lives on
+`feat/usage-public-api` in `.wt/feat-usage-public-api`, commit `373b6e9`,
+PR https://github.com/imgoci/go/pull/22. All checks green after three GitHub
+codeload outages (429/502/503 downloading `mise-action`, `configure-pages`,
+`codeql-action`) forced two reruns and one empty retrigger commit; none of the
+failures were ours. Local `moon run root:check`: 17 tasks green.
+
+Scope: plan step 3 PLUS step 5 (the CLI) and the docs, 34 files. Pulling the CLI
+forward was not gold-plating; see the blocker below.
+
+THE BLOCKER, and the real lesson of this session: `cli/go.mod` carries
+`replace github.com/imgoci/go => ../`, so the private CLI compiles against the
+working tree. Step 3 gave `ResolveQuery.Usage` the meaning "nil = the empty set,
+matched exactly". `cli/query.go` never sets `Usage` and had no `-usage` flag, so
+`imgoci resolve` and `imgoci fetch` could no longer reach ANY deliverable
+carrying `io.imgoci.usage`, and `imgoci list` printed byte-identical rows for
+deliverables that differ only in usage. `root:check` was GREEN through all of it,
+because no CLI test publishes a usage-bearing release. The `reviewer` agent found
+it by running one fixture against `origin/master` (`err=<nil>`) and against the
+branch (`no deliverable ... usage=<empty>`).
+
+Generalization worth promoting to TECH_NOTES: a semantic change to the DEFAULT of
+a public field is not additive, and a plan that sequences callers into a later
+step is only safe for genuinely additive changes. The replace directive makes
+`cli/` a same-PR caller, not a downstream consumer.
+
+Agent shape: 3 parallel `programmer` agents (list / resolve / publish) after I
+built the shared prerequisite inline (`usage.go`, `Selector.Usage`, the internal
+`UsageValues`/`UsageContainsAll`), then 2 parallel reviewers (`reviewer`, `qa`),
+then 3 more parallel agents (`CliUsage`, `LibraryGaps`, `UsageDocs`). Nine agents
+total this step, all clean; `programmer` is now 5/5 in this session against 0/5
+in sessions 002 and 006.
+
+Two things the parallel split cost me, both worth remembering:
+- `PublicResolve` wrote its first edits into the MAIN checkout despite an
+  absolute-path brief. `PublicList` noticed and reported it; I messaged the agent
+  and it moved the work and restored the cwd. Sibling agents cross-checking each
+  other's blast radius is a real benefit of fanning out.
+- Nobody owned `usage_test.go` for the public type: I wrote `usage.go` inline as
+  the prerequisite and never assigned its tests. Caught it at integration and
+  wrote them myself, including `TestParseIndexCarriesUsage`, which feeds
+  hand-written canonical bytes through `ParseIndex` (so rule 10 vets the fixture
+  too). Fan-out needs an explicit owner for anything the integrator writes.
+
+`qa` found one surviving mutant out of 19: nil-usage resolve was order-masked
+because `firstAccepted` keys by compression and the LAST candidate wins, and the
+fixture put the empty-usage entry last, which is exactly what a nil=match-any
+implementation returns. A comment in the test even claimed the ordering prevented
+that. Now covered by a non-empty-only index plus an order-sensitive positive case.
+`reviewer` separately found that the `usage=<empty>` error marker survived
+deletion.
+
+Integration fixes I made: `publish_test.go`'s new `body(ref)` helper tripped
+`unparam` (all three callers passed "v1") -> parameterless with a
+`publishTestTag` constant; testifylint rejected `assert.True(t, a == b)` in the
+comparability test, so the comparison is assigned to a variable first, since
+`assert.Equal` would prove reflection equality rather than `==`.
+
+Ops note: `moon run root:lint` reported findings in `../feat-usage-value-layer`
+for two runs after that worktree was removed. It was a stale golangci-lint cache;
+`golangci-lint cache clean` fixed it. Worth checking before believing lint output
+that names a deleted worktree.
+
+Next: the remaining plan steps collapse to one PR — the §5.4 producer usage
+registry, the `SPEC_COMMIT` bump to `46d18b7`, the five vendored upstream
+fixtures with counts 13/25, the repo-owned `testdata/canonical` usage fixtures,
+and `cue_crosscheck.sh` minima.
