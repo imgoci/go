@@ -48,23 +48,58 @@ func TestDocumentToReleaseSpecRequiresMembers(t *testing.T) {
 		{name: "missing files", doc: publishDocument{Name: "n", Version: "1"}, want: "files is required"},
 		{
 			name: "missing path",
-			doc: publishDocument{Name: "n", Version: "1", Files: []publishFile{{
-				Architecture: "amd64", Target: "qemu", Representation: "qcow2", Role: "disk", Compression: "none",
-			}}},
+			doc: publishDocument{Name: "n", Version: "1", Files: []publishFile{
+				{
+					Filename:       "a.img",
+					Architecture:   "amd64",
+					Target:         "qemu",
+					Representation: "qcow2",
+					Role:           "disk",
+					Compression:    "none",
+				},
+			}},
 			want: "path is required",
 		},
 		{
+			name: "missing filename",
+			doc: publishDocument{Name: "n", Version: "1", Files: []publishFile{
+				{
+					Path:           "a",
+					Architecture:   "amd64",
+					Target:         "qemu",
+					Representation: "qcow2",
+					Role:           "disk",
+					Compression:    "none",
+				},
+			}},
+			want: "filename is required",
+		},
+		{
 			name: "missing architecture",
-			doc: publishDocument{Name: "n", Version: "1", Files: []publishFile{{
-				Path: "a", Target: "qemu", Representation: "qcow2", Role: "disk", Compression: "none",
-			}}},
+			doc: publishDocument{Name: "n", Version: "1", Files: []publishFile{
+				{
+					Path:           "a",
+					Filename:       "a.img",
+					Target:         "qemu",
+					Representation: "qcow2",
+					Role:           "disk",
+					Compression:    "none",
+				},
+			}},
 			want: "architecture is required",
 		},
 		{
 			name: "missing compression",
-			doc: publishDocument{Name: "n", Version: "1", Files: []publishFile{{
-				Path: "a", Architecture: "amd64", Target: "qemu", Representation: "qcow2", Role: "disk",
-			}}},
+			doc: publishDocument{Name: "n", Version: "1", Files: []publishFile{
+				{
+					Path:           "a",
+					Filename:       "a.img",
+					Architecture:   "amd64",
+					Target:         "qemu",
+					Representation: "qcow2",
+					Role:           "disk",
+				},
+			}},
 			want: "compression is required",
 		},
 	}
