@@ -955,3 +955,57 @@ Process notes:
 - Registry `imgoci-ft-dist` on 127.0.0.1:5100 is still Up with the campaign's
   test content (~3.3 GiB under `ft/big`); safe to remove now that Phase 8 is
   done.
+
+## 2026-08-16 19:15 — Remediation plan delivered
+
+Planner agent `RemediationPlanner` produced
+`.journal/005/REMEDIATION_PLAN.md` (460 lines) from the campaign findings.
+Shape: Decision Summary → 3 PRs → Release Sequencing → Declined and Deferred →
+Upstream (`go-oci-blob`) → Journal Updates.
+
+Dispositions across all 21 inventory items: **1 FIX NOW** (the blocker, plus its
+sibling hedge), **8 FIX SOON**, **4 DEFER**, **1 DECLINE**, **5 CLOSED**, and the
+2 test-plan defects routed to the plan document rather than the product.
+
+- **PR 1 `docs: publish the security policy`** (docs-only, the only release
+  gate) — full replacement text for `SECURITY.md`. States a durable pre-v1
+  policy ("Only the latest release is supported. Before the first release, use
+  the latest commit on `master`.") with **no** invented support window, response
+  time, or disclosure SLA, and names the private route unconditionally as
+  `https://github.com/imgoci/go/security/advisories/new`. Acceptance includes a
+  grep for all five authoring phrases and re-deriving the module zip to confirm
+  the corrected file ships. Gate: a passing `REL-04` re-run.
+- **PR 2 `docs: correct release-readiness contracts`** (docs-only) — grammar
+  godoc + `reference/api.md`, the three `testdata/canonical/README.md` row
+  corrections, the spec commit on `docs/docs/index.md`, the tutorial port-5000
+  and `cmp` fixes, the `.imgoci-stage` documentation, plus interim guidance for
+  the flattened blob-path cause and the accepted `0.1.0` classification of bare
+  401 and unsupported publish compression.
+- **PR 3 `fix(cli): reject a missing publish filename`** (the only code change) —
+  add the missing `filename is required` guard to `fileToFileSpec` and extend the
+  existing `TestDocumentToReleaseSpecRequiresMembers` table. Moves the case from
+  library classification (exit `6`) to adapter usage (exit `2`), matching its six
+  siblings, and deliberately keeps grammar-invalid filenames on the library path.
+
+Groundedness checks I ran before accepting the plan:
+
+- `cli/spec.go` `fileToFileSpec` really has six `is required` checks (path plus
+  the five selectors) and **no** `filename` check, while
+  `docs/docs/reference/cli.md:112` lists `files[].filename | yes` — so PR 3's
+  direction (enforce, don't soften) matches the documented contract.
+- Every cited moon task exists: root `check`/`test`/`format`/`lint`/`build`,
+  `cli:test`, `docs:build`.
+- `gh api -i repos/imgoci/go/private-vulnerability-reporting` → `HTTP/2.0 200 OK`
+  and the proposed advisory intake URL returns `302` to GitHub login (i.e. the
+  route exists and requires only sign-in), so PR 1's unconditional wording is
+  accurate.
+- Decision Summary covers all 21 items exactly once with disposition, target PR,
+  and a blocking-`0.1.0` flag; only `REL-04-F1` is flagged as blocking.
+
+Sequencing the plan recommends: merge PR 1 alone by squash merge, re-run
+`REL-04` against the merge commit to flip the verdict to READY, prepare PR 2 and
+PR 3 in parallel, keep PR #9 open and let Release Please refresh it, merge PR #9
+only after PR 1 plus the passing re-run — and never propose a v1 while the spec
+is draft.
+
+Next: owner review of the remediation plan, then execute PR 1.
