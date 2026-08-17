@@ -70,10 +70,10 @@ type bigOCIArtifact struct {
 
 // loadBigOCIArtifact reads the committed fixture named name.
 //
-// The manifest is returned unmodified: imgoci must not re-encode a BigOCI
-// manifest (spec §9), so every test that feeds one to the consumer feeds the
-// committed bytes. [TestBigOCIFixturesAreValidBigOCIV1] is what proves those
-// bytes describe the part blobs beside them.
+// The manifest bytes are returned unmodified because spec §9 exempts a
+// BigOCI manifest from imgoci re-encoding.
+// [TestBigOCIFixturesAreValidBigOCIV1] checks them against the part blobs
+// beside them.
 func loadBigOCIArtifact(t *testing.T, name string) bigOCIArtifact {
 	t.Helper()
 	dir := filepath.Join(bigOCIFixtureRoot, name)
@@ -117,19 +117,12 @@ func decodeOCIManifest(t *testing.T, raw []byte) ocispec.Manifest {
 }
 
 // bigOCIManifestBytes encodes a valid BigOCI File Format v1 manifest for
-// stored split at partSize.
-//
-// It carries every member github.com/imgoci/bigoci v0.2.0 requires:
-// schemaVersion 2, the OCI image-manifest mediaType, the BigOCI
-// artifactType, the OCI empty config descriptor, ordered part descriptors
-// whose digests and sizes are those of the real split bytes, and the
-// io.bigoci.file.digest, io.bigoci.file.size, and io.bigoci.part.size
-// annotations. title is written when non-empty.
+// stored split at partSize, carrying every member
+// github.com/imgoci/bigoci v0.2.0 requires. title is written when non-empty.
 //
 // The encoding is BigOCI's canonical form — compact JSON, OCI struct member
-// order, sorted annotation keys, no HTML escaping — so the output is byte
-// for byte what a BigOCI producer writes. Not RFC 8785: spec §9 exempts
-// BigOCI manifests from the imgoci canonical form.
+// order, sorted annotation keys, no HTML escaping — not RFC 8785, which
+// spec §9 exempts BigOCI manifests from.
 func bigOCIManifestBytes(t *testing.T, stored []byte, partSize int64, title string) []byte {
 	t.Helper()
 	parts := bigOCISplit(t, stored, partSize)
@@ -171,10 +164,9 @@ func bigOCIManifestBytes(t *testing.T, stored []byte, partSize int64, title stri
 
 // bigOCIManifestWithAnnotation returns raw with annotation key set to value.
 //
-// The result is deliberately no longer canonical and no longer agrees with
-// the split it describes: it stands in for a registry document that lies
-// about the stored file, which is the case spec §8 makes the consumer catch
-// with its own digest and size checks.
+// The result is neither canonical nor consistent with the split it describes:
+// a registry document that misstates the stored file, which spec §8 requires
+// the consumer to catch with its own digest and size checks.
 func bigOCIManifestWithAnnotation(t *testing.T, raw []byte, key, value string) []byte {
 	t.Helper()
 	var obj map[string]any
@@ -228,10 +220,9 @@ func bigOCIHalfPartSize(n int) int64 {
 // every member github.com/imgoci/bigoci v0.2.0 requires of a manifest it
 // decodes, and pins them to [bigOCIManifestBytes].
 //
-// Without this the unit suite could pass on manifests that only the imgoci
-// consumer profile tolerates: the profile ignores schemaVersion, the config
-// descriptor, the split rule, and io.bigoci.part.size, so a BigOCI reader
-// would reject documents those tests call valid.
+// The imgoci consumer profile ignores schemaVersion, the config descriptor,
+// the split rule, and io.bigoci.part.size, so without this check the rest of
+// the suite would pass on manifests a BigOCI reader rejects.
 func TestBigOCIFixturesAreValidBigOCIV1(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

@@ -140,9 +140,9 @@ func TestPublishSpecValidation(t *testing.T) {
 			detail: "filename",
 		},
 		{
-			// Architecture is syntax-only: it is not one of the four §5.4
-			// registries, so this case still reaches the §5.3 token check
-			// rather than the producer registry check.
+			// Architecture is not one of the four spec §5.4 registries, so
+			// this case reaches the spec §5.3 token check rather than the
+			// producer registry check.
 			name:   "invalid_selector_token",
 			mutate: func(s *ReleaseSpec) { s.Files[0].Selector.Architecture = "bad!" },
 			detail: "basic tokens",

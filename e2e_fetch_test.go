@@ -110,14 +110,16 @@ func TestE2EOverlongLayer(t *testing.T) {
 	assertNoFile(t, filepath.Join(dir, file.filename))
 }
 
-// TestE2EStandardLayerCorruptedAfterPublish fails FetchFiles when a standard
-// file layer blob is corrupted after publication. Content-addressed registries
-// refuse a digest-mismatched overwrite, so a reverse proxy bit-flips the layer
-// GET body, keeping its length: a short read would be retried via Range and
-// still verify, while a same-length change is terminal. The metal role is
-// compression=none, so the flipped byte is decoded content and both the
-// declared layer digest and the index content digest name other bytes. The
-// consumer reports [ErrDigestMismatch] and writes nothing to the destination.
+// TestE2EStandardLayerCorruptedAfterPublish fails FetchFiles with
+// [ErrDigestMismatch], and writes nothing to the destination, when a standard
+// file layer blob is corrupted after publication.
+//
+// Content-addressed registries refuse a digest-mismatched overwrite, so a
+// reverse proxy bit-flips the layer GET body and keeps its length: a short read
+// would be retried via Range and still verify, while a same-length change is
+// terminal. The metal role is compression=none, so the flipped byte is decoded
+// content and both the declared layer digest and the index content digest name
+// other bytes.
 func TestE2EStandardLayerCorruptedAfterPublish(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eDistribution)
@@ -223,9 +225,9 @@ func TestE2EHtpasswdAuth(t *testing.T) {
 	})
 }
 
-// assertNoDestFile requires dir to hold no file after a failed fetch. An empty
-// reserved staging directory may remain: internal/file removes the per-call
-// workspace and unlinks the staging root best-effort. A committed file may not.
+// assertNoDestFile requires dir to hold no file after a failed fetch. Empty
+// directories may remain: internal/file removes the per-call workspace and
+// unlinks the staging root best-effort.
 func assertNoDestFile(t *testing.T, dir string) {
 	t.Helper()
 	if err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {

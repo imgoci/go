@@ -97,10 +97,10 @@ func TestNewIgnoresNilOption(t *testing.T) {
 	}
 }
 
-// TestNewDecoderMaxWindow pins the one knob over the decoder working set: a
-// default that admits mainstream producer output, an override kept verbatim in
-// either direction, and zero refused at construction rather than silently
-// treated as "no limit".
+// TestNewDecoderMaxWindow pins the decoder window contract at construction: an
+// unset option takes [decomp.DefaultDecoderMaxWindow], an override is kept
+// verbatim in either direction, the last option named wins, and zero fails
+// construction instead of meaning "no limit".
 func TestNewDecoderMaxWindow(t *testing.T) {
 	t.Parallel()
 
@@ -158,9 +158,8 @@ func TestNewDecoderMaxWindow(t *testing.T) {
 	}
 }
 
-// assertDecoderMaxWindowRejected requires [New] to have refused the decoder
-// window outright: an error naming the option, and no client to use in spite of
-// it.
+// assertDecoderMaxWindowRejected requires an error naming the decoder max
+// window and no client.
 func assertDecoderMaxWindowRejected(t *testing.T, c *Client, err error) {
 	t.Helper()
 	if err == nil {
@@ -174,16 +173,14 @@ func assertDecoderMaxWindowRejected(t *testing.T, c *Client, err error) {
 	}
 }
 
-// TestClientDecoderMaxWindowRejectsRealToolFixtures is the option's end-to-end
-// proof, on the stored files the reference compressors actually produce (the
+// TestClientDecoderMaxWindowRejectsRealToolFixtures exercises the option
+// through Publish on stored files the reference compressors produce (the
 // committed decomp fixtures, whose provenance is recorded in
 // internal/decomp/testdata/README.md).
 //
-// A client held at the 8 MiB this library used to hardcode refuses both of
-// them through the public surface, wrapping [ErrDecode], and refuses them in
-// pass 1 before a byte reaches the registry. The same files under the default
-// publish, which is what makes the rejection the configuration's rather than
-// the file's.
+// At an 8 MiB ceiling both files fail with [ErrDecode] in pass 1, before a byte
+// reaches the registry. Publishing the same files at the default ceiling
+// attributes that failure to the ceiling rather than to the files.
 func TestClientDecoderMaxWindowRejectsRealToolFixtures(t *testing.T) {
 	t.Parallel()
 
@@ -235,7 +232,8 @@ func clientWithDecoderMaxWindow(t *testing.T, maxWindow uint64) *Client {
 	return c
 }
 
-// fixtureReleaseSpec publishes one stored file of the named compression.
+// fixtureReleaseSpec returns a one-file spec whose source holds stored bytes of
+// the named compression.
 func fixtureReleaseSpec(t *testing.T, stored []byte, compression string) ReleaseSpec {
 	t.Helper()
 	return ReleaseSpec{

@@ -380,12 +380,11 @@ func TestFetchFilesHappyGzip(t *testing.T) {
 	}
 }
 
-// TestFetchFilesLayerSizeOverstatedRejected is the spec §8 layer-size
-// reproduction: a well-formed gzip blob of N bytes whose layer digest is the
-// digest of exactly those N bytes, inside a canonical standard manifest that
-// declares layers[0].size = N+1. Content digest and content size are
-// correct, so the digest checks all pass and only the raw stored-size
-// equality can reject the entry.
+// TestFetchFilesLayerSizeOverstatedRejected covers the spec §8 layer-size
+// check: a well-formed gzip blob of N bytes whose layer digest names exactly
+// those N bytes, inside a canonical standard manifest that declares
+// layers[0].size = N+1. Content digest and content size are correct, so every
+// digest check passes and only the stored-size equality can reject the entry.
 func TestFetchFilesLayerSizeOverstatedRejected(t *testing.T) {
 	t.Parallel()
 	content := []byte("hello imgoci overstated layer size")
@@ -432,14 +431,11 @@ func TestFetchFilesLayerSizeOverstatedRejected(t *testing.T) {
 // the file entry mutually consistent except for the single value it moves, so
 // exactly one check can reject it.
 //
-// The layer-blob rows serve a blob of the declared length whose bytes are not
-// the bytes layers[0].digest names. The gzip row flips only the gzip header
-// MTIME, so the blob still decodes to the declared content and the sole
-// remaining check is layer-digest verification on the blob stream: the [Blobs]
-// port owns it (the registry adapter's Pull wraps go-oci-blob's verified
-// reader) and [decomp.BoundedReader] triggers it with the exact-limit EOF
-// probe. The none row flips a stored byte under a plain reader to prove the
-// transfer's own post-decode content comparison rejects wrong layer bytes.
+// The gzip row flips only the gzip header MTIME: the blob keeps its declared
+// length and still decodes to the declared content, so layer-digest
+// verification on the blob stream ([portBlobReader]) is the only check left
+// that can reject it. The none row flips a stored byte under a plain reader,
+// leaving the post-decode content comparison as the rejecting check.
 func TestFetchFilesStandardIntegrityBoundaries(t *testing.T) {
 	t.Parallel()
 	content := []byte("hello imgoci standard integrity boundaries")
@@ -529,11 +525,11 @@ func TestFetchFilesStandardIntegrityBoundaries(t *testing.T) {
 	}
 }
 
-// TestFetchFilesNoAlternativeAfterIntegrityFailure holds spec §8:773-777: an
+// TestFetchFilesNoAlternativeAfterIntegrityFailure covers spec §8:773-777: an
 // integrity failure fails the complete resolved result and must not make the
-// consumer select another transport alternative. Both the selected entry and a
-// second, honest alternative of the same role are servable, so a fallback would
-// succeed and commit; the mock call log must show it was never asked for.
+// consumer select another transport alternative. A second, honest alternative
+// of the same role is servable, so a fallback would succeed and commit; the
+// mock call log shows it was never requested.
 func TestFetchFilesNoAlternativeAfterIntegrityFailure(t *testing.T) {
 	t.Parallel()
 	selected := gzipFixture(t, "disk", []byte("hello imgoci selected alternative"))

@@ -365,15 +365,14 @@ func seedBigOCIFixture(t *testing.T, host, repo string, fx bigOCIFixture, filena
 }
 
 // startResizingBlobProxy fronts backend and serves stored-blob GET bodies
-// delta bytes long, then returns the proxy host:port.
+// resized by delta bytes, then returns the proxy host:port. It is the
+// length-fault counterpart of [startTruncatingBlobProxy].
 //
-// It is [startTruncatingBlobProxy] with a length fault instead of a
-// same-length bit flip: spec §8 rule 2 makes a part's size a check of its
-// own, so a part body that is one byte short or one byte long must fail
-// retrieval even though nothing else about the artifact is wrong. Redirect
-// Location hosts are rewritten to backend because zot may name an
-// unreachable container address. Bodies under four bytes — the OCI empty
-// config blob — are forwarded untouched.
+// Spec §8 rule 2 checks each part's size on its own, so a part body one byte
+// short or one byte long must fail retrieval even when nothing else about the
+// artifact is wrong. Redirect Location hosts are rewritten to backend because
+// zot may name an unreachable container address. Bodies under four bytes — the
+// OCI empty config blob — are forwarded untouched.
 func startResizingBlobProxy(t *testing.T, backend string, delta int) string {
 	t.Helper()
 	target, err := url.Parse("http://" + backend)
@@ -441,9 +440,8 @@ func startResizingBlobProxy(t *testing.T, backend string, delta int) string {
 	return hostPortOf(t, server.URL)
 }
 
-// resizeBlobBody returns body with delta bytes removed from or appended to
-// its end. A padding byte is a zero byte, which changes the length without
-// depending on the payload.
+// resizeBlobBody returns body with delta bytes removed from or appended to its
+// end. Padding is zero bytes, so only the length differs from body.
 func resizeBlobBody(body []byte, delta int) []byte {
 	out := bytes.Clone(body)
 	switch {

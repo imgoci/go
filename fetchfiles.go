@@ -222,11 +222,10 @@ func transferEntries(entries []FileEntry) []transfer.Entry {
 // stored digest/size mismatches as [transfer.ErrDigestMismatch]. A nil
 // Multipart wiring error is not a sentinel and is returned unchanged.
 //
-// Both raw stored-size sentinels are integrity failures, not decode
-// failures: [decomp.ErrSizeExceeded] for a stored file longer than the layer
-// descriptor declares and [decomp.ErrSizeMismatch] for one shorter. They are
-// matched ahead of [decomp.ErrDecode] so the size verdict is not restated as
-// a codec verdict.
+// [decomp.ErrSizeExceeded] (a stored file longer than the layer descriptor
+// declares) and [decomp.ErrSizeMismatch] (one shorter) are integrity failures,
+// not decode failures, and are matched ahead of [decomp.ErrDecode] so a size
+// verdict is not reported as a codec verdict.
 func mapFetchError(err error) error {
 	if err == nil {
 		return nil

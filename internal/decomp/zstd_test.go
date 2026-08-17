@@ -211,11 +211,12 @@ func TestZstdWindowBombRejectedAtConfiguredLimit(t *testing.T) {
 	}
 }
 
-// TestZstdSingleSegmentRequirementNamesWindow covers the diagnostic a
-// Single_Segment frame used to get. Such a frame declares no window and is
-// decoded into one buffer the size of its Frame_Content_Size, so klauspost
-// turned it away with "decompressed size exceeds configured limit" — a
-// content-size complaint about a window-policy decision.
+// TestZstdSingleSegmentRequirementNamesWindow covers the rejection of a
+// Single_Segment frame, which declares no window and is decoded into one
+// buffer the size of its Frame_Content_Size. The error must name the
+// required decode window, not klauspost's "decompressed size exceeds
+// configured limit", which reports a content-size limit for a window
+// decision.
 func TestZstdSingleSegmentRequirementNamesWindow(t *testing.T) {
 	t.Parallel()
 

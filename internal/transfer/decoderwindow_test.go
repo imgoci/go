@@ -45,9 +45,10 @@ func wideDictXZ(t *testing.T, payload []byte) []byte {
 	return buf.Bytes()
 }
 
-// TestFetchFilesDecoderMaxWindowReachesTheLayerDecode proves the request field
-// reaches [copyLayer]: the same stored file is refused under a lowered ceiling
-// and retrieved under the default, whether the default is named or left zero.
+// TestFetchFilesDecoderMaxWindowReachesTheLayerDecode checks that
+// [FetchFilesRequest.DecoderMaxWindow] reaches [copyLayer]: the same stored
+// file is refused under a lowered ceiling and retrieved under the default,
+// whether the default is named or left zero.
 func TestFetchFilesDecoderMaxWindowReachesTheLayerDecode(t *testing.T) {
 	t.Parallel()
 
@@ -104,9 +105,9 @@ func TestFetchFilesDecoderMaxWindowReachesTheLayerDecode(t *testing.T) {
 	}
 }
 
-// TestFetchFilesDecoderMaxWindowReachesTheStoredDecode is the same proof for
-// the BigOCI path, which decodes the cached stored file in [decodeStored]
-// rather than the layer body.
+// TestFetchFilesDecoderMaxWindowReachesTheStoredDecode checks the same for the
+// BigOCI path, which decodes the cached stored file in [decodeStored] rather
+// than the layer body.
 func TestFetchFilesDecoderMaxWindowReachesTheStoredDecode(t *testing.T) {
 	t.Parallel()
 
@@ -165,10 +166,10 @@ func TestFetchFilesDecoderMaxWindowReachesTheStoredDecode(t *testing.T) {
 	}
 }
 
-// TestPublishDecoderMaxWindowReachesPass1 proves the request field reaches
-// pass-1 strict decode: a producer running a lowered ceiling cannot publish a
-// stored file a fetch under that same ceiling would refuse, and nothing is
-// written to the registry when it tries.
+// TestPublishDecoderMaxWindowReachesPass1 checks that
+// [PublishRequest.DecoderMaxWindow] reaches the pass-1 strict decode: under a
+// lowered ceiling, publishing a stored file that a fetch under the same
+// ceiling would refuse fails and writes nothing to the registry.
 func TestPublishDecoderMaxWindowReachesPass1(t *testing.T) {
 	t.Parallel()
 

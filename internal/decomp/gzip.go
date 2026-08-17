@@ -85,8 +85,7 @@ func (g *gzipReader) probeTrailing() error {
 
 // wrapGzipRead maps a non-EOF gzip read error onto [ErrDecode], preserving
 // [ErrSizeExceeded] and [ErrSizeMismatch] from a [BoundedReader] beneath the
-// decoder: a raw stored-size violation is an integrity failure and must not
-// be reclassified as a codec failure.
+// decoder.
 func wrapGzipRead(err error) error {
 	if sizeSentinel(err) {
 		return err

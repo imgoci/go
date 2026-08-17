@@ -46,8 +46,8 @@ type wireDescriptor struct {
 // The output uses the spec §3.1 fixed member set: schemaVersion 2, the
 // image-manifest media type, [index.ArtifactTypeFile], the OCI empty-config
 // constant, and exactly one application/octet-stream layer. The encoded bytes
-// are a function of the layer digest and layer size alone. The result is
-// intended to pass [ValidateStandard].
+// are a function of the layer digest and layer size alone, and pass
+// [ValidateStandard].
 func BuildStandard(in BuildInput) ([]byte, error) {
 	if err := in.LayerDigest.Validate(); err != nil {
 		return nil, fmt.Errorf("layer digest: %w", err)

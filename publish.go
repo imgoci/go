@@ -357,9 +357,9 @@ func toIndexSelector(s Selector) index.Selector {
 
 // toPublishRequest maps a validated spec onto the transfer request.
 // Annotation maps are cloned so later mutation of the caller's spec cannot
-// change what was validated. maxWindow is the client-wide decoder ceiling,
-// which pass-1 strict decode applies so a producer cannot write a release
-// this client would refuse to read back.
+// change what was validated. maxWindow is the client-wide decoder ceiling that
+// pass-1 strict decode applies, so a producer cannot publish a release this
+// client refuses to read back.
 func toPublishRequest(
 	repo, tag string,
 	spec ReleaseSpec,

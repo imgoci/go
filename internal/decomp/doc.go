@@ -36,15 +36,13 @@
 // concatenated streams, and a trailing byte with "unexpected data after
 // stream", but that one-byte probe discards the underlying Read error, and
 // a stream truncated after the last Block (Index and Stream Footer missing)
-// surfaces as a clean [io.EOF]. ReaderConfig.DictCap is not a cap:
-// lzma.Reader2Config.fill substitutes 8 MiB for a zero DictCap and
-// lzmaFilter.reader then raises whatever is configured to the capacity the
-// Block Header declares, so the library allocates the declared dictionary
-// however small a DictCap it is handed. Refusing the stream before
-// construction is the only bound. [Decoder] reads the declared capacity out
-// of the first Block Header, rejects one above its ceiling, and configures
-// DictCap with the declared value so the dictionary this decoder runs on is
-// stated rather than inferred from that internal maximum.
+// surfaces as a clean [io.EOF]. ReaderConfig.DictCap is a floor, not a cap:
+// lzma.Reader2Config.fill substitutes 8 MiB for a zero DictCap, and
+// lzmaFilter.reader raises whatever is configured to the capacity the Block
+// Header declares. Refusing the stream before construction is therefore the
+// only bound. [Decoder] reads the declared capacity from the first Block
+// Header, rejects one above its ceiling, and configures DictCap with the
+// declared value.
 //
 // xz decoding therefore tees compressed bytes through a 12-byte ring. On
 // library [io.EOF] the tail must be a Stream Footer (magic "YZ", CRC-32 of
@@ -63,18 +61,17 @@
 // and trailing) and concatenates frames. Trailing non-magic garbage surfaces
 // as unexpected EOF. A dictionary ID other than 0 surfaces as
 // "unknown dictionary". The default decoder window ceiling is 512 MiB, and a
-// frame turned away by that ceiling reports "decompressed size exceeds
-// configured limit", which names the wrong thing. Strict decoding therefore
-// inspects the 4-byte frame magic (0x28B52FFD vs skippable
-// 0x184D2A50–0x184D2A5F) and the window/dictionary descriptor via zstd.Header
-// before constructing a decoder, peeking HeaderMaxSize plus the 4-byte magic
-// so a 4-byte Dictionary_ID field is not treated as truncated. Skippable
-// frames, dictionary-required frames, and a required decode window above the
-// configured ceiling fail at open, the last naming both the requirement and
-// the limit. WithDecoderMaxWindow is set to the same ceiling as a backstop,
-// and the decoder is limited to the first non-skippable frame by walking
-// block headers so concatenated and trailing skippable frames remain in the
-// shared buffer for the trailing probe.
+// frame that ceiling turns away reports "decompressed size exceeds
+// configured limit", naming content size for a window decision. Strict
+// decoding therefore inspects the 4-byte frame magic (0x28B52FFD vs
+// skippable 0x184D2A50–0x184D2A5F) and the window/dictionary descriptor via
+// zstd.Header before constructing a decoder, peeking HeaderMaxSize plus the
+// 4-byte magic so a 4-byte Dictionary_ID field is not treated as truncated.
+// Skippable frames, dictionary-required frames, and a required decode window
+// above the configured ceiling fail at open. WithDecoderMaxWindow is set to
+// the same ceiling as a backstop, and the decoder is limited to the first
+// non-skippable frame by walking block headers so concatenated and trailing
+// skippable frames remain in the shared buffer for the trailing probe.
 //
 // # Decode-bomb bounds
 //
@@ -83,14 +80,11 @@
 // declared working set exceeds the ceiling [Decoder] is given: zstd
 // Window_Size (Frame_Content_Size for a Single_Segment frame, which is
 // decoded into one buffer that size) and xz LZMA2 dictionary capacity. One
-// ceiling covers both codecs; [DefaultDecoderMaxWindow] is 128 MiB, the zstd
-// CLI's own default decode limit and enough for the 64 MiB dictionary of
-// `xz -9`. A frame that declares a 512 MiB zstd window or a 4 GiB LZMA2
-// dictionary fails with [ErrDecode] at open, before those buffers are
-// allocated. Residual decoder-state cost is bounded by the declared window
-// or dictionary that passed the ceiling plus the codec's own block-sized
-// scratch; it does not follow a capacity the ceiling refused. The bound is
-// per decoder, so concurrent decodes multiply it.
+// ceiling covers both codecs; see [DefaultDecoderMaxWindow]. A frame that
+// declares a 512 MiB zstd window or a 4 GiB LZMA2 dictionary fails with
+// [ErrDecode] at open, before those buffers are allocated. Residual
+// decoder-state cost is bounded by the declared window or dictionary that
+// passed the ceiling plus the codec's own block-sized scratch.
 //
 // # Exact-limit probe (BoundedReader)
 //
@@ -110,8 +104,9 @@
 // The limit is an equality check, not a ceiling: an [io.EOF] that arrives
 // before the count reaches exact means the stored file is shorter than the
 // layer descriptor declares and fails wrapping [ErrSizeMismatch]. Spec §8
-// requires the consumer to verify the layer digest and size, and a digest
-// alone cannot catch a declared size that overstates a blob whose bytes do
-// hash correctly. Both size sentinels are integrity failures, so the codec
-// wrappers pass them through instead of restating them as [ErrDecode].
+// requires the consumer to verify both the layer digest and its size, and a
+// digest alone cannot catch a declared size that overstates a blob whose
+// bytes do hash correctly. Both size sentinels are integrity failures, so
+// the codec wrappers pass them through instead of restating them as
+// [ErrDecode].
 package decomp

@@ -27,10 +27,10 @@ const probeSize = 1
 // underlying reader is returned as itself, and an extra byte on the probe
 // is [ErrSizeExceeded].
 //
-// An [io.EOF] arriving before the count reaches exact is the opposite
-// failure — the stored file is shorter than declared — and fails wrapping
-// [ErrSizeMismatch]. That makes the declared size an equality check, which
-// is what spec §8 requires of a consumer verifying a file layer.
+// An [io.EOF] arriving before the count reaches exact means the stored file
+// is shorter than declared and fails wrapping [ErrSizeMismatch]. The
+// declared size is therefore an equality check, as spec §8 requires of a
+// consumer verifying a file layer.
 type BoundedReader struct {
 	// r is the stored-file reader, typically go-oci-blob's verified body.
 	r io.Reader

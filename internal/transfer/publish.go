@@ -60,9 +60,8 @@ type PublishRequest struct {
 	// construction; Multipart is not.
 	Repo string
 	// DecoderMaxWindow caps the working set the pass-1 strict decode may
-	// allocate, the same ceiling a fetch of this release will apply. Zero
-	// means [decomp.DefaultDecoderMaxWindow]; the root package always sets
-	// it from the client option.
+	// allocate, the same ceiling a fetch of this release applies. Zero
+	// means [decomp.DefaultDecoderMaxWindow].
 	DecoderMaxWindow uint64
 }
 

@@ -216,12 +216,9 @@ func validateSingleLayer(obj map[string]any) (Layer, error) {
 }
 
 // validateAnnotations requires annotations, when present, to map string keys to
-// string values.
-//
-// path names the annotations member being validated (for example
-// `config.annotations`) so that diagnostics identify which object failed.
-// Spec §3.1 applies this rule to the manifest, the config descriptor, and the
-// file-layer descriptor alike.
+// string values; spec §3.1 applies that rule to the manifest, the config
+// descriptor, and the file-layer descriptor alike. path is the member path
+// reported in diagnostics, such as `config.annotations`.
 func validateAnnotations(obj map[string]any, path string) error {
 	raw, ok := obj["annotations"]
 	if !ok {

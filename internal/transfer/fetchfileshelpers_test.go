@@ -43,9 +43,9 @@ func flipFirstStoredByte(stored []byte) []byte {
 
 // portBlobReader models the [Blobs] port contract that Pull returns a
 // digest-verifying stream: the registry adapter wraps go-oci-blob's verified
-// reader and maps a mismatch onto [ErrDigestMismatch]. Bytes are hashed as
-// they are read and the digest is checked when the source runs out, which is
-// the EOF [decomp.BoundedReader] probes for at the declared layer size.
+// reader and maps a mismatch onto [ErrDigestMismatch]. The check fires on the
+// terminal EOF, which [decomp.BoundedReader] probes for at the declared layer
+// size.
 type portBlobReader struct {
 	// r serves the blob bytes the registry returned.
 	r *bytes.Reader
@@ -84,7 +84,7 @@ func (p *portBlobReader) Read(b []byte) (int, error) {
 	return n, err
 }
 
-// Close releases the in-memory stream.
+// Close is a no-op; the stream is in memory.
 func (p *portBlobReader) Close() error {
 	return nil
 }
@@ -109,9 +109,9 @@ type standardIntegrityResult struct {
 }
 
 // standardIntegrityCase is one row of the spec §8 standard-path integrity
-// table driven by TestFetchFilesStandardIntegrityBoundaries: an honest fixture
-// for one compression with a single declared value moved, plus the check that
-// must reject it.
+// table driven by [TestFetchFilesStandardIntegrityBoundaries]: an honest
+// fixture for one compression with a single declared value moved, plus the
+// check that must reject it.
 type standardIntegrityCase struct {
 	// name names the row.
 	name string
@@ -164,11 +164,9 @@ func (tc standardIntegrityCase) servedBlob(t *testing.T, stored []byte) []byte {
 	return served
 }
 
-// assertRejected requires that the row failed on the check it names: the public
-// error is an integrity failure whose message names that check and is not the
-// decode ceiling, the port's digest verification ran whenever the row wired it,
-// the layer blob was never pulled for a row that expects no pull, and neither
-// the destination file nor a success-terminal progress snapshot survives.
+// assertRejected requires the row to fail on the check it names, leaving no
+// destination file and no success-terminal progress snapshot. The failure must
+// not be the decode ceiling, which would mean the row never reached its check.
 func (tc standardIntegrityCase) assertRejected(t *testing.T, got standardIntegrityResult) {
 	t.Helper()
 	if !errors.Is(got.err, ErrDigestMismatch) {
@@ -190,9 +188,8 @@ func (tc standardIntegrityCase) assertRejected(t *testing.T, got standardIntegri
 	assertNoSuccessTerminal(t, got.mu, got.snaps)
 }
 
-// assertNoSuccessTerminal requires that a failed transfer emitted no
-// success-terminal snapshot: no commit phase was ever reported and no file
-// was ever counted complete.
+// assertNoSuccessTerminal requires that a failed transfer emitted no snapshot
+// reporting the commit phase or a completed file.
 func assertNoSuccessTerminal(t *testing.T, mu *sync.Mutex, snaps *[]Progress) {
 	t.Helper()
 	mu.Lock()

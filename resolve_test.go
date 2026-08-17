@@ -313,8 +313,8 @@ func TestResolveRoleListAndPerRoleCompression(t *testing.T) {
 	}
 }
 
-// assertResolveFailedWholesale requires a failed resolve to report the error
-// and hand back nothing: spec section 7.3 admits no partial selection.
+// assertResolveFailedWholesale requires a non-nil error and a nil result: spec
+// section 7.3 admits no partial selection.
 func assertResolveFailedWholesale(t *testing.T, got *Resolved, err error) {
 	t.Helper()
 	if err == nil {

@@ -52,19 +52,19 @@ func assertParseIndexCanonicalPass(t *testing.T, path string) {
 }
 
 // canonicalPhase names the [ParseIndex] stage that must reject a fixture in
-// testdata/canonical/fail. Recording the phase keeps every fixture honest: a
-// fixture that is rejected earlier than the rule it is named for no longer
+// testdata/canonical/fail. Every stage earlier than that one must accept the
+// fixture: a fixture caught before the stage it is named for no longer
 // exercises that rule, and the earlier gate hides the regression.
 type canonicalPhase int
 
 const (
 	// phaseDecode expects [index.Decode] to reject the fixture.
 	phaseDecode canonicalPhase = iota
-	// phaseValidate expects [index.Decode] to accept the fixture and
-	// [index.Validate] to reject it with [index.ErrRule].
+	// phaseValidate expects [index.Validate] to reject the fixture with
+	// [index.ErrRule].
 	phaseValidate
-	// phaseVerifyCanonical expects [index.Decode] and [index.Validate] to accept
-	// the fixture and only [index.VerifyCanonical] to reject it.
+	// phaseVerifyCanonical expects [index.VerifyCanonical] to reject the
+	// fixture.
 	phaseVerifyCanonical
 )
 
@@ -83,9 +83,9 @@ func (p canonicalPhase) String() string {
 }
 
 // canonicalFailPhases maps every fixture in testdata/canonical/fail to the
-// phase that must reject it. The map is the complete inventory of that
-// directory: [TestParseIndexCanonicalFail] fails when a fixture is missing from
-// the map or named by the map but absent from disk.
+// stage that must reject it. The map and the directory must match exactly;
+// [TestParseIndexCanonicalFail] fails on a fixture missing from the map and on
+// a map entry with no fixture on disk.
 func canonicalFailPhases() map[string]canonicalPhase {
 	return map[string]canonicalPhase{
 		// Grammar gates: invalid UTF-8 and duplicate object keys, compared
@@ -215,9 +215,9 @@ func assertCanonicalValidatePhase(t *testing.T, path string, value *index.Value,
 }
 
 // assertCanonicalVerifyPhase runs [index.VerifyCanonical] and requires it to
-// reject the fixture when phase is [phaseVerifyCanonical]. Earlier phases have
-// already been rejected by the gate they name, so their bytes say nothing about
-// RFC 8785 canonicality and are not asserted on here.
+// reject the fixture when phase is [phaseVerifyCanonical]. A fixture named for
+// an earlier stage may still be RFC 8785 canonical, so it is not asserted on
+// here.
 func assertCanonicalVerifyPhase(t *testing.T, path string, b []byte, phase canonicalPhase) {
 	t.Helper()
 	if phase != phaseVerifyCanonical {

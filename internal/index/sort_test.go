@@ -2,16 +2,14 @@ package index
 
 import "testing"
 
-// TestDescriptorOrderUTF8ByteOrder covers spec §9:794-800: manifests sort by
+// TestDescriptorOrderUTF8ByteOrder covers spec §9: manifests sort by
 // (architecture, target, representation, role, compression), each field
 // compared by ascending UTF-8 byte order.
 //
-// The table proves two things per tuple component. A "decides" case holds
-// every earlier component equal and shows the component alone chooses the
-// order. A "dominates" case gives the earlier component the smaller value
-// while the later component argues the other way, and shows the earlier
-// component wins. Together those pin each component to its own precedence
-// rather than merely to being consulted somewhere.
+// Cases come in two shapes. A "decides" case holds every earlier component
+// equal, so the named component alone fixes the order. A "dominates" case gives
+// the earlier component the smaller value while the later component would order
+// the pair the other way.
 func TestDescriptorOrderUTF8ByteOrder(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

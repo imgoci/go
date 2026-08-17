@@ -50,7 +50,7 @@ const (
 	zstdMaxWindowMantissa = 7
 	// zstdBackstopMax is the largest ceiling [zstd.WithDecoderMaxWindow]
 	// accepts: the largest Window_Size the format can express,
-	// (1<<41)+7*(1<<38) ≈ 3.75 TB. The library does not export it.
+	// (1<<41)+7*(1<<38) ≈ 3.75 TiB. The library does not export it.
 	zstdBackstopMax uint64 = (1 << zstdMaxWindowLog) +
 		zstdMaxWindowMantissa*(1<<(zstdMaxWindowLog-zstdWindowMantissaShift))
 )
@@ -116,13 +116,13 @@ func openZstd(r io.Reader, maxWindow uint64) (io.ReadCloser, error) {
 	return &zstdReader{br: br, zr: zr}, nil
 }
 
-// zstdBackstopWindow returns the ceiling handed to the klauspost decoder.
+// zstdBackstopWindow returns the ceiling handed to the klauspost decoder,
+// clamped into the range [zstd.WithDecoderMaxWindow] accepts.
 //
 // [inspectZstdHeader] has already applied the configured policy, so this is
-// only a backstop against a frame whose declared requirement the header walk
-// understated. [zstd.WithDecoderMaxWindow] rejects a ceiling outside its own
-// range, which would surface as a decode failure rather than the
-// configuration error it is, so the value is clamped into that range instead.
+// only a backstop against a frame whose requirement the header walk
+// understated. An out-of-range ceiling makes WithDecoderMaxWindow fail,
+// which would surface a caller's configuration error as a decode failure.
 func zstdBackstopWindow(maxWindow uint64) uint64 {
 	return min(max(maxWindow, zstdBackstopMin), zstdBackstopMax)
 }
@@ -177,8 +177,7 @@ func (z *zstdReader) probeTrailing() error {
 
 // wrapZstdRead maps a non-EOF zstd read error onto [ErrDecode], preserving
 // [ErrSizeExceeded] and [ErrSizeMismatch] from a [BoundedReader] beneath the
-// decoder: a raw stored-size violation is an integrity failure and must not
-// be reclassified as a codec failure.
+// decoder.
 func wrapZstdRead(err error) error {
 	if sizeSentinel(err) {
 		return err
@@ -220,14 +219,13 @@ func inspectZstdHeader(br *bufio.Reader, maxWindow uint64) (zstd.Header, error) 
 	return h, nil
 }
 
-// zstdDecodeWindow returns the buffer a frame requires to decode.
+// zstdDecodeWindow returns the buffer size a frame requires to decode.
 //
 // An ordinary frame declares Window_Size. A Single_Segment frame declares no
-// window: it is decoded into one buffer the size of its Frame_Content_Size,
-// which the format requires such a frame to carry. Checking the requirement
-// here rather than letting the decoder hit its own ceiling is what keeps a
-// window-policy rejection from surfacing as klauspost's
-// "decompressed size exceeds configured limit".
+// window and is decoded into one buffer the size of its Frame_Content_Size,
+// which the format requires such a frame to carry. Checking here rather than
+// letting the decoder hit its own ceiling keeps a window rejection from
+// surfacing as klauspost's "decompressed size exceeds configured limit".
 func zstdDecodeWindow(h zstd.Header) uint64 {
 	if h.SingleSegment {
 		return h.FrameContentSize

@@ -82,12 +82,9 @@ type listedGroup struct {
 // transport alternatives, sorted per spec section 7.2. An empty result is
 // valid. Listing does not filter by consumer capabilities.
 //
-// Spec section 7.1 requires a consumer to validate the query before fetching
-// the release. This API is fetch-once, query-many: a query first exists here,
-// after the caller's explicit [Client.Fetch]. List therefore validates q
-// completely before it inspects a single index entry, but necessarily after
-// the index was retrieved. The only consequence is one wasted manifest round
-// trip for an invalid query; an invalid query never yields a result.
+// List validates q completely before it inspects a single index entry, which
+// is after the caller's [Client.Fetch] rather than before it; see
+// [Client.Fetch] for that deviation from spec section 7.1.
 func (x *Index) List(q ListQuery) ([]Deliverable, error) {
 	if x == nil {
 		return nil, errors.New("list: nil index")

@@ -94,9 +94,7 @@ func TestDecodeRejectsNonIntegerNumberTokens(t *testing.T) {
 		name string
 		raw  string
 	}{
-		// spec §5.1: schemaVersion must be the number 2, and 2.0 is not it.
 		{name: "schemaVersion trailing zero fraction", raw: `{"schemaVersion":2.0}`},
-		// spec §5.2: descriptor size must be a JSON integer, not 1.0.
 		{name: "descriptor size trailing zero fraction", raw: `{"manifests":[{"size":1.0}]}`},
 	}
 	for _, tc := range tests {

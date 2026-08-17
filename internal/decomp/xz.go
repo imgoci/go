@@ -104,21 +104,17 @@ type xzSource struct {
 }
 
 // openXZ constructs a strict single-stream xz decoder over r, refusing a
-// stream whose declared LZMA2 dictionary exceeds maxWindow.
+// stream whose declared LZMA2 dictionary exceeds maxWindow and configuring
+// the decoder with the declared capacity.
 //
-// The declared capacity is also what the decoder is configured with.
-// [xz.ReaderConfig] leaves DictCap zero, ulikunitz substitutes 8 MiB for
-// zero, and lzmaFilter.reader then raises that to the capacity the Block
-// Header declares whenever it is larger — so the zero value is a floor, not a
-// cap, and the library allocates the declared dictionary no matter what this
-// package asks for. [inspectXZDictCap] running first is therefore the only
-// thing bounding that allocation. Passing the declared value through states
-// the dictionary this decoder is built on instead of leaving it to that
-// internal maximum, and drops the 8 MiB floor for a stream that declares
-// less.
+// DictCap is a floor, not a cap: ulikunitz substitutes 8 MiB for a zero
+// DictCap, and lzmaFilter.reader raises whatever is configured to the
+// capacity the Block Header declares. [inspectXZDictCap] running first is
+// therefore the only bound on that allocation; passing the declared value
+// through also drops the 8 MiB floor for a stream that declares less.
 //
-// When the inspector cannot read a declared capacity — incomplete or non-xz
-// input — the default construction stands and [xz.Reader] diagnoses it.
+// When the inspector reads no declared capacity — incomplete or non-xz
+// input — the library default stands and [xz.Reader] diagnoses the stream.
 func openXZ(r io.Reader, maxWindow uint64) (io.ReadCloser, error) {
 	src := &xzSource{r: r}
 	br := bufio.NewReader(src)
@@ -140,12 +136,11 @@ func openXZ(r io.Reader, maxWindow uint64) (io.ReadCloser, error) {
 // xzDictCap maps a declared LZMA2 dictionary capacity onto
 // [xz.ReaderConfig.DictCap].
 //
-// ulikunitz rejects a capacity below [lzma.MinDictCap], and an xz Block
-// Header can declare one (property byte 0 is 4 KiB, but a hand-built header
-// need not be sane), so the floor is raised rather than reported as a decode
-// failure. The ceiling is already bounded: the property-byte encoding tops
-// out at [lzma.MaxDictCap] and [inspectXZDictCap] has rejected anything above
-// the configured limit.
+// ulikunitz rejects a capacity below [lzma.MinDictCap], and a hand-built xz
+// Block Header can declare one, so the floor is raised rather than reported
+// as a decode failure. The ceiling is already bounded: the property-byte
+// encoding tops out at [lzma.MaxDictCap], and [inspectXZDictCap] has
+// rejected anything above the configured limit.
 func xzDictCap(declared int64) int {
 	switch {
 	case declared < lzma.MinDictCap:
@@ -212,8 +207,7 @@ func (x *xzReader) probeTrailing() error {
 // wrapRead maps a non-EOF xz read error onto [ErrDecode], preserving
 // [ErrSizeExceeded], [ErrSizeMismatch], and any other underlying sentinel
 // the library's SingleStream one-byte probe would replace with "unexpected
-// data after stream". A raw stored-size violation is an integrity failure
-// and must not be reclassified as a codec failure.
+// data after stream".
 func (x *xzReader) wrapRead(err error) error {
 	if sizeSentinel(err) {
 		return err
@@ -286,10 +280,10 @@ func (s *xzSource) checkFooter() error {
 // returns the LZMA2 dictionary capacity it declares, rejecting one above
 // maxWindow before the library can allocate it.
 //
-// A zero return means no capacity was declared to the inspector: incomplete
-// or non-xz input, a Block Header this walk cannot parse, or a filter chain
-// with no LZMA2 filter. Those are left for [xz.Reader] to diagnose, and the
-// caller keeps the library's default construction.
+// A zero return means no capacity was read: incomplete or non-xz input, a
+// Block Header this walk cannot parse, or a filter chain with no LZMA2
+// filter. [xz.Reader] diagnoses those, and the caller keeps the library's
+// default construction.
 func inspectXZDictCap(br *bufio.Reader, maxWindow uint64) (int64, error) {
 	peeked, err := br.Peek(xzStreamHeaderLen + probeSize)
 	if len(peeked) < xzStreamHeaderLen+probeSize {

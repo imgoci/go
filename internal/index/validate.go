@@ -369,11 +369,11 @@ const (
 	roleDisk = "disk"
 	// roleKernel is the role the linux-netboot representation requires.
 	roleKernel = "kernel"
-	// roleInitramfs is the optional boot-image role.
+	// roleInitramfs is the optional linux-netboot initial-RAM-filesystem role.
 	roleInitramfs = "initramfs"
 	// roleMetadata is the additional role the incus-vm representation requires.
 	roleMetadata = "metadata"
-	// roleRootfs is the filesystem-image role.
+	// roleRootfs is the optional linux-netboot root-filesystem role.
 	roleRootfs = "rootfs"
 )
 

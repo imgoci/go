@@ -15,24 +15,13 @@ import (
 
 // goldenStandardPath holds the independent byte oracle for [BuildStandard].
 //
-// The file is the spec §13 standard file-manifest example (spec.md:889-907)
-// rendered as compact canonical JSON by an implementation OUTSIDE this
-// repository, so that it cannot drift in lockstep with a producer defect. It
-// was generated with CPython 3 from the pretty-printed spec example:
-//
-//	python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True, separators=(",",":"), ensure_ascii=False), end="")' \
-//	  < spec-standard-example.json > standard-v1.json
-//
-// json.dumps(sort_keys=True, separators=(",",":")) is NOT an RFC 8785
-// implementation in general: it sorts keys by Unicode code point rather than
-// UTF-16 code unit, and formats floats with repr rather than the ECMAScript
-// Number.prototype.toString algorithm. The two agree here only because this
-// object is pure ASCII with integer-valued numbers only, the subset on which
-// both rules coincide.
-//
-// The golden must NEVER be regenerated from [BuildStandard] or internal/jcs:
-// doing so would copy any producer defect into the oracle and defeat the whole
-// point of the file. See testdata/README.md.
+// The file is the spec §13 standard file-manifest example in
+// compact canonical form, produced outside this repository by CPython 3
+// `json.dumps(sort_keys=True, separators=(",",":"))`. That call is not an
+// RFC 8785 implementation in general; it agrees with RFC 8785 on this object
+// only because the object is pure ASCII with integer-valued numbers.
+// Regenerating the file from [BuildStandard] or internal/jcs copies any
+// producer defect into the oracle. testdata/README.md holds the exact command.
 const goldenStandardPath = "testdata/standard-v1.json"
 
 // goldenLayerDigest is the layer digest of the spec §13 example manifest.
@@ -44,13 +33,10 @@ const goldenLayerHex = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 // goldenLayerSize is the layer size of the spec §13 example manifest.
 const goldenLayerSize int64 = 123456789
 
-// TestBuildStandardGoldenBytes pins [BuildStandard] output to an independent
-// artifact.
-//
-// Unlike the round-trip tests in this file, the oracle is a checked-in byte
-// string produced outside this module. A change to the producer member set or
-// to the encoding therefore fails here even when this package's own
-// [ValidateStandard] and internal/jcs change identically.
+// TestBuildStandardGoldenBytes compares [BuildStandard] output byte for byte
+// with [goldenStandardPath]. A change to the producer member set or to the
+// encoding fails here even when this package's own [ValidateStandard] and
+// internal/jcs change identically.
 func TestBuildStandardGoldenBytes(t *testing.T) {
 	t.Parallel()
 	want, err := os.ReadFile(goldenStandardPath)
@@ -73,17 +59,14 @@ func TestBuildStandardGoldenBytes(t *testing.T) {
 	}
 }
 
-// TestBuildStandardGoldenCatchesSelfOracleBlindSpot proves the golden is worth
-// having, by exhibiting producer output that the package's own oracle accepts
-// and the golden rejects.
+// TestBuildStandardGoldenCatchesSelfOracleBlindSpot builds producer output that
+// both [ValidateStandard] and [jcs.Verify] accept and byte equality with the
+// golden rejects.
 //
-// [ValidateStandard] is consumer validation, and spec §6:559-561 requires it
-// to keep accepting producer-only violations such as an extra annotations
-// member. jcs.Verify likewise only checks that the bytes are the canonical
-// form of whatever tree they encode. So a producer that grew a member set
-// stays green under both. Byte equality against the independent artifact is
-// the only check that fails, which is exactly how the removed
-// BuildInput.Annotations defect should have been caught.
+// Spec §6:559-561 requires a consumer to accept producer-only violations such
+// as an extra annotations member, and [jcs.Verify] only checks that bytes are
+// the canonical form of the tree they encode. Neither one reports a producer
+// whose member set grew.
 func TestBuildStandardGoldenCatchesSelfOracleBlindSpot(t *testing.T) {
 	t.Parallel()
 	want, err := os.ReadFile(goldenStandardPath)

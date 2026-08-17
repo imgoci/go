@@ -34,9 +34,9 @@ type realToolFixture struct {
 }
 
 // realToolFixtures returns the committed reference-compressor stored files.
-// Both declare a working set above the 8 MiB this package used to hardcode.
-// The decoded lengths and digests below are the literals recorded in
-// testdata/README.md by an independent oracle, never recomputed here.
+// Both declare a working set above 8 MiB and no larger than
+// [DefaultDecoderMaxWindow]. The decoded lengths and digests are the literals
+// recorded in testdata/README.md, never recomputed here.
 func realToolFixtures() []realToolFixture {
 	return []realToolFixture{
 		{
@@ -58,6 +58,9 @@ func realToolFixtures() []realToolFixture {
 	}
 }
 
+// TestRealToolFixturesDecodeAtDefaultWindow decodes each reference-compressor
+// fixture at [DefaultDecoderMaxWindow] and compares the output length and
+// digest against the values recorded in testdata/README.md.
 func TestRealToolFixturesDecodeAtDefaultWindow(t *testing.T) {
 	t.Parallel()
 
@@ -90,12 +93,12 @@ func TestRealToolFixturesDecodeAtDefaultWindow(t *testing.T) {
 	}
 }
 
+// TestRealToolFixturesRejectedBelowDeclaredWindow configures a ceiling under
+// each fixture's declared working set and requires [ErrDecode].
 func TestRealToolFixturesRejectedBelowDeclaredWindow(t *testing.T) {
 	t.Parallel()
 
-	// The ceiling this package used to hardcode. Both fixtures are mainstream
-	// producer output and both must be refused under it, which is what makes
-	// the limit configuration rather than policy.
+	// A ceiling below both fixtures' declared working sets.
 	const lowered = 8 << 20
 
 	for _, fx := range realToolFixtures() {
@@ -116,15 +119,9 @@ func TestRealToolFixturesRejectedBelowDeclaredWindow(t *testing.T) {
 }
 
 // TestXZDeclaredDictionaryIsConfigured covers the dictionary plumbing on a
-// stream whose farthest match sits beyond 8 MiB, decoding it to the exact
-// payload at the default ceiling and refusing it at 8 MiB.
-//
-// The declared capacity is what [openXZ] configures. It has to be: ulikunitz
-// raises whatever DictCap it is handed to the capacity the Block Header
-// declares (lzmaFilter.reader), so a smaller DictCap would not hold and only
-// [inspectXZDictCap] bounds the allocation. This asserts the declared value
-// the inspector now returns, and that the raised ceiling reaches decoded
-// bytes rather than only the accept/reject decision.
+// stream whose farthest match sits beyond 8 MiB: [inspectXZDictCap] returns
+// the declared capacity, the decoder built from it reaches the exact payload
+// at the default ceiling, and an 8 MiB ceiling refuses the stream.
 func TestXZDeclaredDictionaryIsConfigured(t *testing.T) {
 	t.Parallel()
 

@@ -212,6 +212,8 @@ func TestValidateStandardCaseInsensitiveTypes(t *testing.T) {
 	}
 }
 
+// TestValidateStandardAcceptsLayerSizeBoundaries checks the inclusive
+// layer-size bounds, 0 and maxLayerSize.
 func TestValidateStandardAcceptsLayerSizeBoundaries(t *testing.T) {
 	t.Parallel()
 	layerDigest := digest.FromBytes([]byte("stored")).String()
@@ -295,9 +297,10 @@ func layerMap(dgst string, size any) map[string]any {
 	return map[string]any{"digest": dgst, "mediaType": MediaTypeLayer, "size": size}
 }
 
-// nonCanonicalUnknownMember returns manifest bytes whose only non-canonical
-// region sits inside an unknown member that spec §3.1 tells consumers to
-// ignore, so acceptance would prove canonical verification skips that subtree.
+// nonCanonicalUnknownMember canonically encodes a manifest carrying an unknown
+// `extra` object, then swaps the two keys inside it. Spec §3.1 requires
+// consumers to ignore unknown members, so accepting these bytes would mean
+// canonical verification skips that subtree.
 func nonCanonicalUnknownMember(t *testing.T) []byte {
 	t.Helper()
 	raw := mustCanonical(t, withMember(validManifestMap(), "extra", map[string]any{"a": 1, "b": 2}))

@@ -5,7 +5,8 @@ import (
 	"strings"
 )
 
-// Target names from the spec §5.4 public target registry at the pinned spec commit.
+// Target names from the spec §5.4 public target registry. Every registry in
+// this file tracks the spec revision in testdata/conformance/SPEC_COMMIT.
 const (
 	targetAliyun       = "aliyun"
 	targetApplehv      = "applehv"
@@ -32,8 +33,7 @@ const (
 	targetVultr        = "vultr"
 )
 
-// Representation names from the spec §5.4 public representation registry at the
-// pinned spec commit.
+// Representation names from the spec §5.4 public representation registry.
 const (
 	representationRaw          = "raw"
 	representationRaw4kn       = "raw-4kn"
@@ -43,8 +43,7 @@ const (
 	representationLinuxNetboot = "linux-netboot"
 )
 
-// Compression names from the spec §5.4 public compression registry at the
-// pinned spec commit.
+// Compression names from the spec §5.4 public compression registry.
 const (
 	compressionNone = "none"
 	compressionGzip = "gzip"
@@ -52,8 +51,7 @@ const (
 	compressionZstd = "zstd"
 )
 
-// producerTargets returns the spec §5.4 public target registry at the pinned
-// spec commit.
+// producerTargets returns the spec §5.4 public target registry.
 func producerTargets() map[string]struct{} {
 	return map[string]struct{}{
 		targetAliyun:       {},
@@ -82,8 +80,7 @@ func producerTargets() map[string]struct{} {
 	}
 }
 
-// producerRepresentations returns the spec §5.4 public representation registry
-// at the pinned spec commit.
+// producerRepresentations returns the spec §5.4 public representation registry.
 func producerRepresentations() map[string]struct{} {
 	return map[string]struct{}{
 		representationRaw:          {},
@@ -95,8 +92,7 @@ func producerRepresentations() map[string]struct{} {
 	}
 }
 
-// producerRoles returns the spec §5.4 public role registry at the pinned spec
-// commit.
+// producerRoles returns the spec §5.4 public role registry.
 func producerRoles() map[string]struct{} {
 	return map[string]struct{}{
 		roleDisk:      {},
@@ -107,8 +103,7 @@ func producerRoles() map[string]struct{} {
 	}
 }
 
-// producerCompressions returns the spec §5.4 public compression registry at the
-// pinned spec commit.
+// producerCompressions returns the spec §5.4 public compression registry.
 func producerCompressions() map[string]struct{} {
 	return map[string]struct{}{
 		compressionNone: {},
@@ -118,8 +113,8 @@ func producerCompressions() map[string]struct{} {
 	}
 }
 
-// producerRegistries holds the §5.4 public selector registries for one
-// validation pass. It is built once per [Build] call, never per entry.
+// producerRegistries holds the spec §5.4 public selector registries for one
+// [Build] call.
 type producerRegistries struct {
 	// targets is the public target registry.
 	targets map[string]struct{}
@@ -131,7 +126,7 @@ type producerRegistries struct {
 	compressions map[string]struct{}
 }
 
-// newProducerRegistries builds the §5.4 public selector registries.
+// newProducerRegistries builds the spec §5.4 public selector registries.
 func newProducerRegistries() producerRegistries {
 	return producerRegistries{
 		targets:         producerTargets(),
@@ -170,8 +165,8 @@ func isDescriptorOnlyAnnotation(key string) bool {
 	}
 }
 
-// validateProducerModel applies producer-only selector-registry and
-// annotation-location rules to m. [Validate] does not apply these rules.
+// validateProducerModel applies the producer-only selector-registry and
+// annotation-location rules to m.
 func validateProducerModel(m *Model) error {
 	if err := validateProducerAnnotationMap(
 		"root annotations",
@@ -199,7 +194,8 @@ func validateProducerModel(m *Model) error {
 }
 
 // validateProducerSelector checks the four imgoci-owned selector fields against
-// their §5.4 registries. Architecture is syntax-only and is not checked here.
+// their spec §5.4 registries. Architecture has no registry and is not checked
+// here.
 func validateProducerSelector(i int, sel Selector, registries producerRegistries) error {
 	if err := validateProducerRegistryValue(i, AnnotationTarget, sel.Target, registries.targets); err != nil {
 		return err

@@ -9,15 +9,11 @@ import (
 	"github.com/opencontainers/go-digest"
 )
 
-// goldenIndexPath holds the independent byte oracle for [Build].
-//
-// testdata/canonical/pass/minimal.json is the spec-derived canonical corpus
-// fixture at the module root, shared with the root-package parse tests. It is
-// committed compact with no trailing newline. Comparing [Build] output against
-// it byte for byte is the primary oracle for the producer: unlike the
-// [Decode]/[Validate]/[VerifyCanonical] round trip, it cannot pass when the
-// producer member set or the encoder drifts, because the fixture does not move
-// with this package's code.
+// goldenIndexPath is the independent byte oracle for [Build]: the spec-derived
+// canonical fixture at the module root, shared with the root-package parse
+// tests and committed compact with no trailing newline. Never regenerate it
+// with this package's encoder; a fixture that moves with the code under test
+// catches no drift in the producer member set or the encoding.
 const goldenIndexPath = "../../testdata/canonical/pass/minimal.json"
 
 // TestBuildGoldenBytes pins [Build] output to the checked-in canonical fixture.
@@ -31,8 +27,8 @@ func TestBuildGoldenBytes(t *testing.T) {
 		t.Fatalf("golden %s must be non-empty and have no trailing newline", goldenIndexPath)
 	}
 
-	// Built from the fixture's own annotation values, not from minimalModel,
-	// so that editing the shared helper cannot silently retarget the golden.
+	// Field values come from the fixture, not minimalModel, so that editing the
+	// shared helper cannot silently retarget the golden.
 	got, err := Build(&Model{
 		Name:    "example",
 		Version: "1",
@@ -59,10 +55,9 @@ func TestBuildGoldenBytes(t *testing.T) {
 	}
 }
 
-// TestBuildMaxDescriptorSizeToken covers spec §9:784-786: the spec §5.2
-// descriptor-size limit exists so every number stays exactly representable
-// under RFC 8785. The largest permitted size must therefore serialize as the
-// integer token itself, with no float rounding and no exponent form.
+// TestBuildMaxDescriptorSizeToken covers spec §9: the largest size spec §5.2
+// permits serializes as the integer token itself under RFC 8785, with no float
+// rounding and no exponent form.
 func TestBuildMaxDescriptorSizeToken(t *testing.T) {
 	t.Parallel()
 	m := minimalModel()
@@ -114,10 +109,9 @@ func sizeTokens(s string) []string {
 	}
 }
 
-// TestBuildRefusesInvalidModel covers spec §9:791-792: a producer must validate
-// an index against §6 rules 1 through 8 before encoding it. Each case violates
-// one rule in the 4-8 range, and [Build] must return nil bytes plus that rule's
-// error rather than encoding anything.
+// TestBuildRefusesInvalidModel covers spec §9: a producer validates an index
+// against spec §6 rules 1 through 8 before encoding. Each case violates one
+// rule in the 4-8 range, and [Build] returns nil bytes plus that rule's error.
 func TestBuildRefusesInvalidModel(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -198,10 +192,10 @@ func TestBuildRefusesInvalidModel(t *testing.T) {
 	}
 }
 
-// TestBuildDeterministic covers spec §9:809-810: the same fields, descriptors,
-// and annotations must produce the same index bytes and the same digest. The
-// model carries extra annotation maps on purpose, because Go randomizes map
-// iteration order and an encoder that leaked that order would fail here.
+// TestBuildDeterministic covers spec §9: equal fields, descriptors, and
+// annotations produce equal index bytes and an equal digest. The model carries
+// multi-key annotation maps because Go randomizes map iteration order, so an
+// encoder that leaked that order fails here.
 func TestBuildDeterministic(t *testing.T) {
 	t.Parallel()
 	model := func() *Model {

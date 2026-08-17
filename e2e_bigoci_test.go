@@ -239,12 +239,9 @@ func TestE2EBigOCIWrongFileSize(t *testing.T) {
 // TestE2EBigOCICommittedFixture seeds the committed two-part artifact from
 // testdata/bigoci/v1 and retrieves it through the ordinary Client path.
 //
-// Nothing here is published by imgoci: the manifest, both part blobs, and
-// the empty config go in as bytes, so the retrieval runs the real
-// internal/multipart.Client and the real bigoci.Client, and both validate
-// the artifact the way spec §8 rule 2 requires. A unit test that mocks the
-// Multipart port cannot prove the delegation exists; this one fails if it is
-// removed or broken.
+// Nothing here is published by imgoci: the manifest, both part blobs, and the
+// empty config go in as bytes, so retrieval runs the real
+// internal/multipart.Client and the real bigoci.Client against spec §8 rule 2.
 //
 // The fixture's OCI title differs from io.imgoci.filename, so the retrieved
 // file also proves the title has no imgoci meaning (spec §8).
@@ -276,10 +273,9 @@ func TestE2EBigOCICommittedFixture(t *testing.T) {
 // byte short or one byte long.
 //
 // Spec §8 rule 2 verifies each part's digest and size before the parts are
-// assembled, so neither length can produce a committed destination. The
-// artifact is published normally and only the read path is fronted by
-// [startResizingBlobProxy], so the length fault is the single difference
-// from a passing round trip.
+// assembled, so neither length can produce a committed destination. Only the
+// read path is fronted by [startResizingBlobProxy], so the length fault is the
+// single difference from a passing round trip.
 func TestE2EBigOCIWrongPartLength(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eRegistries()[0].image)

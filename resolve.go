@@ -102,12 +102,9 @@ func (r *Resolved) IndexDigest() digest.Digest {
 // deliverable, or no accepted compression) return a descriptive error without a
 // matchable sentinel. Only the capability filter wraps [ErrUnsupportedType].
 //
-// Spec section 7.1 requires a consumer to validate the query before fetching
-// the release. This API is fetch-once, query-many: a query first exists here,
-// after the caller's explicit [Client.Fetch]. Resolve therefore validates q
-// completely before it inspects a single index entry, but necessarily after
-// the index was retrieved. The only consequence is one wasted manifest round
-// trip for an invalid query; an invalid query never yields a result.
+// Resolve validates q completely before it inspects a single index entry, which
+// is after the caller's [Client.Fetch] rather than before it; see
+// [Client.Fetch] for that deviation from spec section 7.1.
 func (x *Index) Resolve(q ResolveQuery) (*Resolved, error) {
 	if x == nil {
 		return nil, errors.New("resolve: nil index")
@@ -279,15 +276,12 @@ func requireRolesPresent(roles []string, byRole map[string][]FileEntry) error {
 	return nil
 }
 
-// filterByCapabilities implements spec section 7.3 steps 8 and 9 as two
-// separate phases, honoring the section 7.3 barrier that each step completes
-// for every selected role before the next step starts. The first pass removes,
-// for every selected role, the alternatives whose descriptor artifactType is
-// outside the effective capability set. Only once that pass has covered every
-// role does the second pass fail a role that has no remaining alternative.
-// Failure wraps [ErrUnsupportedType] and leaves byRole untouched, so no caller
-// can observe a partial result: the filtered alternatives are published into
-// byRole only after both phases succeed.
+// filterByCapabilities removes, for every selected role, the alternatives whose
+// descriptor artifactType is outside the effective capability set. It
+// implements spec section 7.3 steps 8 and 9, whose barrier requires that
+// removal to complete for every selected role before any role is failed for
+// having nothing left. Failure wraps [ErrUnsupportedType] and leaves byRole
+// untouched, so no caller observes a partial result.
 func filterByCapabilities(roles []string, byRole map[string][]FileEntry, caps Capabilities) error {
 	filtered := make(map[string][]FileEntry, len(roles))
 	for _, role := range roles {
@@ -309,12 +303,12 @@ func filterByCapabilities(roles []string, byRole map[string][]FileEntry, caps Ca
 	return nil
 }
 
-// pickCompressions implements spec section 7.3 steps 10 and 11 as two separate
-// phases. The first pass records, for every selected role, the first accepted
-// compression that remains after capability filtering, or its absence. Only
-// once that pass has covered every role does the second pass fail a role with
-// no accepted alternative. Entries are cloned, and therefore handed to the
-// caller, only after both phases succeed.
+// pickCompressions returns, for every selected role and in role order, the
+// first accepted compression that remains after capability filtering. It
+// implements spec section 7.3 steps 10 and 11, whose barrier requires that
+// choice to be made for every selected role before any role is failed for
+// having no accepted alternative. Failure returns no entries, so no caller
+// observes a partial selection.
 func pickCompressions(roles []string, byRole map[string][]FileEntry, compressions []string) ([]FileEntry, error) {
 	chosen := make([]FileEntry, len(roles))
 	accepted := make([]bool, len(roles))

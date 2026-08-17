@@ -107,10 +107,9 @@ type Option func(*clientSettings)
 // public-read tokens expect. It only means this client has no user name or
 // secret to offer when the exchange asks for one.
 //
-// A [WithDecoderMaxWindow] of zero is the other error. Zero is the value a
-// caller reaches for to mean "no limit", and it is the one thing the option
-// cannot express, so it is rejected here rather than silently reinstating the
-// default or refusing every compressed file later.
+// A [WithDecoderMaxWindow] of zero is the other error. Zero does not disable
+// the decoder bound, so it is rejected here rather than reinstating the
+// default or failing every compressed file later.
 func New(opts ...Option) (*Client, error) {
 	settings := clientSettings{decoderMaxWindow: decomp.DefaultDecoderMaxWindow}
 	for _, opt := range opts {
@@ -168,20 +167,19 @@ func WithPlainHTTP() Option {
 // Window_Size a frame declares (or, for a single-segment frame, its
 // Frame_Content_Size) and the LZMA2 dictionary capacity an xz stream
 // declares. A stored file that needs more fails with [ErrDecode] before the
-// buffer is allocated, on fetch and on the strict decode Publish performs
-// over its own sources alike, so a producer cannot write a release this
-// client would refuse to read back.
+// buffer is allocated, both on fetch and on the strict decode Publish
+// performs over its own sources, so a producer cannot publish a release this
+// client refuses to read back.
 //
 // The bound is per active decoder, not per transfer. Concurrent role
 // transfers each hold their own working set, so peak decoder memory is
-// maxBytes times the number of entries decoding at once — see
-// [WithWorkers], which sets that number.
+// maxBytes times the number of entries decoding at once, which
+// [WithWorkers] sets.
 //
-// The default is what mainstream producer output needs: it is the zstd CLI's
-// own default decode limit (windowLog 27), and it covers the 64 MiB
-// dictionary of `xz -9`. Lowering it rejects such files; raising it accepts
-// more hostile ones. Zero is not a way to disable the bound and [New]
-// rejects it.
+// The default equals the zstd CLI's own decode limit (windowLog 27) and
+// covers the 64 MiB dictionary of `xz -9`. A lower ceiling rejects such
+// files; a higher one admits inputs that allocate correspondingly more per
+// decoder. Zero is not a way to disable the bound, and [New] rejects it.
 func WithDecoderMaxWindow(maxBytes uint64) Option {
 	return func(s *clientSettings) {
 		s.decoderMaxWindow = maxBytes

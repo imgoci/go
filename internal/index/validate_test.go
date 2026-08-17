@@ -24,15 +24,14 @@ func TestValidateRule1(t *testing.T) {
 		{name: "missing name", mut: func(v *Value) { delete(v.Annotations, AnnotationName) }},
 		{name: "missing version", mut: func(v *Value) { delete(v.Annotations, AnnotationVersion) }},
 		{name: "version with space", mut: func(v *Value) { v.Annotations[AnnotationVersion] = "1 2" }},
-		// spec §5.1: the release version holds at most 128 printable ASCII characters.
+		// spec §5.1: the release version is 1 to 128 printable ASCII characters,
+		// so C0 control characters and DEL are excluded.
 		{name: "version too long", mut: func(v *Value) {
 			v.Annotations[AnnotationVersion] = strings.Repeat("9", maxReleaseVersion+1)
 		}},
-		// spec §5.1: the release version must not contain control characters.
 		{name: "version with control character", mut: func(v *Value) {
 			v.Annotations[AnnotationVersion] = "1\x01"
 		}},
-		// spec §5.1: DEL is not a printable ASCII character.
 		{name: "version with DEL", mut: func(v *Value) {
 			v.Annotations[AnnotationVersion] = "1\x7f"
 		}},
@@ -68,7 +67,7 @@ func TestValidateRule2(t *testing.T) {
 		},
 		{name: "missing annotations", mut: func(v *Value) { v.Manifests[0].annotationsSet = false }},
 		// spec §5.2: each of the eight required descriptor annotations is
-		// individually mandatory, so omitting any one invalidates the index.
+		// individually mandatory.
 		{name: "missing architecture", mut: func(v *Value) {
 			delete(v.Manifests[0].Annotations, AnnotationArchitecture)
 		}},
@@ -212,8 +211,8 @@ func TestValidateRule4(t *testing.T) {
 				),
 			),
 		},
+		// spec §5.4: the raw-4kn and iso representations each require the disk role.
 		{
-			// spec §5.4: the raw-4kn representation requires the disk role.
 			name: "raw-4kn missing disk",
 			v: validValue(validDescriptor(
 				"amd64", "x-test-target", "raw-4kn", "x-test-file", "none",
@@ -221,7 +220,6 @@ func TestValidateRule4(t *testing.T) {
 			)),
 		},
 		{
-			// spec §5.4: the iso representation requires the disk role.
 			name: "iso missing disk",
 			v: validValue(validDescriptor(
 				"amd64", "x-test-target", "iso", "x-test-file", "none",
@@ -237,8 +235,8 @@ func TestValidateRule4(t *testing.T) {
 	}
 }
 
-// TestValidateAcceptsBoundaryValues pins the accepting side of the spec §5.1,
-// §5.2, and §5.3 value boundaries so a stricter-than-spec check cannot slip in.
+// TestValidateAcceptsBoundaryValues holds the accepting side of the spec §5.1,
+// §5.2, and §5.3 value boundaries: a check stricter than the spec fails here.
 func TestValidateAcceptsBoundaryValues(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -255,9 +253,8 @@ func TestValidateAcceptsBoundaryValues(t *testing.T) {
 		}},
 		// spec §5.2: descriptor size may be 9007199254740991.
 		{name: "size at 2^53-1", mut: func(v *Value) { v.Manifests[0].Size = maxManifestSize }},
-		// spec §5.1: the release version may be one printable ASCII character.
+		// spec §5.1: the release version may be 1 to 128 printable ASCII characters.
 		{name: "version one character", mut: func(v *Value) { v.Annotations[AnnotationVersion] = "7" }},
-		// spec §5.1: the release version may be 128 printable ASCII characters.
 		{name: "version 128 characters", mut: func(v *Value) {
 			v.Annotations[AnnotationVersion] = strings.Repeat("9", maxReleaseVersion)
 		}},
@@ -275,8 +272,8 @@ func TestValidateAcceptsBoundaryValues(t *testing.T) {
 }
 
 // TestValidateRejectsWholeIndexForLaterDescriptor covers spec §6: an invalid
-// entry anywhere invalidates the whole index, so validation must not stop
-// after a valid first descriptor.
+// entry anywhere invalidates the whole index, so validation does not stop after
+// a valid first descriptor.
 func TestValidateRejectsWholeIndexForLaterDescriptor(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -284,13 +281,11 @@ func TestValidateRejectsWholeIndexForLaterDescriptor(t *testing.T) {
 		mut  func(*Descriptor)
 		rule int
 	}{
-		// spec §6 rule 2 violated by the second descriptor only.
 		{
 			name: "second descriptor missing filename annotation",
 			mut:  func(d *Descriptor) { delete(d.Annotations, AnnotationFilename) },
 			rule: specRuleDescriptor,
 		},
-		// spec §6 rule 3 violated by the second descriptor only.
 		{
 			name: "second descriptor malformed filename",
 			mut:  func(d *Descriptor) { d.Annotations[AnnotationFilename] = "not/a-filename" },
@@ -375,7 +370,7 @@ func TestValidateRule5(t *testing.T) {
 // rule6Pair returns two valid transport alternatives for one file: the same
 // (architecture, target, representation, role) under different compressions,
 // agreeing on content digest, content size, and filename as spec §6 rule 6
-// (spec.md:550-551) requires. The pair is already in canonical order.
+// requires. The pair is already in canonical order.
 func rule6Pair() (Descriptor, Descriptor) {
 	gzip := validDescriptor(
 		"amd64", "x-test-target", "x-test-format", "x-test-file", "gzip",
@@ -391,10 +386,9 @@ func rule6Pair() (Descriptor, Descriptor) {
 // TestValidateRule6 covers spec §6 rule 6: transport alternatives for one file
 // must agree on content digest, content size, and filename.
 //
-// Every case mutates exactly one of the three fields on an otherwise valid
-// pair, so a failure can only come from the mutated field. The baseline
-// assertion keeps the mutations honest: if the pair stopped validating for an
-// unrelated reason, the whole table would be testing nothing.
+// Each case mutates one of the three fields on an otherwise valid pair, and the
+// baseline assertion proves the unmutated pair validates, so a failure can only
+// come from the mutation.
 func TestValidateRule6(t *testing.T) {
 	t.Parallel()
 	base := func() *Value {
@@ -453,8 +447,8 @@ func TestValidateRule7(t *testing.T) {
 }
 
 // rule8Pair returns two valid descriptors that share a file-manifest digest
-// and differ only in architecture, which spec §6:563-565 explicitly permits.
-// The pair is already in canonical order.
+// and differ only in architecture, which spec §6 rule 8 permits. The pair is
+// already in canonical order.
 func rule8Pair() (Descriptor, Descriptor) {
 	left := validDescriptor(
 		"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
@@ -467,20 +461,18 @@ func rule8Pair() (Descriptor, Descriptor) {
 	return left, right
 }
 
-// TestValidateRule8 covers spec §6 rule 8 (spec.md:553-565): two descriptors
-// naming the same file manifest must agree on artifact type, descriptor size,
-// compression, content digest, and content size.
+// TestValidateRule8 covers spec §6 rule 8: two descriptors naming the same file
+// manifest must agree on artifact type, descriptor size, compression, content
+// digest, and content size.
 //
-// Every case mutates exactly one of those fields on an otherwise valid shared
-// pair, so the reported rule can only come from the mutated field. The pair
-// differs in architecture, which keeps the file key distinct and therefore
-// keeps rule 6 from firing first on the content mutations.
+// Each case mutates one of those fields on an otherwise valid shared pair. The
+// pair differs in architecture, which keeps the file key distinct so rule 6 does
+// not fire first on the content mutations.
 //
-// Descriptor media type is the sixth field rule 8 names, but it has no
-// reachable case: rule 2 already requires every descriptor mediaType to
-// identify [MediaTypeManifest], and rule 8 compares media types with
-// [equalMediaType], so any spelling that survives rule 2 also compares equal
-// under rule 8.
+// Descriptor media type is the sixth field rule 8 names and has no reachable
+// case: rule 2 already requires every descriptor mediaType to identify
+// [MediaTypeManifest], and rule 8 compares media types with [equalMediaType],
+// so any spelling that survives rule 2 also compares equal under rule 8.
 func TestValidateRule8(t *testing.T) {
 	t.Parallel()
 	base := func() *Value {
@@ -527,17 +519,14 @@ func TestValidateRule8(t *testing.T) {
 	}
 }
 
-// TestValidateRule8PermittedDifferences covers spec §6:563-565: descriptors
-// that share a file-manifest digest may differ in architecture, target,
-// representation, role, and filename, so one stored file can be classified for
-// more than one deliverable without copying it.
+// TestValidateRule8PermittedDifferences covers spec §6 rule 8: descriptors that
+// share a file-manifest digest may differ in architecture, target,
+// representation, role, and filename.
 //
-// Role and filename are exercised together in one deliverable because rule 7
-// (spec.md:552) forbids two roles in a deliverable from sharing a filename; a
-// role-only pair would fail rule 7 and mask the rule-8 result being tested.
-// Filename is exercised again across two targets, where rule 7 does not apply,
-// so it is not covered only as a side effect of the role case. Every pair is
-// written in canonical order so rule 9 stays out of the way.
+// The role case also changes filename, because rule 7 forbids two roles in one
+// deliverable from sharing a filename and would fire first. Filename is
+// exercised again across two targets, where rule 7 does not apply. Every pair
+// is written in canonical order so rule 9 does not fire first.
 func TestValidateRule8PermittedDifferences(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

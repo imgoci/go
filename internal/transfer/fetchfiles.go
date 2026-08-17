@@ -73,8 +73,7 @@ type FetchFilesRequest struct {
 	Progress func(Progress)
 	// DecoderMaxWindow caps the working set one decompressor may allocate:
 	// the zstd window or xz LZMA2 dictionary a stored file declares. Zero
-	// means [decomp.DefaultDecoderMaxWindow]; the root package always sets
-	// it from the client option.
+	// means [decomp.DefaultDecoderMaxWindow].
 	DecoderMaxWindow uint64
 }
 
@@ -214,12 +213,9 @@ func workerCount(requested, entries int) int {
 	return n
 }
 
-// decoderMaxWindow returns the effective decoder working-set ceiling.
-//
-// Zero on a request means the field was never set — the root package always
-// sets it from the client option — and resolves to
-// [decomp.DefaultDecoderMaxWindow]. Zero is never a request for an unbounded
-// decoder.
+// decoderMaxWindow returns the effective decoder working-set ceiling. Zero
+// resolves to [decomp.DefaultDecoderMaxWindow] and never requests an
+// unbounded decoder.
 func decoderMaxWindow(requested uint64) uint64 {
 	if requested == 0 {
 		return decomp.DefaultDecoderMaxWindow

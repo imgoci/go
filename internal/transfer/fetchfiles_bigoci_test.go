@@ -186,11 +186,9 @@ func TestFetchFilesBigOCIWrongStoredDigest(t *testing.T) {
 	blobs.AssertNotCalled(t, "Pull", mock.Anything, mock.Anything)
 }
 
-// TestFetchFilesBigOCIOnePartProfile rejects the committed one-part
-// artifact. It is a valid BigOCI File Format v1 file — schemaVersion, empty
-// config, part descriptor, and all three io.bigoci annotations are in place
-// — so the only thing left for the imgoci profile to reject is the part
-// count spec §8 rule 2 requires.
+// TestFetchFilesBigOCIOnePartProfile rejects the committed one-part artifact.
+// The fixture is a valid BigOCI v1 file, so the part count spec §8 rule 2
+// requires is the only thing left for the imgoci profile to reject.
 func TestFetchFilesBigOCIOnePartProfile(t *testing.T) {
 	t.Parallel()
 	fx := loadBigOCIArtifact(t, bigOCIFixtureOnePart)
@@ -496,8 +494,8 @@ func TestFetchFilesBigOCICommittedFixtureIgnoresTitle(t *testing.T) {
 //
 // Spec §8 rule 2 makes the whole-file digest and the whole-file size two
 // independent checks. The served length equals io.bigoci.file.size, so the
-// size check passes and only the digest check can fail: the whole-file
-// digest re-verification ([file.ErrCacheVerify]) is what rejects it.
+// size check passes and whole-file digest re-verification
+// ([file.ErrCacheVerify]) is the only check that can reject it.
 func TestFetchFilesBigOCIAssembledDigestMismatch(t *testing.T) {
 	t.Parallel()
 	fx := loadBigOCIArtifact(t, bigOCIFixtureTwoPart)
@@ -538,10 +536,9 @@ func TestFetchFilesBigOCIAssembledDigestMismatch(t *testing.T) {
 // against a manifest whose io.bigoci.file.size is one byte too large.
 //
 // The whole-file digest still matches the assembled bytes, so digest
-// re-verification succeeds ([file.ErrCacheVerify] is absent) and only the
-// size half of the spec §8 rule 2 check can fail. Compression is gzip on
-// purpose: under "none" the stored-equals-content precheck would fail first
-// and prove nothing about the assembled size.
+// re-verification succeeds ([file.ErrCacheVerify] is absent) and only the size
+// half of the spec §8 rule 2 check can fail. Compression is gzip because under
+// "none" the stored-equals-content precheck would fail first.
 func TestFetchFilesBigOCIAssembledSizeMismatch(t *testing.T) {
 	t.Parallel()
 	content := []byte("bigoci-assembled-size-boundary")
@@ -583,13 +580,14 @@ func TestFetchFilesBigOCIAssembledSizeMismatch(t *testing.T) {
 	assertAbsent(t, dest)
 }
 
-// TestFetchFilesBigOCINonePrecheckSizeMismatch moves only the size.
+// TestFetchFilesBigOCINonePrecheckSizeMismatch moves only the
+// io.bigoci.file.size annotation.
 //
 // Spec §8 requires the BigOCI whole-file digest and size to equal the imgoci
 // content digest and size when compression is "none".
-// [TestFetchFilesBigOCINonePrecheckMismatch] moves the digest; here the
-// digest annotation still equals the entry ContentDigest, so the size half
-// of that equality is the only check that can fail. Nothing is pulled.
+// [TestFetchFilesBigOCINonePrecheckMismatch] moves the digest; here the digest
+// annotation still equals the entry ContentDigest, so the size half of that
+// equality is the only check that can fail. Nothing is pulled.
 func TestFetchFilesBigOCINonePrecheckSizeMismatch(t *testing.T) {
 	t.Parallel()
 	fx := loadBigOCIArtifact(t, bigOCIFixtureTwoPart)
@@ -846,11 +844,10 @@ func bigociEntry(role string, content, _ []byte, compression string, manifest []
 }
 
 // mustBigOCIManifest builds a valid two-part BigOCI v1 manifest for stored.
-//
-// The part size halves the stored file, so every runtime unit fixture is the
-// at-least-two-parts shape spec §8 rule 2 requires, with the real digests
-// and sizes of the split bytes. [TestBigOCIFixturesAreValidBigOCIV1] pins
-// this encoder to the committed artifacts under testdata/bigoci/v1.
+// The part size halves the stored file, so every runtime unit fixture has the
+// at-least-two-parts shape spec §8 rule 2 requires.
+// [TestBigOCIFixturesAreValidBigOCIV1] pins this encoder to the committed
+// artifacts under testdata/bigoci/v1.
 func mustBigOCIManifest(t *testing.T, stored []byte) []byte {
 	t.Helper()
 	return bigOCIManifestBytes(t, stored, bigOCIHalfPartSize(len(stored)), bigOCITitle)

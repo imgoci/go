@@ -288,14 +288,11 @@ func assertRegistrySet(t *testing.T, name string, got map[string]struct{}, want 
 	}
 }
 
-// The pinned registries below spell out the spec §5.4 public values as literals
-// on purpose: they are a second, independent copy of the registry, so
+// The pinned registries below repeat the spec §5.4 public values as literals so
 // TestProducerRegistriesMatchPinnedSpec fails when the production tables drift.
-// Never derive them from the production constants or sets; that would make the
-// pinning test vacuous.
+// Deriving them from the production constants or sets makes that test vacuous.
 
-// pinnedTargets returns the spec §5.4 public target registry at the pinned spec
-// commit.
+// pinnedTargets returns the spec §5.4 public target registry.
 func pinnedTargets() []string {
 	return []string{
 		"aliyun",
@@ -324,8 +321,7 @@ func pinnedTargets() []string {
 	}
 }
 
-// pinnedRepresentations returns the spec §5.4 public representation registry at
-// the pinned spec commit.
+// pinnedRepresentations returns the spec §5.4 public representation registry.
 func pinnedRepresentations() []string {
 	return []string{
 		"raw",
@@ -337,8 +333,7 @@ func pinnedRepresentations() []string {
 	}
 }
 
-// pinnedRoles returns the spec §5.4 public role registry at the pinned spec
-// commit.
+// pinnedRoles returns the spec §5.4 public role registry.
 func pinnedRoles() []string {
 	return []string{
 		"disk",
@@ -349,8 +344,7 @@ func pinnedRoles() []string {
 	}
 }
 
-// pinnedCompressions returns the spec §5.4 public compression registry at the
-// pinned spec commit.
+// pinnedCompressions returns the spec §5.4 public compression registry.
 func pinnedCompressions() []string {
 	return []string{
 		"none",
