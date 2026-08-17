@@ -22,9 +22,12 @@ const (
 
 // ReleaseSpec is the producer input to [Client.Publish].
 type ReleaseSpec struct {
-	// Name is io.imgoci.name.
+	// Name is io.imgoci.name. It must be a basic token: 1 to 128 ASCII
+	// bytes matching ^[a-z0-9]+([._-][a-z0-9]+)*$ (spec §5.1 and §5.3).
 	Name string
-	// Version is org.opencontainers.image.version.
+	// Version is org.opencontainers.image.version. It must contain 1 to 128
+	// printable ASCII characters and no whitespace or control characters
+	// (spec §5.1).
 	Version string
 	// Annotations are extra root annotations. Keys in the io.imgoci.*
 	// namespace are reserved and rejected.
@@ -87,10 +90,11 @@ type publishSettings struct {
 // tag) is rejected for the same reason as digest-only: there is no tag to PUT.
 // These checks run before any I/O.
 //
-// The spec is validated against producer rules 1–8 before network: non-empty
-// Name/Version, UTF-8 of every caller string, reserved io.imgoci.* keys,
-// selector and filename grammar, duplicate five-tuples, required representation
-// roles, incus-vm→incus, filename collisions, and shared- source consistency.
+// The spec is validated against producer rules 1–8 before network: Name
+// grammar (spec §5.1 and §5.3), Version grammar (spec §5.1), UTF-8 of every
+// caller string, reserved io.imgoci.* keys, selector and filename grammar,
+// duplicate five-tuples, required representation roles, incus-vm→incus,
+// filename collisions, and shared-source consistency.
 // Content digest/size/filename annotations are computed from Source; two
 // FileSpecs naming the same Source path cannot carry different content
 // annotations because callers cannot supply those annotations.

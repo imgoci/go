@@ -33,9 +33,9 @@ Each file must make `ParseIndex` return an error matching `ErrInvalidIndex`.
 | File | What it proves |
 |---|---|
 | `pretty-printed.json` | Whitespace is non-canonical (rule 10). |
-| `exponent-1e2.json` | `1e2` is a non-canonical number spelling of `100` (rule 10). |
-| `exponent-1e0.json` | `1e0` is a non-canonical number spelling of `1` (rule 10). |
-| `unsorted-keys.json` | Object keys not in RFC 8785 order (rule 10). |
+| `exponent-1e2.json` | Descriptor `size` is written as `1e2`, which is not a JSON integer (section 5.2 type check). |
+| `exponent-1e0.json` | Descriptor `size` is written as `1e0`, which is not a JSON integer (section 5.2 type check). |
+| `unsorted-keys.json` | Duplicate `schemaVersion` keys are rejected by the duplicate-key scan. |
 | `nonminimal-escapes.json` | `\u0061` is a non-minimal spelling of `a` (rule 10). |
 | `duplicate-keys-raw.json` | Identical object keys (decode / duplicate-key scan). |
 | `duplicate-keys-decoded.json` | `"\u0069o.imgoci.name"` decodes equal to `"io.imgoci.name"` (duplicate-key scan). |
