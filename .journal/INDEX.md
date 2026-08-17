@@ -10,3 +10,4 @@
 | 006 | 2026-08-16 | Spec conformance audit of the Go implementation | complete | Audited all 942 spec lines against the implementation and its proving tests, then merged PR #20 fixing two real defects, the producer/consumer discipline gaps, and the test oracles that had hidden them. |
 | 007 | 2026-08-17 | Absorb the spec deliverable usage selector | complete | Implemented `io.imgoci.usage` end to end across merged PRs #21-#23: the internal value layer and §6/§9 rules, the public API and CLI, and the producer registry with the bumped conformance pin. |
 | 008 | 2026-08-17 | New session | in-progress | Session opened; goal pending the user's first request. |
+| 009 | 2026-08-17 | New session | in-progress | Session opened; goal pending the user's first request. |
