@@ -39,9 +39,20 @@ const (
 	// zstdBackstopMin is the smallest ceiling [zstd.WithDecoderMaxWindow]
 	// accepts (1 KiB, [zstd.MinWindowSize]).
 	zstdBackstopMin uint64 = zstd.MinWindowSize
+	// zstdMaxWindowLog is the largest Window_Log the zstd format allows; the
+	// base term of a Window_Size is 1<<Window_Log.
+	zstdMaxWindowLog = 41
+	// zstdWindowMantissaShift is how far below Window_Log the Window_Descriptor
+	// mantissa term is scaled: Mantissa << (Window_Log - 3).
+	zstdWindowMantissaShift = 3
+	// zstdMaxWindowMantissa is the largest value of the 3-bit
+	// Window_Descriptor mantissa field.
+	zstdMaxWindowMantissa = 7
 	// zstdBackstopMax is the largest ceiling [zstd.WithDecoderMaxWindow]
-	// accepts, (1<<41)+7*(1<<38) ≈ 3.75 TB. The library does not export it.
-	zstdBackstopMax uint64 = (1 << 41) + 7*(1<<38)
+	// accepts: the largest Window_Size the format can express,
+	// (1<<41)+7*(1<<38) ≈ 3.75 TB. The library does not export it.
+	zstdBackstopMax uint64 = (1 << zstdMaxWindowLog) +
+		zstdMaxWindowMantissa*(1<<(zstdMaxWindowLog-zstdWindowMantissaShift))
 )
 
 // zstdSkippableMagicTail is bytes 1–3 of a skippable-frame magic (LE 0x184D2A5?).

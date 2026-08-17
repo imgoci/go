@@ -154,11 +154,7 @@ func assertParseIndexCanonicalFail(t *testing.T, path string, phase canonicalPha
 	if phase != phaseDecode {
 		assertCanonicalValidatePhase(t, path, value, phase)
 	}
-	if phase == phaseVerifyCanonical {
-		if err := index.VerifyCanonical(b); err == nil {
-			t.Fatalf("index.VerifyCanonical(%s): accepted non-canonical bytes", path)
-		}
-	}
+	assertCanonicalVerifyPhase(t, path, b, phase)
 	idx, err := ParseIndex(b)
 	if err == nil {
 		t.Fatalf("ParseIndex(%s): accepted invalid index", path)
@@ -184,7 +180,12 @@ func assertCanonicalDecodePhase(t *testing.T, path string, b []byte, phase canon
 		return nil
 	}
 	if err != nil {
-		t.Fatalf("index.Decode(%s): rejected the fixture (%v); it is caught before the %s phase it claims to prove", path, err, phase)
+		t.Fatalf(
+			"index.Decode(%s): rejected the fixture (%v); it is caught before the %s phase it claims to prove",
+			path,
+			err,
+			phase,
+		)
 	}
 	return value
 }
@@ -204,7 +205,26 @@ func assertCanonicalValidatePhase(t *testing.T, path string, value *index.Value,
 		return
 	}
 	if err != nil {
-		t.Fatalf("index.Validate(%s): rejected the fixture (%v); it is caught before the %s phase it claims to prove", path, err, phase)
+		t.Fatalf(
+			"index.Validate(%s): rejected the fixture (%v); it is caught before the %s phase it claims to prove",
+			path,
+			err,
+			phase,
+		)
+	}
+}
+
+// assertCanonicalVerifyPhase runs [index.VerifyCanonical] and requires it to
+// reject the fixture when phase is [phaseVerifyCanonical]. Earlier phases have
+// already been rejected by the gate they name, so their bytes say nothing about
+// RFC 8785 canonicality and are not asserted on here.
+func assertCanonicalVerifyPhase(t *testing.T, path string, b []byte, phase canonicalPhase) {
+	t.Helper()
+	if phase != phaseVerifyCanonical {
+		return
+	}
+	if err := index.VerifyCanonical(b); err == nil {
+		t.Fatalf("index.VerifyCanonical(%s): accepted non-canonical bytes", path)
 	}
 }
 

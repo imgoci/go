@@ -5,92 +5,191 @@ import (
 	"strings"
 )
 
-// producerTargets is the spec §5.4 public target registry at the pinned spec commit.
-var producerTargets = map[string]struct{}{
-	"aliyun":       {},
-	"applehv":      {},
-	"aws":          {},
-	"azure":        {},
-	"azurestack":   {},
-	"digitalocean": {},
-	"exoscale":     {},
-	"gcp":          {},
-	"hetzner":      {},
-	"hyperv":       {},
-	"ibmcloud":     {},
-	"incus":        {},
-	"kubevirt":     {},
-	"metal":        {},
-	"nutanix":      {},
-	"openstack":    {},
-	"oraclecloud":  {},
-	"powervs":      {},
-	"proxmoxve":    {},
-	"qemu":         {},
-	"virtualbox":   {},
-	"vmware":       {},
-	"vultr":        {},
+// Target names from the spec §5.4 public target registry at the pinned spec commit.
+const (
+	targetAliyun       = "aliyun"
+	targetApplehv      = "applehv"
+	targetAws          = "aws"
+	targetAzure        = "azure"
+	targetAzurestack   = "azurestack"
+	targetDigitalocean = "digitalocean"
+	targetExoscale     = "exoscale"
+	targetGcp          = "gcp"
+	targetHetzner      = "hetzner"
+	targetHyperv       = "hyperv"
+	targetIbmcloud     = "ibmcloud"
+	targetIncus        = "incus"
+	targetKubevirt     = "kubevirt"
+	targetMetal        = "metal"
+	targetNutanix      = "nutanix"
+	targetOpenstack    = "openstack"
+	targetOraclecloud  = "oraclecloud"
+	targetPowervs      = "powervs"
+	targetProxmoxve    = "proxmoxve"
+	targetQemu         = "qemu"
+	targetVirtualbox   = "virtualbox"
+	targetVmware       = "vmware"
+	targetVultr        = "vultr"
+)
+
+// Representation names from the spec §5.4 public representation registry at the
+// pinned spec commit.
+const (
+	representationRaw          = "raw"
+	representationRaw4kn       = "raw-4kn"
+	representationQcow2        = "qcow2"
+	representationIncusVM      = "incus-vm"
+	representationISO          = "iso"
+	representationLinuxNetboot = "linux-netboot"
+)
+
+// Compression names from the spec §5.4 public compression registry at the
+// pinned spec commit.
+const (
+	compressionNone = "none"
+	compressionGzip = "gzip"
+	compressionXz   = "xz"
+	compressionZstd = "zstd"
+)
+
+// producerTargets returns the spec §5.4 public target registry at the pinned
+// spec commit.
+func producerTargets() map[string]struct{} {
+	return map[string]struct{}{
+		targetAliyun:       {},
+		targetApplehv:      {},
+		targetAws:          {},
+		targetAzure:        {},
+		targetAzurestack:   {},
+		targetDigitalocean: {},
+		targetExoscale:     {},
+		targetGcp:          {},
+		targetHetzner:      {},
+		targetHyperv:       {},
+		targetIbmcloud:     {},
+		targetIncus:        {},
+		targetKubevirt:     {},
+		targetMetal:        {},
+		targetNutanix:      {},
+		targetOpenstack:    {},
+		targetOraclecloud:  {},
+		targetPowervs:      {},
+		targetProxmoxve:    {},
+		targetQemu:         {},
+		targetVirtualbox:   {},
+		targetVmware:       {},
+		targetVultr:        {},
+	}
 }
 
-// producerRepresentations is the spec §5.4 public representation registry at the pinned spec commit.
-var producerRepresentations = map[string]struct{}{
-	"raw":           {},
-	"raw-4kn":       {},
-	"qcow2":         {},
-	"incus-vm":      {},
-	"iso":           {},
-	"linux-netboot": {},
+// producerRepresentations returns the spec §5.4 public representation registry
+// at the pinned spec commit.
+func producerRepresentations() map[string]struct{} {
+	return map[string]struct{}{
+		representationRaw:          {},
+		representationRaw4kn:       {},
+		representationQcow2:        {},
+		representationIncusVM:      {},
+		representationISO:          {},
+		representationLinuxNetboot: {},
+	}
 }
 
-// producerRoles is the spec §5.4 public role registry at the pinned spec commit.
-var producerRoles = map[string]struct{}{
-	"disk":      {},
-	"kernel":    {},
-	"initramfs": {},
-	"metadata":  {},
-	"rootfs":    {},
+// producerRoles returns the spec §5.4 public role registry at the pinned spec
+// commit.
+func producerRoles() map[string]struct{} {
+	return map[string]struct{}{
+		roleDisk:      {},
+		roleKernel:    {},
+		roleInitramfs: {},
+		roleMetadata:  {},
+		roleRootfs:    {},
+	}
 }
 
-// producerCompressions is the spec §5.4 public compression registry at the pinned spec commit.
-var producerCompressions = map[string]struct{}{
-	"none": {},
-	"gzip": {},
-	"xz":   {},
-	"zstd": {},
+// producerCompressions returns the spec §5.4 public compression registry at the
+// pinned spec commit.
+func producerCompressions() map[string]struct{} {
+	return map[string]struct{}{
+		compressionNone: {},
+		compressionGzip: {},
+		compressionXz:   {},
+		compressionZstd: {},
+	}
 }
 
-// producerRootOnlyAnnotations are defined only on the release-index root.
-var producerRootOnlyAnnotations = map[string]struct{}{
-	AnnotationName:    {},
-	AnnotationVersion: {},
+// producerRegistries holds the §5.4 public selector registries for one
+// validation pass. It is built once per [Build] call, never per entry.
+type producerRegistries struct {
+	// targets is the public target registry.
+	targets map[string]struct{}
+	// representations is the public representation registry.
+	representations map[string]struct{}
+	// roles is the public role registry.
+	roles map[string]struct{}
+	// compressions is the public compression registry.
+	compressions map[string]struct{}
 }
 
-// producerDescriptorOnlyAnnotations are defined only on file-entry descriptors.
-var producerDescriptorOnlyAnnotations = map[string]struct{}{
-	AnnotationArchitecture:   {},
-	AnnotationTarget:         {},
-	AnnotationRepresentation: {},
-	AnnotationRole:           {},
-	AnnotationCompression:    {},
-	AnnotationContentDigest:  {},
-	AnnotationContentSize:    {},
-	AnnotationFilename:       {},
+// newProducerRegistries builds the §5.4 public selector registries.
+func newProducerRegistries() producerRegistries {
+	return producerRegistries{
+		targets:         producerTargets(),
+		representations: producerRepresentations(),
+		roles:           producerRoles(),
+		compressions:    producerCompressions(),
+	}
+}
+
+// isRootOnlyAnnotation reports whether key is defined only on the release-index
+// root.
+func isRootOnlyAnnotation(key string) bool {
+	switch key {
+	case AnnotationName, AnnotationVersion:
+		return true
+	default:
+		return false
+	}
+}
+
+// isDescriptorOnlyAnnotation reports whether key is defined only on file-entry
+// descriptors.
+func isDescriptorOnlyAnnotation(key string) bool {
+	switch key {
+	case AnnotationArchitecture,
+		AnnotationTarget,
+		AnnotationRepresentation,
+		AnnotationRole,
+		AnnotationCompression,
+		AnnotationContentDigest,
+		AnnotationContentSize,
+		AnnotationFilename:
+		return true
+	default:
+		return false
+	}
 }
 
 // validateProducerModel applies producer-only selector-registry and
 // annotation-location rules to m. [Validate] does not apply these rules.
 func validateProducerModel(m *Model) error {
-	if err := validateProducerAnnotationMap("root annotations", m.Annotations, producerDescriptorOnlyAnnotations, "descriptor-only"); err != nil {
+	if err := validateProducerAnnotationMap(
+		"root annotations",
+		m.Annotations,
+		isDescriptorOnlyAnnotation,
+		"descriptor-only",
+	); err != nil {
 		return err
 	}
+	registries := newProducerRegistries()
 	for i, e := range m.Entries {
-		if err := validateProducerSelector(i, e.Selector); err != nil {
+		if err := validateProducerSelector(i, e.Selector, registries); err != nil {
 			return err
 		}
 		if err := validateProducerAnnotationMap(
 			fmt.Sprintf("entries[%d] annotations", i),
 			e.Annotations,
-			producerRootOnlyAnnotations,
+			isRootOnlyAnnotation,
 			"root-only",
 		); err != nil {
 			return err
@@ -101,17 +200,22 @@ func validateProducerModel(m *Model) error {
 
 // validateProducerSelector checks the four imgoci-owned selector fields against
 // their §5.4 registries. Architecture is syntax-only and is not checked here.
-func validateProducerSelector(i int, sel Selector) error {
-	if err := validateProducerRegistryValue(i, AnnotationTarget, sel.Target, producerTargets); err != nil {
+func validateProducerSelector(i int, sel Selector, registries producerRegistries) error {
+	if err := validateProducerRegistryValue(i, AnnotationTarget, sel.Target, registries.targets); err != nil {
 		return err
 	}
-	if err := validateProducerRegistryValue(i, AnnotationRepresentation, sel.Representation, producerRepresentations); err != nil {
+	if err := validateProducerRegistryValue(
+		i,
+		AnnotationRepresentation,
+		sel.Representation,
+		registries.representations,
+	); err != nil {
 		return err
 	}
-	if err := validateProducerRegistryValue(i, AnnotationRole, sel.Role, producerRoles); err != nil {
+	if err := validateProducerRegistryValue(i, AnnotationRole, sel.Role, registries.roles); err != nil {
 		return err
 	}
-	return validateProducerRegistryValue(i, AnnotationCompression, sel.Compression, producerCompressions)
+	return validateProducerRegistryValue(i, AnnotationCompression, sel.Compression, registries.compressions)
 }
 
 // validateProducerRegistryValue accepts a public registry spelling or a
@@ -127,10 +231,15 @@ func validateProducerRegistryValue(i int, field, value string, registry map[stri
 }
 
 // validateProducerAnnotationMap rejects defined keys that belong at the other
-// annotation location.
-func validateProducerAnnotationMap(path string, annotations map[string]string, forbidden map[string]struct{}, kind string) error {
+// annotation location, as reported by forbidden.
+func validateProducerAnnotationMap(
+	path string,
+	annotations map[string]string,
+	forbidden func(key string) bool,
+	kind string,
+) error {
 	for key := range annotations {
-		if _, ok := forbidden[key]; ok {
+		if forbidden(key) {
 			return producerError("%s: %s is %s", path, key, kind)
 		}
 	}

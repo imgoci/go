@@ -145,15 +145,7 @@ func TestNewDecoderMaxWindow(t *testing.T) {
 			t.Parallel()
 			c, err := New(tt.opts...)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("New must reject a zero decoder window")
-				}
-				if c != nil {
-					t.Fatal("New must not return a client with an error")
-				}
-				if !strings.Contains(err.Error(), "decoder max window") {
-					t.Fatalf("error %q does not name the decoder max window", err)
-				}
+				assertDecoderMaxWindowRejected(t, c, err)
 				return
 			}
 			if err != nil {
@@ -163,6 +155,22 @@ func TestNewDecoderMaxWindow(t *testing.T) {
 				t.Fatalf("decoderMaxWindow = %d, want %d", c.settings.decoderMaxWindow, tt.want)
 			}
 		})
+	}
+}
+
+// assertDecoderMaxWindowRejected requires [New] to have refused the decoder
+// window outright: an error naming the option, and no client to use in spite of
+// it.
+func assertDecoderMaxWindowRejected(t *testing.T, c *Client, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("New must reject a zero decoder window")
+	}
+	if c != nil {
+		t.Fatal("New must not return a client with an error")
+	}
+	if !strings.Contains(err.Error(), "decoder max window") {
+		t.Fatalf("error %q does not name the decoder max window", err)
 	}
 }
 

@@ -33,31 +33,35 @@ type realToolFixture struct {
 	decodedSHA256 string
 }
 
-// realToolFixtures are the committed reference-compressor stored files. Both
-// declare a working set above the 8 MiB this package used to hardcode.
-var realToolFixtures = []realToolFixture{
-	{
-		name:           "xz -9",
-		path:           "testdata/xz-9.xz",
-		compression:    nameXZ,
-		declaredWindow: 64 << 20,
-		decodedSize:    21,
-		decodedSHA256:  "626f31a02a7566ac80c1b2752775ab4e84382385fc11bbbee85312e628218aca",
-	},
-	{
-		name:           "zstd --long=27",
-		path:           "testdata/zstd-long-27.zst",
-		compression:    nameZstd,
-		declaredWindow: 128 << 20,
-		decodedSize:    33554432,
-		decodedSHA256:  "83ee47245398adee79bd9c0a8bc57b821e92aba10f5f9ade8a5d1fae4d8c4302",
-	},
+// realToolFixtures returns the committed reference-compressor stored files.
+// Both declare a working set above the 8 MiB this package used to hardcode.
+// The decoded lengths and digests below are the literals recorded in
+// testdata/README.md by an independent oracle, never recomputed here.
+func realToolFixtures() []realToolFixture {
+	return []realToolFixture{
+		{
+			name:           "xz -9",
+			path:           "testdata/xz-9.xz",
+			compression:    nameXZ,
+			declaredWindow: 64 << 20,
+			decodedSize:    21,
+			decodedSHA256:  "626f31a02a7566ac80c1b2752775ab4e84382385fc11bbbee85312e628218aca",
+		},
+		{
+			name:           "zstd --long=27",
+			path:           "testdata/zstd-long-27.zst",
+			compression:    nameZstd,
+			declaredWindow: 128 << 20,
+			decodedSize:    33554432,
+			decodedSHA256:  "83ee47245398adee79bd9c0a8bc57b821e92aba10f5f9ade8a5d1fae4d8c4302",
+		},
+	}
 }
 
 func TestRealToolFixturesDecodeAtDefaultWindow(t *testing.T) {
 	t.Parallel()
 
-	for _, fx := range realToolFixtures {
+	for _, fx := range realToolFixtures() {
 		t.Run(fx.name, func(t *testing.T) {
 			t.Parallel()
 			if fx.declaredWindow > DefaultDecoderMaxWindow {
@@ -94,7 +98,7 @@ func TestRealToolFixturesRejectedBelowDeclaredWindow(t *testing.T) {
 	// the limit configuration rather than policy.
 	const lowered = 8 << 20
 
-	for _, fx := range realToolFixtures {
+	for _, fx := range realToolFixtures() {
 		t.Run(fx.name, func(t *testing.T) {
 			t.Parallel()
 			stored := readFixture(t, fx.path)
@@ -148,10 +152,10 @@ func TestXZDeclaredDictionaryIsConfigured(t *testing.T) {
 	if err != nil {
 		t.Fatalf("xz writer: %v", err)
 	}
-	if _, err := w.Write(payload); err != nil {
+	if _, err = w.Write(payload); err != nil {
 		t.Fatalf("xz write: %v", err)
 	}
-	if err := w.Close(); err != nil {
+	if err = w.Close(); err != nil {
 		t.Fatalf("xz close: %v", err)
 	}
 	stored := buf.Bytes()

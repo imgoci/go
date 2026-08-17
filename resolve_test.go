@@ -302,26 +302,39 @@ func TestResolveRoleListAndPerRoleCompression(t *testing.T) {
 			t.Parallel()
 			got, err := tt.idx.Resolve(tt.query)
 			if tt.wantErr {
-				if err == nil {
-					t.Fatal("expected a selection error")
-				}
-				if got != nil {
-					t.Fatalf("failed selection must return no roles, got %#v", got.Entries())
-				}
-
+				assertResolveFailedWholesale(t, got, err)
 				return
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			entries := got.Entries()
-			chosen := make([]string, 0, len(entries))
-			for _, entry := range entries {
-				chosen = append(chosen, entry.Selector.Role+"/"+entry.Selector.Compression)
-			}
-			if !slices.Equal(chosen, tt.want) {
-				t.Fatalf("selection = %v, want %v", chosen, tt.want)
-			}
+			assertResolvedRoleCompressions(t, got, tt.want)
 		})
+	}
+}
+
+// assertResolveFailedWholesale requires a failed resolve to report the error
+// and hand back nothing: spec section 7.3 admits no partial selection.
+func assertResolveFailedWholesale(t *testing.T, got *Resolved, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected a selection error")
+	}
+	if got != nil {
+		t.Fatalf("failed selection must return no roles, got %#v", got.Entries())
+	}
+}
+
+// assertResolvedRoleCompressions requires the resolution's entries to be
+// exactly want, each formatted as "role/compression" in selection order.
+func assertResolvedRoleCompressions(t *testing.T, got *Resolved, want []string) {
+	t.Helper()
+	entries := got.Entries()
+	chosen := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		chosen = append(chosen, entry.Selector.Role+"/"+entry.Selector.Compression)
+	}
+	if !slices.Equal(chosen, want) {
+		t.Fatalf("selection = %v, want %v", chosen, want)
 	}
 }

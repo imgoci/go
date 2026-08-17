@@ -125,7 +125,12 @@ func TestZstdConcatenatedFramesRejected(t *testing.T) {
 func TestZstdDictionaryRequiredRejected(t *testing.T) {
 	t.Parallel()
 
-	_, err := Decoder(nameZstd, DefaultDecoderMaxWindow)(onlyReader{r: bytes.NewReader(zstdDictFrame(t, []byte("payload")))})
+	_, err := Decoder(
+		nameZstd,
+		DefaultDecoderMaxWindow,
+	)(
+		onlyReader{r: bytes.NewReader(zstdDictFrame(t, []byte("payload")))},
+	)
 	if !errors.Is(err, ErrDecode) {
 		t.Fatalf("error %v is not ErrDecode", err)
 	}

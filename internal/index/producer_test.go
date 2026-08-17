@@ -23,15 +23,15 @@ func TestProducerRegistriesMatchPinnedSpec(t *testing.T) {
 	if got != pinnedSpecCommit {
 		t.Fatalf("SPEC_COMMIT %q, want %q; review the §5.4 producer registries", got, pinnedSpecCommit)
 	}
-	assertRegistrySet(t, "targets", producerTargets, pinnedTargets)
-	assertRegistrySet(t, "representations", producerRepresentations, pinnedRepresentations)
-	assertRegistrySet(t, "roles", producerRoles, pinnedRoles)
-	assertRegistrySet(t, "compressions", producerCompressions, pinnedCompressions)
+	assertRegistrySet(t, "targets", producerTargets(), pinnedTargets())
+	assertRegistrySet(t, "representations", producerRepresentations(), pinnedRepresentations())
+	assertRegistrySet(t, "roles", producerRoles(), pinnedRoles())
+	assertRegistrySet(t, "compressions", producerCompressions(), pinnedCompressions())
 }
 
 func TestBuildAcceptsPinnedPublicSelectorValues(t *testing.T) {
 	t.Parallel()
-	for _, target := range pinnedTargets {
+	for _, target := range pinnedTargets() {
 		t.Run("target/"+target, func(t *testing.T) {
 			t.Parallel()
 			m := minimalModel()
@@ -41,7 +41,7 @@ func TestBuildAcceptsPinnedPublicSelectorValues(t *testing.T) {
 			}
 		})
 	}
-	for _, representation := range pinnedRepresentations {
+	for _, representation := range pinnedRepresentations() {
 		t.Run("representation/"+representation, func(t *testing.T) {
 			t.Parallel()
 			if _, err := Build(representationModel(representation)); err != nil {
@@ -49,7 +49,7 @@ func TestBuildAcceptsPinnedPublicSelectorValues(t *testing.T) {
 			}
 		})
 	}
-	for _, role := range pinnedRoles {
+	for _, role := range pinnedRoles() {
 		t.Run("role/"+role, func(t *testing.T) {
 			t.Parallel()
 			m := minimalModel()
@@ -59,7 +59,7 @@ func TestBuildAcceptsPinnedPublicSelectorValues(t *testing.T) {
 			}
 		})
 	}
-	for _, compression := range pinnedCompressions {
+	for _, compression := range pinnedCompressions() {
 		t.Run("compression/"+compression, func(t *testing.T) {
 			t.Parallel()
 			m := minimalModel()
@@ -231,7 +231,14 @@ func representationModel(representation string) *Model {
 			Version: "1",
 			Entries: []ModelEntry{
 				publicEntry("incus", "incus-vm", "disk", "disk.qcow2", testManifestDigest1, testContentDigestA),
-				publicEntry("incus", "incus-vm", "metadata", "metadata.tar.xz", testManifestDigest2, testContentDigestB),
+				publicEntry(
+					"incus",
+					"incus-vm",
+					"metadata",
+					"metadata.tar.xz",
+					testManifestDigest2,
+					testContentDigestB,
+				),
 			},
 		}
 	case "linux-netboot":
@@ -281,8 +288,16 @@ func assertRegistrySet(t *testing.T, name string, got map[string]struct{}, want 
 	}
 }
 
-var (
-	pinnedTargets = []string{
+// The pinned registries below spell out the spec §5.4 public values as literals
+// on purpose: they are a second, independent copy of the registry, so
+// TestProducerRegistriesMatchPinnedSpec fails when the production tables drift.
+// Never derive them from the production constants or sets; that would make the
+// pinning test vacuous.
+
+// pinnedTargets returns the spec §5.4 public target registry at the pinned spec
+// commit.
+func pinnedTargets() []string {
+	return []string{
 		"aliyun",
 		"applehv",
 		"aws",
@@ -307,7 +322,12 @@ var (
 		"vmware",
 		"vultr",
 	}
-	pinnedRepresentations = []string{
+}
+
+// pinnedRepresentations returns the spec §5.4 public representation registry at
+// the pinned spec commit.
+func pinnedRepresentations() []string {
+	return []string{
 		"raw",
 		"raw-4kn",
 		"qcow2",
@@ -315,17 +335,27 @@ var (
 		"iso",
 		"linux-netboot",
 	}
-	pinnedRoles = []string{
+}
+
+// pinnedRoles returns the spec §5.4 public role registry at the pinned spec
+// commit.
+func pinnedRoles() []string {
+	return []string{
 		"disk",
 		"kernel",
 		"initramfs",
 		"metadata",
 		"rootfs",
 	}
-	pinnedCompressions = []string{
+}
+
+// pinnedCompressions returns the spec §5.4 public compression registry at the
+// pinned spec commit.
+func pinnedCompressions() []string {
+	return []string{
 		"none",
 		"gzip",
 		"xz",
 		"zstd",
 	}
-)
+}

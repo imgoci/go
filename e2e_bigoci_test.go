@@ -235,3 +235,79 @@ func TestE2EBigOCIWrongFileSize(t *testing.T) {
 	}
 	assertNoFile(t, filepath.Join(dir, filename))
 }
+
+// TestE2EBigOCICommittedFixture seeds the committed two-part artifact from
+// testdata/bigoci/v1 and retrieves it through the ordinary Client path.
+//
+// Nothing here is published by imgoci: the manifest, both part blobs, and
+// the empty config go in as bytes, so the retrieval runs the real
+// internal/multipart.Client and the real bigoci.Client, and both validate
+// the artifact the way spec §8 rule 2 requires. A unit test that mocks the
+// Multipart port cannot prove the delegation exists; this one fails if it is
+// removed or broken.
+//
+// The fixture's OCI title differs from io.imgoci.filename, so the retrieved
+// file also proves the title has no imgoci meaning (spec §8).
+func TestE2EBigOCICommittedFixture(t *testing.T) {
+	t.Parallel()
+	const filename = "disk.qcow2"
+	host := startRegistry(t, e2eRegistries()[0].image)
+	repo := testRepo(t)
+	fx := loadBigOCIFixture(t, bigOCIFixtureTwoPartName)
+	if fx.title == "" || fx.title == filename {
+		t.Fatalf("fixture title %q must differ from the imgoci filename %q", fx.title, filename)
+	}
+	seedBigOCIFixture(t, host, repo, fx, filename)
+
+	client := newE2EClient(t, e2eCreds{})
+	rel := mustFetch(t, client, tagRef(host, repo))
+	entry := firstFileEntry(t, rel)
+	if !EqualMediaType(entry.ArtifactType, index.ArtifactTypeBigOCI) {
+		t.Fatalf("artifactType %q, want BigOCI", entry.ArtifactType)
+	}
+	sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
+	dir := t.TempDir()
+	mustFetchFiles(t, client, rel, sel, ToDir(dir))
+	assertFileContent(t, filepath.Join(dir, filename), fx.stored)
+	assertNoFile(t, filepath.Join(dir, fx.title))
+}
+
+// TestE2EBigOCIWrongPartLength fails FetchFiles when a part body arrives one
+// byte short or one byte long.
+//
+// Spec §8 rule 2 verifies each part's digest and size before the parts are
+// assembled, so neither length can produce a committed destination. The
+// artifact is published normally and only the read path is fronted by
+// [startResizingBlobProxy], so the length fault is the single difference
+// from a passing round trip.
+func TestE2EBigOCIWrongPartLength(t *testing.T) {
+	t.Parallel()
+	backend := startRegistry(t, e2eRegistries()[0].image)
+	tests := []struct {
+		name  string
+		delta int
+	}{
+		{name: "one-byte-short", delta: -1},
+		{name: "one-byte-long", delta: 1},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			repo := testRepo(t)
+			content := randomBytes(t, e2eBigOCIFileSize)
+			spec, _, filename := singleRoleMultipartSpec(t, "none", content, e2eBigOCIPartSize)
+			client := newE2EClient(t, e2eCreds{})
+			if _, err := client.Publish(t.Context(), tagRef(backend, repo), spec); err != nil {
+				t.Fatal(err)
+			}
+			front := startResizingBlobProxy(t, backend, tc.delta)
+			rel := mustFetch(t, client, tagRef(front, repo))
+			sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
+			dir := t.TempDir()
+			if err := client.FetchFiles(t.Context(), rel, sel, ToDir(dir)); err == nil {
+				t.Fatal("FetchFiles accepted a part body of the wrong length")
+			}
+			assertNoFile(t, filepath.Join(dir, filename))
+		})
+	}
+}

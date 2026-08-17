@@ -350,7 +350,15 @@ func fetchStandard(
 		}
 	}
 
-	if err = copyLayer(ctx, req.Blobs, plan, progress, entry, std.Layer, decoderMaxWindow(req.DecoderMaxWindow)); err != nil {
+	if err = copyLayer(
+		ctx,
+		req.Blobs,
+		plan,
+		progress,
+		entry,
+		std.Layer,
+		decoderMaxWindow(req.DecoderMaxWindow),
+	); err != nil {
 		return err
 	}
 	progress.entryVerified(entry.ContentSize)

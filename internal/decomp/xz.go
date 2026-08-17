@@ -153,7 +153,7 @@ func xzDictCap(declared int64) int {
 	case declared > math.MaxInt:
 		return math.MaxInt
 	default:
-		return int(declared) //nolint:gosec // G115: declared is bounded by math.MaxInt above.
+		return int(declared)
 	}
 }
 

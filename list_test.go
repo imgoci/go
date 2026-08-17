@@ -92,7 +92,11 @@ func TestListFiltersAndSort(t *testing.T) {
 		{"arm64", "metal", "qcow2"},
 	}
 	if !slices.Equal(keys, wantKeys) {
-		t.Fatalf("deliverable keys = %v, want %v: sort is architecture, then target, then representation", keys, wantKeys)
+		t.Fatalf(
+			"deliverable keys = %v, want %v: sort is architecture, then target, then representation",
+			keys,
+			wantKeys,
+		)
 	}
 }
 
