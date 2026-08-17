@@ -84,9 +84,10 @@ func (g *gzipReader) probeTrailing() error {
 }
 
 // wrapGzipRead maps a non-EOF gzip read error onto [ErrDecode], preserving
-// [ErrSizeExceeded] from a [BoundedReader] beneath the decoder.
+// [ErrSizeExceeded] and [ErrSizeMismatch] from a [BoundedReader] beneath the
+// decoder.
 func wrapGzipRead(err error) error {
-	if errors.Is(err, ErrSizeExceeded) {
+	if sizeSentinel(err) {
 		return err
 	}
 	return fmt.Errorf("gzip: %w: %w", ErrDecode, err)

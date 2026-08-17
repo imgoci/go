@@ -6,15 +6,22 @@ import (
 	"bytes"
 	"crypto/rand"
 	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 
 	"github.com/opencontainers/go-digest"
+	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/imgoci/go/internal/index"
 )
@@ -284,6 +291,167 @@ func sortedTags(tags []string) []string {
 	out := append([]string(nil), tags...)
 	slices.Sort(out)
 	return out
+}
+
+// bigOCIFixtureDir is the module-root BigOCI v1 artifact tree, shared with
+// the internal/transfer unit suite. See testdata/bigoci/README.md.
+const bigOCIFixtureDir = "testdata/bigoci/v1"
+
+// bigOCIFixtureTwoPartName is the committed two-part artifact directory.
+const bigOCIFixtureTwoPartName = "valid-two-part"
+
+// bigOCIFixture is a committed BigOCI v1 artifact read off disk.
+type bigOCIFixture struct {
+	// manifest is the committed manifest.json bytes, byte for byte. imgoci
+	// must not re-encode a BigOCI manifest, so these are the bytes seeded.
+	manifest []byte
+	// parsed is manifest decoded for its descriptors and annotations.
+	parsed e2eOCIManifest
+	// parts are the committed part blobs in manifest layer order.
+	parts [][]byte
+	// stored is the parts concatenated: the BigOCI stored file.
+	stored []byte
+	// title is the org.opencontainers.image.title annotation, which differs
+	// from every io.imgoci.filename the tests use.
+	title string
+}
+
+// loadBigOCIFixture reads the committed artifact named name.
+func loadBigOCIFixture(t *testing.T, name string) bigOCIFixture {
+	t.Helper()
+	dir := filepath.Join(bigOCIFixtureDir, name)
+	raw, err := os.ReadFile(filepath.Join(dir, "manifest.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed := parseOCIManifest(t, raw)
+	if len(parsed.Layers) < 2 {
+		t.Fatalf("fixture %s has %d parts, want at least 2", name, len(parsed.Layers))
+	}
+	parts := make([][]byte, len(parsed.Layers))
+	var stored []byte
+	for i := range parsed.Layers {
+		part, readErr := os.ReadFile(filepath.Join(dir, "part-"+strconv.Itoa(i)+".bin"))
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		parts[i] = part
+		stored = append(stored, part...)
+	}
+	return bigOCIFixture{
+		manifest: raw,
+		parsed:   parsed,
+		parts:    parts,
+		stored:   stored,
+		title:    parsed.Annotations[ocispec.AnnotationTitle],
+	}
+}
+
+// seedBigOCIFixture PUTs everything fx needs into repo: the OCI empty config
+// blob, every part blob, the committed file manifest by digest, and a
+// release index naming it at compression "none", where the stored file is
+// also the content.
+func seedBigOCIFixture(t *testing.T, host, repo string, fx bigOCIFixture, filename string) {
+	t.Helper()
+	config := ocispec.DescriptorEmptyJSON
+	seedBlob(t, host, repo, config.Digest, config.Data, e2eCreds{})
+	for i, part := range fx.parts {
+		seedBlob(t, host, repo, digest.Digest(fx.parsed.Layers[i].Digest), part, e2eCreds{})
+	}
+	seedIndexForFileManifest(
+		t, host, repo, fx.manifest, index.ArtifactTypeBigOCI, index.MediaTypeManifest,
+		qemuDiskSelector("none"), filename, fx.stored,
+	)
+}
+
+// startResizingBlobProxy fronts backend and serves stored-blob GET bodies
+// resized by delta bytes, then returns the proxy host:port. It is the
+// length-fault counterpart of [startTruncatingBlobProxy].
+//
+// Spec §8 rule 2 checks each part's size on its own, so a part body one byte
+// short or one byte long must fail retrieval even when nothing else about the
+// artifact is wrong. Redirect Location hosts are rewritten to backend because
+// zot may name an unreachable container address. Bodies under four bytes — the
+// OCI empty config blob — are forwarded untouched.
+func startResizingBlobProxy(t *testing.T, backend string, delta int) string {
+	t.Helper()
+	target, err := url.Parse("http://" + backend)
+	if err != nil {
+		t.Fatal(err)
+	}
+	proxy := httputil.NewSingleHostReverseProxy(target)
+	blobClient := &http.Client{
+		Timeout: e2eHTTPTimeout,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			req.URL.Scheme = "http"
+			req.URL.Host = backend
+			return nil
+		},
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !gzipBlobRequest(r) {
+			proxy.ServeHTTP(w, r)
+			return
+		}
+		u := *target
+		u.Path = r.URL.Path
+		u.RawPath = r.URL.RawPath
+		u.RawQuery = r.URL.RawQuery
+		req, reqErr := http.NewRequestWithContext(r.Context(), r.Method, u.String(), nil)
+		if reqErr != nil {
+			http.Error(w, reqErr.Error(), http.StatusBadGateway)
+			return
+		}
+		req.Header = r.Header.Clone()
+		resp, doErr := blobClient.Do(req)
+		if doErr != nil {
+			http.Error(w, doErr.Error(), http.StatusBadGateway)
+			return
+		}
+		defer func() { _ = resp.Body.Close() }()
+		body, readErr := io.ReadAll(resp.Body)
+		if readErr != nil {
+			http.Error(w, readErr.Error(), http.StatusBadGateway)
+			return
+		}
+		switch resp.StatusCode {
+		case http.StatusOK, http.StatusPartialContent:
+			if len(body) >= 4 {
+				body = resizeBlobBody(body, delta)
+			}
+		}
+		for key, values := range resp.Header {
+			switch strings.ToLower(key) {
+			case "content-length", "content-range", "transfer-encoding", "docker-content-digest":
+				continue
+			}
+			for _, value := range values {
+				w.Header().Add(key, value)
+			}
+		}
+		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+		w.WriteHeader(resp.StatusCode)
+		if r.Method == http.MethodHead {
+			return
+		}
+		_, _ = w.Write(body)
+	}))
+	t.Cleanup(server.Close)
+	return hostPortOf(t, server.URL)
+}
+
+// resizeBlobBody returns body with delta bytes removed from or appended to its
+// end. Padding is zero bytes, so only the length differs from body.
+func resizeBlobBody(body []byte, delta int) []byte {
+	out := bytes.Clone(body)
+	switch {
+	case delta < 0:
+		return out[:max(0, len(out)+delta)]
+	case delta > 0:
+		return append(out, make([]byte, delta)...)
+	default:
+		return out
+	}
 }
 
 // bigociCLIDir returns the bigoci CLI module directory used by interop

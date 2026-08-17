@@ -59,6 +59,10 @@ type PublishRequest struct {
 	// Manifests and Blobs are already bound to this repository at
 	// construction; Multipart is not.
 	Repo string
+	// DecoderMaxWindow caps the working set the pass-1 strict decode may
+	// allocate, the same ceiling a fetch of this release applies. Zero
+	// means [decomp.DefaultDecoderMaxWindow].
+	DecoderMaxWindow uint64
 }
 
 // PublishEntry is one file-entry [Publish] hashes, uploads, and indexes.
@@ -203,7 +207,7 @@ func Publish(ctx context.Context, p Ports, req PublishRequest) (digest.Digest, e
 	progress := newPublishReporter(len(req.Entries), req.Progress)
 	ctx = progress.bindContext(ctx)
 
-	hashed, err := hashSources(req.Entries)
+	hashed, err := hashSources(req.Entries, decoderMaxWindow(req.DecoderMaxWindow))
 	if err != nil {
 		return "", err
 	}
@@ -244,7 +248,7 @@ func checkPublishPorts(p Ports, req PublishRequest) error {
 }
 
 // hashSources runs pass 1 once per unique SourcePath.
-func hashSources(entries []PublishEntry) (map[string]hashedFile, error) {
+func hashSources(entries []PublishEntry, maxWindow uint64) (map[string]hashedFile, error) {
 	out := make(map[string]hashedFile)
 	for i, entry := range entries {
 		if entry.SourcePath == "" {
@@ -253,7 +257,7 @@ func hashSources(entries []PublishEntry) (map[string]hashedFile, error) {
 		if _, ok := out[entry.SourcePath]; ok {
 			continue
 		}
-		got, err := hashOne(entry)
+		got, err := hashOne(entry, maxWindow)
 		if err != nil {
 			return nil, fmt.Errorf("hash %s: %w", entry.SourcePath, err)
 		}
@@ -306,7 +310,7 @@ func checkFileIdentity(entries []PublishEntry, hashed map[string]hashedFile) err
 }
 
 // hashOne stats, reads, and strictly decodes one source path.
-func hashOne(entry PublishEntry) (hashedFile, error) {
+func hashOne(entry PublishEntry, maxWindow uint64) (hashedFile, error) {
 	fi, err := os.Stat(entry.SourcePath)
 	if err != nil {
 		return hashedFile{}, err
@@ -318,7 +322,7 @@ func hashOne(entry PublishEntry) (hashedFile, error) {
 	defer f.Close()
 
 	stored := &hashCounter{h: digest.SHA256.Hash()}
-	dec, err := decomp.Decoder(entry.Selector.Compression)(io.TeeReader(f, stored))
+	dec, err := decomp.Decoder(entry.Selector.Compression, maxWindow)(io.TeeReader(f, stored))
 	if err != nil {
 		return hashedFile{}, err
 	}

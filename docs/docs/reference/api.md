@@ -103,6 +103,9 @@ alternatives in ascending UTF-8 byte order. An empty result is valid. Listing
 does not filter by consumer capabilities. A non-nil `Roles` names every role a
 matching deliverable must contain.
 
+`List` validates `q` before it inspects any entry; see [query validation
+ordering](#query-validation-ordering).
+
 ```go
 type Deliverable struct {
 	Architecture   string
@@ -142,6 +145,9 @@ v1 spec tokens `none`, `gzip`, `xz`, and `zstd`. Only the capability filter
 wraps `ErrUnsupportedType`; the other selection failures are deliberately
 sentinel-free (see the [error reference](errors.md#offline-resolve-failures)).
 
+`Resolve` validates `q` before it inspects any entry; see [query validation
+ordering](#query-validation-ordering).
+
 ```go
 type Resolved struct{ /* unexported */ }
 
@@ -153,6 +159,21 @@ func (r *Resolved) IndexDigest() digest.Digest
 `IndexDigest` is the SHA-256 of the canonical index bytes the selection was
 derived from; `Client.FetchFiles` binds by that digest, not by pointer
 identity.
+
+### Query validation ordering
+
+Spec section 7.1 requires a consumer to validate the query before fetching the
+release. This API deviates deliberately, because it is fetch-once,
+query-many: `Client.Fetch` receives only a `Reference` and no query, and a
+query first reaches the library at `Index.List`, `Index.Resolve`, or
+`Client.Resolve`. Each of those validates the query in full before it inspects
+a single index entry — validation happens at the first method that receives
+the query, but necessarily after the caller's explicit fetch. `Fetch` performs
+no prefetch query validation.
+
+The consequence is one wasted manifest round trip for an invalid query. An
+invalid query is still rejected before any entry is examined, so it never
+produces a wrong result — only a late one.
 
 ## Client and options
 
@@ -223,6 +244,10 @@ must include a tag, a digest, or both; name-only references are a caller
 error. Fetch requires the response `Content-Type` to identify the
 release-index type, hashes the original bytes, checks a digest pin when the
 reference named one, and runs `ParseIndex`.
+
+`Fetch` takes no query and therefore validates none; see [query validation
+ordering](#query-validation-ordering) for the deviation from spec section 7.1
+that this fetch-once, query-many shape implies.
 
 ```go
 type Release struct{ /* unexported */ }

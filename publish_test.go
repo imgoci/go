@@ -140,9 +140,17 @@ func TestPublishSpecValidation(t *testing.T) {
 			detail: "filename",
 		},
 		{
+			// Architecture is not one of the four spec §5.4 registries, so
+			// this case reaches the spec §5.3 token check rather than the
+			// producer registry check.
 			name:   "invalid_selector_token",
-			mutate: func(s *ReleaseSpec) { s.Files[0].Selector.Role = "bad!" },
-			detail: "basic token",
+			mutate: func(s *ReleaseSpec) { s.Files[0].Selector.Architecture = "bad!" },
+			detail: "basic tokens",
+		},
+		{
+			name:   "non_registry_selector_value",
+			mutate: func(s *ReleaseSpec) { s.Files[0].Selector.Role = "data" },
+			detail: `io.imgoci.role "data" is not a public value or x-<owner>-<name>`,
 		},
 		{
 			name: "duplicate_five_tuple",
@@ -156,8 +164,8 @@ func TestPublishSpecValidation(t *testing.T) {
 			name: "missing_required_role",
 			mutate: func(s *ReleaseSpec) {
 				s.Files[0].Selector.Representation = "qcow2"
-				s.Files[0].Selector.Role = "data"
-				s.Files[0].Filename = "data.qcow2"
+				s.Files[0].Selector.Role = "kernel"
+				s.Files[0].Filename = "kernel.img"
 			},
 			detail: "must contain the disk role",
 		},
@@ -175,7 +183,7 @@ func TestPublishSpecValidation(t *testing.T) {
 			name: "filename_collision",
 			mutate: func(s *ReleaseSpec) {
 				other := s.Files[0]
-				other.Selector.Role = "other-file"
+				other.Selector.Role = "disk"
 				other.Filename = "a"
 				s.Files = append(s.Files, other)
 			},
@@ -185,7 +193,7 @@ func TestPublishSpecValidation(t *testing.T) {
 			name: "shared_source_conflicting_compression",
 			mutate: func(s *ReleaseSpec) {
 				other := s.Files[0]
-				other.Selector.Role = "other-file"
+				other.Selector.Role = "disk"
 				other.Selector.Compression = "gzip"
 				other.Filename = "b"
 				s.Files = append(s.Files, other)
@@ -594,7 +602,7 @@ func TestPublishRule8MapsToInvalidSpec(t *testing.T) {
 					Architecture:   "amd64",
 					Target:         "x-test-target",
 					Representation: "x-test-format",
-					Role:           "file-a",
+					Role:           "disk",
 					Compression:    "gzip",
 				},
 				Filename: "a",
@@ -605,7 +613,7 @@ func TestPublishRule8MapsToInvalidSpec(t *testing.T) {
 					Architecture:   "arm64",
 					Target:         "x-test-target",
 					Representation: "x-test-format",
-					Role:           "file-b",
+					Role:           "kernel",
 					Compression:    "none",
 				},
 				Filename: "b",

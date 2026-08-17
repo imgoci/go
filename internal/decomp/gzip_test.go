@@ -52,7 +52,7 @@ func gzipMember(t *testing.T, payload []byte) []byte {
 
 func openGzipDecoder(t *testing.T, r io.Reader) io.ReadCloser {
 	t.Helper()
-	rc, err := Decoder(nameGzip)(r)
+	rc, err := Decoder(nameGzip, DefaultDecoderMaxWindow)(r)
 	if err != nil {
 		t.Fatalf("open gzip: %v", err)
 	}
@@ -115,7 +115,7 @@ func TestGzipTrailingByteHiddenInBufioRejected(t *testing.T) {
 func TestGzipCorruptRejected(t *testing.T) {
 	t.Parallel()
 
-	_, err := Decoder(nameGzip)(onlyReader{r: bytes.NewReader([]byte("not gzip"))})
+	_, err := Decoder(nameGzip, DefaultDecoderMaxWindow)(onlyReader{r: bytes.NewReader([]byte("not gzip"))})
 	if !errors.Is(err, ErrDecode) {
 		t.Fatalf("header error %v is not ErrDecode", err)
 	}
@@ -133,5 +133,26 @@ func TestGzipCloseDoesNotProbe(t *testing.T) {
 	}
 	if err := rc.Close(); err != nil {
 		t.Fatalf("second Close: %v", err)
+	}
+}
+
+// TestGzipBoundedReaderShortStreamPropagatesSizeMismatch covers a complete
+// gzip member whose enclosing layer descriptor declares one byte more than
+// the blob holds. The raw underrun is an integrity failure and must reach
+// the caller as [ErrSizeMismatch], not as a codec [ErrDecode].
+func TestGzipBoundedReaderShortStreamPropagatesSizeMismatch(t *testing.T) {
+	t.Parallel()
+
+	member := gzipMember(t, []byte("payload"))
+	br := NewBoundedReader(bytes.NewReader(member), int64(len(member))+1)
+	rc := openGzipDecoder(t, onlyReader{r: br})
+	t.Cleanup(func() { _ = rc.Close() })
+
+	_, err := io.ReadAll(rc)
+	if !errors.Is(err, ErrSizeMismatch) {
+		t.Fatalf("error %v is not ErrSizeMismatch", err)
+	}
+	if errors.Is(err, ErrDecode) {
+		t.Fatalf("stored-size underrun was reclassified as ErrDecode: %v", err)
 	}
 }

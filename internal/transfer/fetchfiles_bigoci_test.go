@@ -3,9 +3,9 @@ package transfer
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -19,7 +19,6 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"github.com/imgoci/go/internal/file"
-	"github.com/imgoci/go/internal/filemanifest"
 	"github.com/imgoci/go/internal/index"
 	mpmocks "github.com/imgoci/go/internal/multipart/mocks"
 	regmocks "github.com/imgoci/go/internal/registry/mocks"
@@ -187,16 +186,18 @@ func TestFetchFilesBigOCIWrongStoredDigest(t *testing.T) {
 	blobs.AssertNotCalled(t, "Pull", mock.Anything, mock.Anything)
 }
 
+// TestFetchFilesBigOCIOnePartProfile rejects the committed one-part artifact.
+// The fixture is a valid BigOCI v1 file, so the part count spec §8 rule 2
+// requires is the only thing left for the imgoci profile to reject.
 func TestFetchFilesBigOCIOnePartProfile(t *testing.T) {
 	t.Parallel()
-	stored := []byte("payload")
-	manifest := mustOnePartBigOCI(t, stored)
-	entry := bigociEntry("disk", stored, stored, compressionNone, manifest)
+	fx := loadBigOCIArtifact(t, bigOCIFixtureOnePart)
+	entry := bigociEntry("disk", fx.stored, fx.stored, compressionNone, fx.manifest)
 	dest := filepath.Join(t.TempDir(), "disk.img")
 
 	m := regmocks.NewMockManifests(t)
 	m.EXPECT().Get(mock.Anything, entry.Digest.String(), entry.MediaType).
-		Return(manifest, index.MediaTypeManifest, nil).Once()
+		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
 	blobs := regmocks.NewMockBlobs(t)
 	mp := mpmocks.NewMockMultipart(t)
 
@@ -213,6 +214,9 @@ func TestFetchFilesBigOCIOnePartProfile(t *testing.T) {
 	}
 	if !errors.Is(err, ErrInvalidDocument) {
 		t.Fatalf("error %v is not ErrInvalidDocument", err)
+	}
+	if !strings.Contains(err.Error(), "at least 2 parts") {
+		t.Fatalf("error %v does not reject the fixture for its part count", err)
 	}
 	mp.AssertNotCalled(t, "PullTo", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 
@@ -445,6 +449,182 @@ func TestFetchFilesBigOCINonePrecheckMismatch(t *testing.T) {
 	assertAbsent(t, dest)
 }
 
+// TestFetchFilesBigOCICommittedFixtureIgnoresTitle retrieves the committed
+// two-part artifact and requires the decoded output to be named from
+// io.imgoci.filename.
+//
+// The fixture carries an OCI title that differs from that filename. Spec §8
+// says a BigOCI title is informational and has no imgoci meaning, so nothing
+// anywhere under the destination parent may be written under the title.
+func TestFetchFilesBigOCICommittedFixtureIgnoresTitle(t *testing.T) {
+	t.Parallel()
+	fx := loadBigOCIArtifact(t, bigOCIFixtureTwoPart)
+	entry := bigociEntry("disk", fx.stored, fx.stored, compressionNone, fx.manifest)
+	if fx.title == "" || fx.title == entry.Filename {
+		t.Fatalf("fixture title %q must differ from the imgoci filename %q", fx.title, entry.Filename)
+	}
+	dir := t.TempDir()
+	dest := filepath.Join(dir, entry.Filename)
+
+	m := regmocks.NewMockManifests(t)
+	m.EXPECT().Get(mock.Anything, entry.Digest.String(), entry.MediaType).
+		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
+	blobs := regmocks.NewMockBlobs(t)
+	mp := mpmocks.NewMockMultipart(t)
+	mp.EXPECT().PullTo(mock.Anything, testRepo, entry.Digest, mock.Anything, mock.Anything).
+		RunAndReturn(writePullTo(fx.stored)).Once()
+
+	err := FetchFiles(t.Context(), FetchFilesRequest{
+		Manifests:  m,
+		Blobs:      blobs,
+		Multipart:  mp,
+		Repository: testRepo,
+		Entries:    []Entry{entry},
+		ByRole:     map[string]string{"disk": dest},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertFileBytes(t, dest, fx.stored)
+	assertNoFileNamed(t, dir, fx.title)
+}
+
+// TestFetchFilesBigOCIAssembledDigestMismatch serves an assembled stored file
+// of exactly the declared length whose bytes hash differently.
+//
+// Spec §8 rule 2 makes the whole-file digest and the whole-file size two
+// independent checks. The served length equals io.bigoci.file.size, so the
+// size check passes and whole-file digest re-verification
+// ([file.ErrCacheVerify]) is the only check that can reject it.
+func TestFetchFilesBigOCIAssembledDigestMismatch(t *testing.T) {
+	t.Parallel()
+	fx := loadBigOCIArtifact(t, bigOCIFixtureTwoPart)
+	served := bytes.Clone(fx.stored)
+	served[len(served)-1] ^= 0xff
+	entry := bigociEntry("disk", fx.stored, fx.stored, compressionNone, fx.manifest)
+	if int64(len(served)) != entry.ContentSize {
+		t.Fatalf("served %d bytes, want the declared %d", len(served), entry.ContentSize)
+	}
+	dest := filepath.Join(t.TempDir(), "disk.img")
+
+	m := regmocks.NewMockManifests(t)
+	m.EXPECT().Get(mock.Anything, entry.Digest.String(), entry.MediaType).
+		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
+	blobs := regmocks.NewMockBlobs(t)
+	mp := mpmocks.NewMockMultipart(t)
+	mp.EXPECT().PullTo(mock.Anything, testRepo, entry.Digest, mock.Anything, mock.Anything).
+		RunAndReturn(writePullTo(served)).Once()
+
+	err := FetchFiles(t.Context(), FetchFilesRequest{
+		Manifests:  m,
+		Blobs:      blobs,
+		Multipart:  mp,
+		Repository: testRepo,
+		Entries:    []Entry{entry},
+		ByRole:     map[string]string{"disk": dest},
+	})
+	if !errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("error %v is not ErrDigestMismatch", err)
+	}
+	if !errors.Is(err, file.ErrCacheVerify) {
+		t.Fatalf("error %v is not the assembled whole-file digest failure", err)
+	}
+	assertAbsent(t, dest)
+}
+
+// TestFetchFilesBigOCIAssembledSizeMismatch serves the true stored file
+// against a manifest whose io.bigoci.file.size is one byte too large.
+//
+// The whole-file digest still matches the assembled bytes, so digest
+// re-verification succeeds ([file.ErrCacheVerify] is absent) and only the size
+// half of the spec §8 rule 2 check can fail. Compression is gzip because under
+// "none" the stored-equals-content precheck would fail first.
+func TestFetchFilesBigOCIAssembledSizeMismatch(t *testing.T) {
+	t.Parallel()
+	content := []byte("bigoci-assembled-size-boundary")
+	stored := gzipBytes(t, content)
+	manifest := bigOCIManifestWithAnnotation(
+		t,
+		mustBigOCIManifest(t, stored),
+		annotationBigOCIFileSize,
+		strconv.FormatInt(int64(len(stored))+1, decimalBase),
+	)
+	entry := bigociEntry("disk", content, stored, "gzip", manifest)
+	dest := filepath.Join(t.TempDir(), "disk.img")
+
+	m := regmocks.NewMockManifests(t)
+	m.EXPECT().Get(mock.Anything, entry.Digest.String(), entry.MediaType).
+		Return(manifest, index.MediaTypeManifest, nil).Once()
+	blobs := regmocks.NewMockBlobs(t)
+	mp := mpmocks.NewMockMultipart(t)
+	mp.EXPECT().PullTo(mock.Anything, testRepo, entry.Digest, mock.Anything, mock.Anything).
+		RunAndReturn(writePullTo(stored)).Once()
+
+	err := FetchFiles(t.Context(), FetchFilesRequest{
+		Manifests:  m,
+		Blobs:      blobs,
+		Multipart:  mp,
+		Repository: testRepo,
+		Entries:    []Entry{entry},
+		ByRole:     map[string]string{"disk": dest},
+	})
+	if !errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("error %v is not ErrDigestMismatch", err)
+	}
+	if !strings.Contains(err.Error(), "stored file") {
+		t.Fatalf("error %v is not the assembled whole-file failure", err)
+	}
+	if errors.Is(err, file.ErrCacheVerify) {
+		t.Fatalf("error %v failed the digest check, not the size check", err)
+	}
+	assertAbsent(t, dest)
+}
+
+// TestFetchFilesBigOCINonePrecheckSizeMismatch moves only the
+// io.bigoci.file.size annotation.
+//
+// Spec §8 requires the BigOCI whole-file digest and size to equal the imgoci
+// content digest and size when compression is "none".
+// [TestFetchFilesBigOCINonePrecheckMismatch] moves the digest; here the digest
+// annotation still equals the entry ContentDigest, so the size half of that
+// equality is the only check that can fail. Nothing is pulled.
+func TestFetchFilesBigOCINonePrecheckSizeMismatch(t *testing.T) {
+	t.Parallel()
+	fx := loadBigOCIArtifact(t, bigOCIFixtureTwoPart)
+	manifest := bigOCIManifestWithAnnotation(
+		t,
+		fx.manifest,
+		annotationBigOCIFileSize,
+		strconv.FormatInt(int64(len(fx.stored))+1, decimalBase),
+	)
+	entry := bigociEntry("disk", fx.stored, fx.stored, compressionNone, manifest)
+	dest := filepath.Join(t.TempDir(), "disk.img")
+
+	m := regmocks.NewMockManifests(t)
+	m.EXPECT().Get(mock.Anything, entry.Digest.String(), entry.MediaType).
+		Return(manifest, index.MediaTypeManifest, nil).Once()
+	blobs := regmocks.NewMockBlobs(t)
+	mp := mpmocks.NewMockMultipart(t)
+
+	err := FetchFiles(t.Context(), FetchFilesRequest{
+		Manifests:  m,
+		Blobs:      blobs,
+		Multipart:  mp,
+		Repository: testRepo,
+		Entries:    []Entry{entry},
+		ByRole:     map[string]string{"disk": dest},
+	})
+	if !errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("error %v is not ErrDigestMismatch", err)
+	}
+	if !strings.Contains(err.Error(), "none precheck") {
+		t.Fatalf("error %v is not the compression=none equality failure", err)
+	}
+	mp.AssertNotCalled(t, "PullTo", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+
+	assertAbsent(t, dest)
+}
+
 func TestFetchFilesBigOCICommitSucceedsWhenCacheLockHeld(t *testing.T) {
 	t.Parallel()
 	content := []byte("lock-held-after-commit")
@@ -663,43 +843,31 @@ func bigociEntry(role string, content, _ []byte, compression string, manifest []
 	}
 }
 
+// mustBigOCIManifest builds a valid two-part BigOCI v1 manifest for stored.
+// The part size halves the stored file, so every runtime unit fixture has the
+// at-least-two-parts shape spec §8 rule 2 requires.
+// [TestBigOCIFixturesAreValidBigOCIV1] pins this encoder to the committed
+// artifacts under testdata/bigoci/v1.
 func mustBigOCIManifest(t *testing.T, stored []byte) []byte {
 	t.Helper()
-	return mustJSONManifest(t, bigOCIMap(digest.FromBytes(stored), int64(len(stored)), 2))
+	return bigOCIManifestBytes(t, stored, bigOCIHalfPartSize(len(stored)), bigOCITitle)
 }
 
-func mustOnePartBigOCI(t *testing.T, stored []byte) []byte {
+// assertNoFileNamed requires no entry under root to be named name.
+func assertNoFileNamed(t *testing.T, root, name string) {
 	t.Helper()
-	return mustJSONManifest(t, bigOCIMap(digest.FromBytes(stored), int64(len(stored)), 1))
-}
-
-func bigOCIMap(fileDigest digest.Digest, size int64, parts int) map[string]any {
-	layers := make([]any, parts)
-	for i := range layers {
-		layers[i] = map[string]any{
-			"digest":    digest.FromBytes([]byte("part")).String(),
-			"mediaType": filemanifest.MediaTypePart,
-			"size":      6,
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
 		}
-	}
-	return map[string]any{
-		"mediaType":    index.MediaTypeManifest,
-		"artifactType": index.ArtifactTypeBigOCI,
-		"layers":       layers,
-		"annotations": map[string]any{
-			"io.bigoci.file.digest": fileDigest.String(),
-			"io.bigoci.file.size":   strconv.FormatInt(size, 10),
-		},
-	}
-}
-
-func mustJSONManifest(t *testing.T, v any) []byte {
-	t.Helper()
-	raw, err := json.Marshal(v)
+		if entry.Name() == name {
+			return fmt.Errorf("%s was written from the BigOCI title", path)
+		}
+		return nil
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return raw
 }
 
 func writePullTo(payload []byte) func(context.Context, string, digest.Digest, string, func(int64, int)) error {

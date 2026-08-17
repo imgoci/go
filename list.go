@@ -81,6 +81,10 @@ type listedGroup struct {
 // List returns every deliverable that matches q, including each role and its
 // transport alternatives, sorted per spec section 7.2. An empty result is
 // valid. Listing does not filter by consumer capabilities.
+//
+// List validates q completely before it inspects a single index entry, which
+// is after the caller's [Client.Fetch] rather than before it; see
+// [Client.Fetch] for that deviation from spec section 7.1.
 func (x *Index) List(q ListQuery) ([]Deliverable, error) {
 	if x == nil {
 		return nil, errors.New("list: nil index")

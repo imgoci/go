@@ -6,6 +6,8 @@ import (
 	"errors"
 	"hash/crc32"
 	"io"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/ulikunitz/xz"
@@ -29,7 +31,7 @@ func xzStream(t *testing.T, payload []byte) []byte {
 
 func openXZDecoder(t *testing.T, r io.Reader) io.ReadCloser {
 	t.Helper()
-	rc, err := Decoder(nameXZ)(r)
+	rc, err := Decoder(nameXZ, DefaultDecoderMaxWindow)(r)
 	if err != nil {
 		t.Fatalf("open xz: %v", err)
 	}
@@ -119,7 +121,7 @@ func TestXZCloseDoesNotProbe(t *testing.T) {
 func TestXZCorruptRejected(t *testing.T) {
 	t.Parallel()
 
-	_, err := Decoder(nameXZ)(onlyReader{r: bytes.NewReader([]byte("not xz"))})
+	_, err := Decoder(nameXZ, DefaultDecoderMaxWindow)(onlyReader{r: bytes.NewReader([]byte("not xz"))})
 	if !errors.Is(err, ErrDecode) {
 		t.Fatalf("header error %v is not ErrDecode", err)
 	}
@@ -160,6 +162,27 @@ func TestXZBoundedReaderExtraByte(t *testing.T) {
 	}
 }
 
+// TestXZBoundedReaderShortStreamPropagatesSizeMismatch covers a complete xz
+// stream whose enclosing layer descriptor declares one byte more than the
+// blob holds. The raw underrun is an integrity failure and must reach the
+// caller as [ErrSizeMismatch], not as a codec [ErrDecode].
+func TestXZBoundedReaderShortStreamPropagatesSizeMismatch(t *testing.T) {
+	t.Parallel()
+
+	stream := xzStream(t, []byte("payload"))
+	br := NewBoundedReader(bytes.NewReader(stream), int64(len(stream))+1)
+	rc := openXZDecoder(t, onlyReader{r: br})
+	t.Cleanup(func() { _ = rc.Close() })
+
+	_, err := io.ReadAll(rc)
+	if !errors.Is(err, ErrSizeMismatch) {
+		t.Fatalf("error %v is not ErrSizeMismatch", err)
+	}
+	if errors.Is(err, ErrDecode) {
+		t.Fatalf("stored-size underrun was reclassified as ErrDecode: %v", err)
+	}
+}
+
 func TestXZUnderlyingSentinelPreserved(t *testing.T) {
 	t.Parallel()
 
@@ -175,16 +198,35 @@ func TestXZUnderlyingSentinelPreserved(t *testing.T) {
 	}
 }
 
-func TestXZDictionaryBombRejected(t *testing.T) {
+func TestXZDictionaryBombRejectedAtConfiguredLimit(t *testing.T) {
 	t.Parallel()
 
 	stream := xzDictBomb(t)
 	if len(stream) >= 100 {
 		t.Fatalf("dict-bomb fixture is %d bytes, want <100", len(stream))
 	}
-	_, err := Decoder(nameXZ)(onlyReader{r: bytes.NewReader(stream)})
-	if !errors.Is(err, ErrDecode) {
-		t.Fatalf("dict bomb error %v is not ErrDecode", err)
+
+	tests := []struct {
+		name      string
+		maxWindow uint64
+	}{
+		{name: "package default", maxWindow: DefaultDecoderMaxWindow},
+		{name: "lowered limit", maxWindow: 8 << 20},
+		{name: "raised limit still under 4 GiB", maxWindow: 1 << 30},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Decoder(nameXZ, tt.maxWindow)(onlyReader{r: bytes.NewReader(stream)})
+			if !errors.Is(err, ErrDecode) {
+				t.Fatalf("dict bomb error %v is not ErrDecode", err)
+			}
+			limit := strconv.FormatUint(tt.maxWindow, 10)
+			if !strings.Contains(err.Error(), limit) {
+				t.Fatalf("error %q does not name the configured limit %s", err, limit)
+			}
+		})
 	}
 }
 

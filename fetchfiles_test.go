@@ -149,6 +149,7 @@ func TestMapFetchError(t *testing.T) {
 		},
 		{name: "digest", err: fmt.Errorf("blob: %w", transfer.ErrDigestMismatch), want: ErrDigestMismatch},
 		{name: "size_exceeded", err: fmt.Errorf("bounded: %w", decomp.ErrSizeExceeded), want: ErrDigestMismatch},
+		{name: "size_mismatch", err: fmt.Errorf("bounded: %w", decomp.ErrSizeMismatch), want: ErrDigestMismatch},
 		{name: "decode", err: fmt.Errorf("gzip: %w", decomp.ErrDecode), want: ErrDecode},
 		{name: "not_found", err: fmt.Errorf("get: %w", transfer.ErrNotFound), want: ErrNotFound},
 		{name: "unauthorized", err: fmt.Errorf("get: %w", transfer.ErrUnauthorized), want: ErrUnauthorized},

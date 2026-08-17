@@ -101,6 +101,10 @@ func (r *Resolved) IndexDigest() digest.Digest {
 // Offline selection failures (no deliverable, a selected role absent from that
 // deliverable, or no accepted compression) return a descriptive error without a
 // matchable sentinel. Only the capability filter wraps [ErrUnsupportedType].
+//
+// Resolve validates q completely before it inspects a single index entry, which
+// is after the caller's [Client.Fetch] rather than before it; see
+// [Client.Fetch] for that deviation from spec section 7.1.
 func (x *Index) Resolve(q ResolveQuery) (*Resolved, error) {
 	if x == nil {
 		return nil, errors.New("resolve: nil index")
@@ -272,11 +276,12 @@ func requireRolesPresent(roles []string, byRole map[string][]FileEntry) error {
 	return nil
 }
 
-// filterByCapabilities removes alternatives whose artifactType is outside the
-// effective capability set. It completes this step for every role before
-// returning. Failure wraps [ErrUnsupportedType] and yields no remaining map
-// mutation that callers can observe as a partial result: the input map is
-// replaced in place only after every role still has at least one alternative.
+// filterByCapabilities removes, for every selected role, the alternatives whose
+// descriptor artifactType is outside the effective capability set. It
+// implements spec section 7.3 steps 8 and 9, whose barrier requires that
+// removal to complete for every selected role before any role is failed for
+// having nothing left. Failure wraps [ErrUnsupportedType] and leaves byRole
+// untouched, so no caller observes a partial result.
 func filterByCapabilities(roles []string, byRole map[string][]FileEntry, caps Capabilities) error {
 	filtered := make(map[string][]FileEntry, len(roles))
 	for _, role := range roles {
@@ -286,27 +291,36 @@ func filterByCapabilities(roles []string, byRole map[string][]FileEntry, caps Ca
 				kept = append(kept, entry)
 			}
 		}
-		if len(kept) == 0 {
-			return fmt.Errorf("%w: role %q has no supported file-manifest type", ErrUnsupportedType, role)
-		}
 		filtered[role] = kept
 	}
+	for _, role := range roles {
+		if len(filtered[role]) == 0 {
+			return fmt.Errorf("%w: role %q has no supported file-manifest type", ErrUnsupportedType, role)
+		}
+	}
 	maps.Copy(byRole, filtered)
+
 	return nil
 }
 
-// pickCompressions chooses, for every role, the first accepted compression
-// that remains after capability filtering. It completes this step for every
-// role before returning any entries.
+// pickCompressions returns, for every selected role and in role order, the
+// first accepted compression that remains after capability filtering. It
+// implements spec section 7.3 steps 10 and 11, whose barrier requires that
+// choice to be made for every selected role before any role is failed for
+// having no accepted alternative. Failure returns no entries, so no caller
+// observes a partial selection.
 func pickCompressions(roles []string, byRole map[string][]FileEntry, compressions []string) ([]FileEntry, error) {
-	chosen := make([]FileEntry, 0, len(roles))
-	for _, role := range roles {
-		entry, ok := firstAccepted(byRole[role], compressions)
-		if !ok {
+	chosen := make([]FileEntry, len(roles))
+	accepted := make([]bool, len(roles))
+	for i, role := range roles {
+		chosen[i], accepted[i] = firstAccepted(byRole[role], compressions)
+	}
+	for i, role := range roles {
+		if !accepted[i] {
 			return nil, fmt.Errorf("resolve: role %q has no accepted compression", role)
 		}
-		chosen = append(chosen, entry)
 	}
+
 	return cloneEntries(chosen), nil
 }
 

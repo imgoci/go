@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/imgoci/go/internal/auth"
+	"github.com/imgoci/go/internal/decomp"
 )
 
 func TestNewOptionSealing(t *testing.T) {
@@ -93,6 +94,162 @@ func TestNewIgnoresNilOption(t *testing.T) {
 	t.Parallel()
 	if _, err := New(nil); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestNewDecoderMaxWindow pins the decoder window contract at construction: an
+// unset option takes [decomp.DefaultDecoderMaxWindow], an override is kept
+// verbatim in either direction, the last option named wins, and zero fails
+// construction instead of meaning "no limit".
+func TestNewDecoderMaxWindow(t *testing.T) {
+	t.Parallel()
+
+	if decomp.DefaultDecoderMaxWindow != 128<<20 {
+		t.Fatalf("DefaultDecoderMaxWindow = %d, want 128 MiB", decomp.DefaultDecoderMaxWindow)
+	}
+
+	tests := []struct {
+		name    string
+		opts    []Option
+		want    uint64
+		wantErr bool
+	}{
+		{
+			name: "unset is the package default",
+			want: decomp.DefaultDecoderMaxWindow,
+		},
+		{
+			name: "a lowered ceiling is kept verbatim",
+			opts: []Option{WithDecoderMaxWindow(8 << 20)},
+			want: 8 << 20,
+		},
+		{
+			name: "a raised ceiling is kept verbatim",
+			opts: []Option{WithDecoderMaxWindow(1 << 30)},
+			want: 1 << 30,
+		},
+		{
+			name: "the last ceiling named wins",
+			opts: []Option{WithDecoderMaxWindow(1 << 30), WithDecoderMaxWindow(16 << 20)},
+			want: 16 << 20,
+		},
+		{
+			name:    "zero is rejected",
+			opts:    []Option{WithDecoderMaxWindow(0)},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			c, err := New(tt.opts...)
+			if tt.wantErr {
+				assertDecoderMaxWindowRejected(t, c, err)
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.settings.decoderMaxWindow != tt.want {
+				t.Fatalf("decoderMaxWindow = %d, want %d", c.settings.decoderMaxWindow, tt.want)
+			}
+		})
+	}
+}
+
+// assertDecoderMaxWindowRejected requires an error naming the decoder max
+// window and no client.
+func assertDecoderMaxWindowRejected(t *testing.T, c *Client, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("New must reject a zero decoder window")
+	}
+	if c != nil {
+		t.Fatal("New must not return a client with an error")
+	}
+	if !strings.Contains(err.Error(), "decoder max window") {
+		t.Fatalf("error %q does not name the decoder max window", err)
+	}
+}
+
+// TestClientDecoderMaxWindowRejectsRealToolFixtures exercises the option
+// through Publish on stored files the reference compressors produce (the
+// committed decomp fixtures, whose provenance is recorded in
+// internal/decomp/testdata/README.md).
+//
+// At an 8 MiB ceiling both files fail with [ErrDecode] in pass 1, before a byte
+// reaches the registry. Publishing the same files at the default ceiling
+// attributes that failure to the ceiling rather than to the files.
+func TestClientDecoderMaxWindowRejectsRealToolFixtures(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		path        string
+		compression string
+	}{
+		{name: "xz -9", path: "internal/decomp/testdata/xz-9.xz", compression: "xz"},
+		{name: "zstd --long=27", path: "internal/decomp/testdata/zstd-long-27.zst", compression: "zstd"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			stored, err := os.ReadFile(tt.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			spec := fixtureReleaseSpec(t, stored, tt.compression)
+
+			lowered := clientWithDecoderMaxWindow(t, 8<<20)
+			_, err = lowered.Publish(t.Context(), "example.com/os/example:v1", spec)
+			if !errors.Is(err, ErrDecode) {
+				t.Fatalf("error %v is not ErrDecode", err)
+			}
+
+			atDefault := clientWithDecoderMaxWindow(t, decomp.DefaultDecoderMaxWindow)
+			if _, err := atDefault.Publish(t.Context(), "example.com/os/example:v1", spec); err != nil {
+				t.Fatalf("publish at the default ceiling: %v", err)
+			}
+		})
+	}
+}
+
+// clientWithDecoderMaxWindow builds a client at maxWindow whose repository
+// ports are the publish stubs, so no network is involved.
+func clientWithDecoderMaxWindow(t *testing.T, maxWindow uint64) *Client {
+	t.Helper()
+	c, err := New(WithDecoderMaxWindow(maxWindow))
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifests := &publishManifests{}
+	blobs := &publishBlobs{}
+	c.newAdapter = func(context.Context, string, string, clientSettings) (adapterPorts, error) {
+		return adapterPorts{manifests: manifests, blobs: blobs}, nil
+	}
+	return c
+}
+
+// fixtureReleaseSpec returns a one-file spec whose source holds stored bytes of
+// the named compression.
+func fixtureReleaseSpec(t *testing.T, stored []byte, compression string) ReleaseSpec {
+	t.Helper()
+	return ReleaseSpec{
+		Name:    "example",
+		Version: "1",
+		Files: []FileSpec{{
+			Source: FromFile(writePublishFile(t, "fixture.bin", stored)),
+			Selector: Selector{
+				Architecture:   "amd64",
+				Target:         "x-test-target",
+				Representation: "x-test-format",
+				Role:           "x-test-file",
+				Compression:    compression,
+			},
+			Filename: "a",
+		}},
 	}
 }
 

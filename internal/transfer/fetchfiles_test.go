@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -18,6 +19,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/imgoci/go/internal/decomp"
 	"github.com/imgoci/go/internal/file"
 	"github.com/imgoci/go/internal/filemanifest"
 	"github.com/imgoci/go/internal/index"
@@ -378,6 +380,233 @@ func TestFetchFilesHappyGzip(t *testing.T) {
 	}
 }
 
+// TestFetchFilesLayerSizeOverstatedRejected covers the spec §8 layer-size
+// check: a well-formed gzip blob of N bytes whose layer digest names exactly
+// those N bytes, inside a canonical standard manifest that declares
+// layers[0].size = N+1. Content digest and content size are correct, so every
+// digest check passes and only the stored-size equality can reject the entry.
+func TestFetchFilesLayerSizeOverstatedRejected(t *testing.T) {
+	t.Parallel()
+	content := []byte("hello imgoci overstated layer size")
+	fx := overstatedSizeFixture(t, "disk", content)
+	dest := filepath.Join(t.TempDir(), "disk.img")
+
+	m := regmocks.NewMockManifests(t)
+	m.EXPECT().Get(mock.Anything, fx.entry.Digest.String(), fx.entry.MediaType).
+		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
+	blobs := regmocks.NewMockBlobs(t)
+	blobs.EXPECT().Pull(mock.Anything, fx.layer).
+		Return(io.NopCloser(bytes.NewReader(fx.stored)), nil).Once()
+
+	var (
+		mu    sync.Mutex
+		snaps []Progress
+	)
+	err := FetchFiles(t.Context(), FetchFilesRequest{
+		Manifests: m,
+		Blobs:     blobs,
+		Entries:   []Entry{fx.entry},
+		ByRole:    map[string]string{"disk": dest},
+		Progress: func(p Progress) {
+			mu.Lock()
+			snaps = append(snaps, p)
+			mu.Unlock()
+		},
+	})
+	if err == nil {
+		t.Fatal("declared layer size N+1 over an N-byte blob verified clean")
+	}
+	if !errors.Is(err, decomp.ErrSizeMismatch) {
+		t.Fatalf("error %v is not decomp.ErrSizeMismatch", err)
+	}
+	if errors.Is(err, decomp.ErrDecode) {
+		t.Fatalf("stored-size underrun was reclassified as a decode failure: %v", err)
+	}
+	assertAbsent(t, dest)
+	assertNoSuccessTerminal(t, &mu, &snaps)
+}
+
+// TestFetchFilesStandardIntegrityBoundaries drives the spec §8 standard-path
+// integrity checks one at a time. Every row keeps the retrieved manifest and
+// the file entry mutually consistent except for the single value it moves, so
+// exactly one check can reject it.
+//
+// The gzip row flips only the gzip header MTIME: the blob keeps its declared
+// length and still decodes to the declared content, so layer-digest
+// verification on the blob stream ([portBlobReader]) is the only check left
+// that can reject it. The none row flips a stored byte under a plain reader,
+// leaving the post-decode content comparison as the rejecting check.
+func TestFetchFilesStandardIntegrityBoundaries(t *testing.T) {
+	t.Parallel()
+	content := []byte("hello imgoci standard integrity boundaries")
+	tests := []standardIntegrityCase{
+		{
+			name:       "gzip header mtime flipped under declared layer digest",
+			fixture:    gzipFixture,
+			served:     flipGzipMTime,
+			verifyPort: true,
+			wantSub:    "layer blob",
+			wantPull:   true,
+		},
+		{
+			name:     "none stored byte flipped under declared layer digest",
+			fixture:  noneFixture,
+			served:   flipFirstStoredByte,
+			wantSub:  "content",
+			wantPull: true,
+		},
+		{
+			name:     "compressed content digest mismatch after decode",
+			fixture:  gzipFixture,
+			mutate:   func(e *Entry) { e.ContentDigest = digest.FromBytes([]byte("not-the-decoded-bytes")) },
+			wantSub:  "content",
+			wantPull: true,
+		},
+		{
+			name:     "compressed decoded size short of declared content size",
+			fixture:  gzipFixture,
+			mutate:   func(e *Entry) { e.ContentSize++ },
+			wantSub:  "content",
+			wantPull: true,
+		},
+		{
+			name:    "none content size disagrees with layer size",
+			fixture: noneFixture,
+			mutate:  func(e *Entry) { e.ContentSize++ },
+			wantSub: "none precheck",
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			fx := tc.fixtureFor(t, content)
+			served := tc.servedBlob(t, fx.stored)
+
+			m := regmocks.NewMockManifests(t)
+			m.EXPECT().Get(mock.Anything, fx.entry.Digest.String(), fx.entry.MediaType).
+				Return(fx.manifest, index.MediaTypeManifest, nil).Once()
+			var mismatched atomic.Bool
+			blobs := regmocks.NewMockBlobs(t)
+			if tc.wantPull {
+				blobs.EXPECT().Pull(mock.Anything, fx.layer).
+					RunAndReturn(func(_ context.Context, dgst digest.Digest) (io.ReadCloser, error) {
+						if tc.verifyPort {
+							return newPortBlobReader(served, dgst, &mismatched), nil
+						}
+						return io.NopCloser(bytes.NewReader(served)), nil
+					}).Once()
+			}
+
+			var (
+				mu    sync.Mutex
+				snaps []Progress
+			)
+			dest := filepath.Join(t.TempDir(), "disk.img")
+			err := FetchFiles(t.Context(), FetchFilesRequest{
+				Manifests: m,
+				Blobs:     blobs,
+				Entries:   []Entry{fx.entry},
+				ByRole:    map[string]string{"disk": dest},
+				Progress: func(p Progress) {
+					mu.Lock()
+					snaps = append(snaps, p)
+					mu.Unlock()
+				},
+			})
+			tc.assertRejected(t, standardIntegrityResult{
+				err:        err,
+				dest:       dest,
+				mismatched: &mismatched,
+				blobs:      blobs,
+				mu:         &mu,
+				snaps:      &snaps,
+			})
+		})
+	}
+}
+
+// TestFetchFilesNoAlternativeAfterIntegrityFailure covers spec §8:773-777: an
+// integrity failure fails the complete resolved result and must not make the
+// consumer select another transport alternative. A second, honest alternative
+// of the same role is servable, so a fallback would succeed and commit; the
+// mock call log shows it was never requested.
+func TestFetchFilesNoAlternativeAfterIntegrityFailure(t *testing.T) {
+	t.Parallel()
+	selected := gzipFixture(t, "disk", []byte("hello imgoci selected alternative"))
+	selected.entry.ContentDigest = digest.FromBytes([]byte("not-the-decoded-bytes"))
+	alt := noneFixture(t, "disk", []byte("hello imgoci fallback alternative"))
+	if alt.entry.Digest == selected.entry.Digest || alt.layer == selected.layer {
+		t.Fatal("the alternative must be a distinct manifest and layer")
+	}
+
+	var (
+		mu    sync.Mutex
+		gets  = map[string]int{}
+		pulls = map[digest.Digest]int{}
+		snaps []Progress
+	)
+	m := regmocks.NewMockManifests(t)
+	m.EXPECT().Get(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, ref, _ string) ([]byte, string, error) {
+			mu.Lock()
+			gets[ref]++
+			mu.Unlock()
+			switch ref {
+			case selected.entry.Digest.String():
+				return selected.manifest, index.MediaTypeManifest, nil
+			case alt.entry.Digest.String():
+				return alt.manifest, index.MediaTypeManifest, nil
+			default:
+				return nil, "", ErrNotFound
+			}
+		})
+	blobs := regmocks.NewMockBlobs(t)
+	blobs.EXPECT().Pull(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, dgst digest.Digest) (io.ReadCloser, error) {
+			mu.Lock()
+			pulls[dgst]++
+			mu.Unlock()
+			switch dgst {
+			case selected.layer:
+				return io.NopCloser(bytes.NewReader(selected.stored)), nil
+			case alt.layer:
+				return io.NopCloser(bytes.NewReader(alt.stored)), nil
+			default:
+				return nil, ErrNotFound
+			}
+		})
+
+	dest := filepath.Join(t.TempDir(), "disk.img")
+	err := FetchFiles(t.Context(), FetchFilesRequest{
+		Manifests: m,
+		Blobs:     blobs,
+		Entries:   []Entry{selected.entry},
+		ByRole:    map[string]string{"disk": dest},
+		Progress: func(p Progress) {
+			mu.Lock()
+			snaps = append(snaps, p)
+			mu.Unlock()
+		},
+	})
+	if !errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("error %v is not ErrDigestMismatch", err)
+	}
+
+	assertAbsent(t, dest)
+	assertNoSuccessTerminal(t, &mu, &snaps)
+
+	mu.Lock()
+	defer mu.Unlock()
+	wantGets := map[string]int{selected.entry.Digest.String(): 1}
+	wantPulls := map[digest.Digest]int{selected.layer: 1}
+	if !maps.Equal(gets, wantGets) {
+		t.Fatalf("manifest fetches %v, want %v: no alternative may be fetched", gets, wantGets)
+	}
+	if !maps.Equal(pulls, wantPulls) {
+		t.Fatalf("layer pulls %v, want %v: no alternative may be fetched", pulls, wantPulls)
+	}
+}
+
 func TestFetchFilesRegistrySentinels(t *testing.T) {
 	t.Parallel()
 	fx := noneFixture(t, "disk", []byte("payload"))
@@ -499,6 +728,18 @@ func gzipFixture(t *testing.T, role string, content []byte) fileFixture {
 	return newFixture(t, role, content, gzipBytes(t, content), "gzip")
 }
 
+// overstatedSizeFixture builds a gzip fixture whose manifest declares
+// layers[0].size one byte larger than the blob its layer digest names. Every
+// other field, including the manifest digest, is consistent.
+func overstatedSizeFixture(t *testing.T, role string, content []byte) fileFixture {
+	t.Helper()
+	fx := gzipFixture(t, role, content)
+	fx.manifest = canonicalManifest(t, fx.layer, int64(len(fx.stored))+1)
+	fx.entry.Digest = digest.FromBytes(fx.manifest)
+	fx.entry.Size = int64(len(fx.manifest))
+	return fx
+}
+
 func newFixture(t *testing.T, role string, content, stored []byte, compression string) fileFixture {
 	t.Helper()
 	layer := digest.FromBytes(stored)
@@ -524,7 +765,16 @@ func newFixture(t *testing.T, role string, content, stored []byte, compression s
 	}
 }
 
+// mustCanonicalManifest encodes a canonical standard file manifest whose
+// layer descriptor agrees with stored.
 func mustCanonicalManifest(t *testing.T, stored []byte) []byte {
+	t.Helper()
+	return canonicalManifest(t, digest.FromBytes(stored), int64(len(stored)))
+}
+
+// canonicalManifest encodes a canonical standard file manifest declaring the
+// given layer digest and size, which need not describe the same bytes.
+func canonicalManifest(t *testing.T, layer digest.Digest, size int64) []byte {
 	t.Helper()
 	raw, err := jcs.Encode(map[string]any{
 		"artifactType": index.ArtifactTypeFile,
@@ -535,9 +785,9 @@ func mustCanonicalManifest(t *testing.T, stored []byte) []byte {
 		},
 		"layers": []any{
 			map[string]any{
-				"digest":    digest.FromBytes(stored).String(),
+				"digest":    layer.String(),
 				"mediaType": filemanifest.MediaTypeLayer,
-				"size":      int64(len(stored)),
+				"size":      size,
 			},
 		},
 		"mediaType":     index.MediaTypeManifest,

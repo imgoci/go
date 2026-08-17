@@ -4,6 +4,7 @@ package imgoci
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -109,6 +110,35 @@ func TestE2EOverlongLayer(t *testing.T) {
 	assertNoFile(t, filepath.Join(dir, file.filename))
 }
 
+// TestE2EStandardLayerCorruptedAfterPublish fails FetchFiles with
+// [ErrDigestMismatch], and writes nothing to the destination, when a standard
+// file layer blob is corrupted after publication.
+//
+// Content-addressed registries refuse a digest-mismatched overwrite, so a
+// reverse proxy bit-flips the layer GET body and keeps its length: a short read
+// would be retried via Range and still verify, while a same-length change is
+// terminal. The metal role is compression=none, so the flipped byte is decoded
+// content and both the declared layer digest and the index content digest name
+// other bytes.
+func TestE2EStandardLayerCorruptedAfterPublish(t *testing.T) {
+	t.Parallel()
+	backend := startRegistry(t, e2eDistribution)
+	repo := testRepo(t)
+	seeded := seedCanonicalRelease(t, backend, repo, e2eCreds{})
+	client := newE2EClient(t, e2eCreds{})
+	front := startTruncatingBlobProxy(t, backend)
+	rel := mustFetch(t, client, tagRef(front, repo))
+	sel := resolveMetal(t, client, rel)
+
+	dir := t.TempDir()
+	err := client.FetchFiles(t.Context(), rel, sel, ToDir(dir))
+	if !errors.Is(err, ErrDigestMismatch) {
+		t.Fatalf("err = %v, want ErrDigestMismatch", err)
+	}
+	assertNoFile(t, filepath.Join(dir, seeded.metal.filename))
+	assertNoDestFile(t, dir)
+}
+
 // TestE2ESecondRoleCorrupt commits neither incus-vm role when metadata fails
 // verification after disk has already been eligible to stage.
 func TestE2ESecondRoleCorrupt(t *testing.T) {
@@ -193,4 +223,22 @@ func TestE2EHtpasswdAuth(t *testing.T) {
 			t.Fatalf("anonymous: err = %v, want ErrUnauthorized", err)
 		}
 	})
+}
+
+// assertNoDestFile requires dir to hold no file after a failed fetch. Empty
+// directories may remain: internal/file removes the per-call workspace and
+// unlinks the staging root best-effort.
+func assertNoDestFile(t *testing.T, dir string) {
+	t.Helper()
+	if err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !d.IsDir() {
+			t.Errorf("destination holds %s after a failed fetch", path)
+		}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
 }

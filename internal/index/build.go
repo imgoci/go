@@ -77,12 +77,15 @@ type wireDescriptor struct {
 
 // Build constructs a canonical release index from m.
 //
-// Descriptors are sorted by the five-field UTF-8 byte-order tuple and encoded
-// with [jcs.Encode]. The result is intended to pass [Decode], [Validate], and
-// [VerifyCanonical]; Build does not re-check that itself.
+// Producer-only selector-registry and annotation-location rules run first, then
+// descriptors are sorted by the five-field UTF-8 byte-order tuple, validated
+// with [Validate], and encoded with [jcs.Encode].
 func Build(m *Model) ([]byte, error) {
 	if m == nil {
 		return nil, errors.New("model is nil")
+	}
+	if err := validateProducerModel(m); err != nil {
+		return nil, err
 	}
 	v, err := valueFromModel(m)
 	if err != nil {

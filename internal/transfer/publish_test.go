@@ -138,8 +138,8 @@ func TestPublishOrderManifestsAfterBlobsIndexLast(t *testing.T) {
 		Name:    "example",
 		Version: "1",
 		Entries: []PublishEntry{
-			publishEntry(a, "file-a", compressionNone, "a"),
-			publishEntry(b, "file-b", compressionNone, "b"),
+			publishEntry(a, "disk", compressionNone, "a"),
+			publishEntry(b, "kernel", compressionNone, "b"),
 		},
 	})
 	if err != nil {
@@ -201,8 +201,8 @@ func TestPublishDedupeSamePath(t *testing.T) {
 		Name:    "example",
 		Version: "1",
 		Entries: []PublishEntry{
-			publishEntry(path, "file-a", compressionNone, "a"),
-			publishEntry(path, "file-b", compressionNone, "b"),
+			publishEntry(path, "disk", compressionNone, "a"),
+			publishEntry(path, "kernel", compressionNone, "b"),
 		},
 		Progress: func(p Progress) { snaps = append(snaps, p) },
 	})
@@ -244,8 +244,8 @@ func TestPublishDedupeIdenticalBytesDifferentPaths(t *testing.T) {
 		Name:    "example",
 		Version: "1",
 		Entries: []PublishEntry{
-			publishEntry(a, "file-a", compressionNone, "a"),
-			publishEntry(b, "file-b", compressionNone, "b"),
+			publishEntry(a, "disk", compressionNone, "a"),
+			publishEntry(b, "kernel", compressionNone, "b"),
 		},
 	})
 	if err != nil {
@@ -318,8 +318,8 @@ func TestPublishEmptyConfigPushedOnceBeforeManifests(t *testing.T) {
 		Name:    "example",
 		Version: "1",
 		Entries: []PublishEntry{
-			publishEntry(a, "file-a", compressionNone, "a"),
-			publishEntry(b, "file-b", compressionNone, "b"),
+			publishEntry(a, "disk", compressionNone, "a"),
+			publishEntry(b, "kernel", compressionNone, "b"),
 		},
 	})
 	if err != nil {
@@ -473,12 +473,14 @@ func TestPublishWorkerBound(t *testing.T) {
 	const n = 4
 	entries := make([]PublishEntry, n)
 	for i := range n {
-		role := string(rune('a' + i))
+		name := string(rune('a' + i))
+		// Distinct producer-defined roles keep every entry in its own
+		// spec §6 rule 5 tuple without exhausting the five public roles.
 		entries[i] = publishEntry(
-			writeTemp(t, role+".bin", []byte("content-"+role)),
-			"file-"+role,
+			writeTemp(t, name+".bin", []byte("content-"+name)),
+			"x-test-file-"+name,
 			compressionNone,
-			role,
+			name,
 		)
 	}
 
@@ -658,7 +660,7 @@ func TestPublishSharedBlobDisagreement(t *testing.T) {
 					Architecture:   "amd64",
 					Target:         "x-test-target",
 					Representation: "x-test-format",
-					Role:           "file-a",
+					Role:           "disk",
 					Compression:    "gzip",
 				},
 				Filename: "a",
@@ -669,7 +671,7 @@ func TestPublishSharedBlobDisagreement(t *testing.T) {
 					Architecture:   "arm64",
 					Target:         "x-test-target",
 					Representation: "x-test-format",
-					Role:           "file-b",
+					Role:           "kernel",
 					Compression:    compressionNone,
 				},
 				Filename: "b",

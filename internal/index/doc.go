@@ -21,6 +21,9 @@
 //     original bytes rather than the semantic [Value].
 //
 // [Build] is the producer path: it constructs a fixed-shape index from a
-// [Model], sorts descriptors by the five-field UTF-8 tuple, and encodes RFC
-// 8785-canonical bytes with [github.com/imgoci/go/internal/jcs.Encode].
+// [Model], applies the producer-only registry and annotation-location rules,
+// sorts descriptors by the five-field UTF-8 tuple, and encodes RFC
+// 8785-canonical bytes with [github.com/imgoci/go/internal/jcs.Encode]. Spec §6
+// and §12 require a consumer to accept producer-only violations, so [Validate]
+// does not apply those rules.
 package index

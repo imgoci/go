@@ -36,10 +36,23 @@ const (
 	zstdSkippableNibbleMask = 0xf0
 	// zstdSkippableNibble is the high nibble of skippable magic byte 0 (0x50–0x5F).
 	zstdSkippableNibble = 0x50
-	// maxDecodeWindow is the largest zstd window or xz LZMA2 dictionary this
-	// package will allocate. 8 MiB is the zstd CLI default window for
-	// compression levels ≤19 and ulikunitz/xz's default DictCap.
-	maxDecodeWindow = 8 << 20
+	// zstdBackstopMin is the smallest ceiling [zstd.WithDecoderMaxWindow]
+	// accepts (1 KiB, [zstd.MinWindowSize]).
+	zstdBackstopMin uint64 = zstd.MinWindowSize
+	// zstdMaxWindowLog is the largest Window_Log the zstd format allows; the
+	// base term of a Window_Size is 1<<Window_Log.
+	zstdMaxWindowLog = 41
+	// zstdWindowMantissaShift is how far below Window_Log the Window_Descriptor
+	// mantissa term is scaled: Mantissa << (Window_Log - 3).
+	zstdWindowMantissaShift = 3
+	// zstdMaxWindowMantissa is the largest value of the 3-bit
+	// Window_Descriptor mantissa field.
+	zstdMaxWindowMantissa = 7
+	// zstdBackstopMax is the largest ceiling [zstd.WithDecoderMaxWindow]
+	// accepts: the largest Window_Size the format can express,
+	// (1<<41)+7*(1<<38) ≈ 3.75 TiB. The library does not export it.
+	zstdBackstopMax uint64 = (1 << zstdMaxWindowLog) +
+		zstdMaxWindowMantissa*(1<<(zstdMaxWindowLog-zstdWindowMantissaShift))
 )
 
 // zstdSkippableMagicTail is bytes 1–3 of a skippable-frame magic (LE 0x184D2A5?).
@@ -83,10 +96,11 @@ type zstdLimitReader struct {
 	done bool
 }
 
-// openZstd constructs a strict single-frame zstd decoder over r.
-func openZstd(r io.Reader) (io.ReadCloser, error) {
+// openZstd constructs a strict single-frame zstd decoder over r, refusing a
+// frame that needs a decode window above maxWindow.
+func openZstd(r io.Reader, maxWindow uint64) (io.ReadCloser, error) {
 	br := bufio.NewReader(r)
-	h, err := inspectZstdHeader(br)
+	h, err := inspectZstdHeader(br, maxWindow)
 	if err != nil {
 		return nil, err
 	}
@@ -94,12 +108,23 @@ func openZstd(r io.Reader) (io.ReadCloser, error) {
 	zr, err := zstd.NewReader(
 		limited,
 		zstd.WithDecoderConcurrency(1),
-		zstd.WithDecoderMaxWindow(uint64(maxDecodeWindow)),
+		zstd.WithDecoderMaxWindow(zstdBackstopWindow(maxWindow)),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("zstd: header: %w: %w", ErrDecode, err)
 	}
 	return &zstdReader{br: br, zr: zr}, nil
+}
+
+// zstdBackstopWindow returns the ceiling handed to the klauspost decoder,
+// clamped into the range [zstd.WithDecoderMaxWindow] accepts.
+//
+// [inspectZstdHeader] has already applied the configured policy, so this is
+// only a backstop against a frame whose requirement the header walk
+// understated. An out-of-range ceiling makes WithDecoderMaxWindow fail,
+// which would surface a caller's configuration error as a decode failure.
+func zstdBackstopWindow(maxWindow uint64) uint64 {
+	return min(max(maxWindow, zstdBackstopMin), zstdBackstopMax)
 }
 
 // Read decompressed bytes from the single zstd frame. When the frame ends,
@@ -151,22 +176,23 @@ func (z *zstdReader) probeTrailing() error {
 }
 
 // wrapZstdRead maps a non-EOF zstd read error onto [ErrDecode], preserving
-// [ErrSizeExceeded] from a [BoundedReader] beneath the decoder.
+// [ErrSizeExceeded] and [ErrSizeMismatch] from a [BoundedReader] beneath the
+// decoder.
 func wrapZstdRead(err error) error {
-	if errors.Is(err, ErrSizeExceeded) {
+	if sizeSentinel(err) {
 		return err
 	}
 	return fmt.Errorf("zstd: %w: %w", ErrDecode, err)
 }
 
 // inspectZstdHeader peeks the frame header. Skippable frames,
-// dictionary-required frames, and windows above [maxDecodeWindow] fail wrapping
-// [ErrDecode] before a decoder is constructed.
+// dictionary-required frames, and frames whose decode window exceeds
+// maxWindow fail wrapping [ErrDecode] before a decoder is constructed.
 //
 // The peek is [zstd.HeaderMaxSize] plus the 4-byte magic so a Frame_Header
 // with Dictionary_ID_Flag=3 (4-byte DID) and Frame_Content_Size_Flag=3
 // (8-byte FCS) is not short of the bytes [zstd.Header.Decode] needs.
-func inspectZstdHeader(br *bufio.Reader) (zstd.Header, error) {
+func inspectZstdHeader(br *bufio.Reader, maxWindow uint64) (zstd.Header, error) {
 	peeked, err := br.Peek(zstd.HeaderMaxSize + zstdMagicSize)
 	if len(peeked) < zstdMagicSize {
 		if err == nil {
@@ -184,13 +210,27 @@ func inspectZstdHeader(br *bufio.Reader) (zstd.Header, error) {
 	if h.DictionaryID != 0 {
 		return zstd.Header{}, fmt.Errorf("zstd: dictionary-required frame: %w", ErrDecode)
 	}
-	if !h.SingleSegment && h.WindowSize > uint64(maxDecodeWindow) {
+	if need := zstdDecodeWindow(h); need > maxWindow {
 		return zstd.Header{}, fmt.Errorf(
-			"zstd: window size %d exceeds %d: %w",
-			h.WindowSize, maxDecodeWindow, ErrDecode,
+			"zstd: frame requires a %d-byte decode window, above the %d-byte limit: %w",
+			need, maxWindow, ErrDecode,
 		)
 	}
 	return h, nil
+}
+
+// zstdDecodeWindow returns the buffer size a frame requires to decode.
+//
+// An ordinary frame declares Window_Size. A Single_Segment frame declares no
+// window and is decoded into one buffer the size of its Frame_Content_Size,
+// which the format requires such a frame to carry. Checking here rather than
+// letting the decoder hit its own ceiling keeps a window rejection from
+// surfacing as klauspost's "decompressed size exceeds configured limit".
+func zstdDecodeWindow(h zstd.Header) uint64 {
+	if h.SingleSegment {
+		return h.FrameContentSize
+	}
+	return h.WindowSize
 }
 
 // zstdSkippableMagic reports whether magic is a skippable-frame magic

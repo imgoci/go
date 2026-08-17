@@ -24,6 +24,17 @@ func TestValidateRule1(t *testing.T) {
 		{name: "missing name", mut: func(v *Value) { delete(v.Annotations, AnnotationName) }},
 		{name: "missing version", mut: func(v *Value) { delete(v.Annotations, AnnotationVersion) }},
 		{name: "version with space", mut: func(v *Value) { v.Annotations[AnnotationVersion] = "1 2" }},
+		// spec §5.1: the release version is 1 to 128 printable ASCII characters,
+		// so C0 control characters and DEL are excluded.
+		{name: "version too long", mut: func(v *Value) {
+			v.Annotations[AnnotationVersion] = strings.Repeat("9", maxReleaseVersion+1)
+		}},
+		{name: "version with control character", mut: func(v *Value) {
+			v.Annotations[AnnotationVersion] = "1\x01"
+		}},
+		{name: "version with DEL", mut: func(v *Value) {
+			v.Annotations[AnnotationVersion] = "1\x7f"
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -55,6 +66,26 @@ func TestValidateRule2(t *testing.T) {
 			mut:  func(v *Value) { delete(v.Manifests[0].Annotations, AnnotationContentDigest) },
 		},
 		{name: "missing annotations", mut: func(v *Value) { v.Manifests[0].annotationsSet = false }},
+		// spec §5.2: each of the eight required descriptor annotations is
+		// individually mandatory.
+		{name: "missing architecture", mut: func(v *Value) {
+			delete(v.Manifests[0].Annotations, AnnotationArchitecture)
+		}},
+		{name: "missing target", mut: func(v *Value) {
+			delete(v.Manifests[0].Annotations, AnnotationTarget)
+		}},
+		{name: "missing representation", mut: func(v *Value) {
+			delete(v.Manifests[0].Annotations, AnnotationRepresentation)
+		}},
+		{name: "missing role", mut: func(v *Value) {
+			delete(v.Manifests[0].Annotations, AnnotationRole)
+		}},
+		{name: "missing compression", mut: func(v *Value) {
+			delete(v.Manifests[0].Annotations, AnnotationCompression)
+		}},
+		{name: "missing content size", mut: func(v *Value) {
+			delete(v.Manifests[0].Annotations, AnnotationContentSize)
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -95,6 +126,39 @@ func TestValidateRule3(t *testing.T) {
 		}},
 		{name: "bad content digest", mut: func(v *Value) {
 			v.Manifests[0].Annotations[AnnotationContentDigest] = "sha256:ZZ"
+		}},
+		// spec §5.3: target, representation, role, and compression are each
+		// validated as a basic token on their own.
+		{name: "malformed target", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationTarget] = "x-test-target-"
+		}},
+		{name: "malformed representation", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationRepresentation] = "X-Test-Format"
+		}},
+		{name: "malformed role", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationRole] = "x..test"
+		}},
+		{name: "empty compression", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationCompression] = ""
+		}},
+		// spec §5.3: a basic token holds at most 128 ASCII bytes.
+		{name: "overlong target token", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationTarget] = strings.Repeat("t", maxBasicTokenBytes+1)
+		}},
+		// spec §5.3: a filename holds at most 255 ASCII bytes.
+		{name: "overlong filename", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationFilename] = "a" + strings.Repeat("b", maxFilenameBytes-1) + "a"
+		}},
+		// spec §5.3: a filename is one path component and must not be . or ..
+		{name: "dot filename", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationFilename] = "."
+		}},
+		{name: "dot dot filename", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationFilename] = ".."
+		}},
+		// spec §5.3: content.digest hex digits must be lowercase.
+		{name: "uppercase content digest", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationContentDigest] = "sha256:" + strings.Repeat("A", sha256HexLength)
 		}},
 	}
 	for _, tc := range tests {
@@ -147,11 +211,103 @@ func TestValidateRule4(t *testing.T) {
 				),
 			),
 		},
+		// spec §5.4: the raw-4kn and iso representations each require the disk role.
+		{
+			name: "raw-4kn missing disk",
+			v: validValue(validDescriptor(
+				"amd64", "x-test-target", "raw-4kn", "x-test-file", "none",
+				"a", testContentDigestA, "0", testManifestDigest1, 1,
+			)),
+		},
+		{
+			name: "iso missing disk",
+			v: validValue(validDescriptor(
+				"amd64", "x-test-target", "iso", "x-test-file", "none",
+				"a", testContentDigestA, "0", testManifestDigest1, 1,
+			)),
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assertRule(t, Validate(tc.v), specRuleRoles)
+		})
+	}
+}
+
+// TestValidateAcceptsBoundaryValues holds the accepting side of the spec §5.1,
+// §5.2, and §5.3 value boundaries: a check stricter than the spec fails here.
+func TestValidateAcceptsBoundaryValues(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		mut  func(*Value)
+	}{
+		// spec §5.3: a basic token may be 128 ASCII bytes long.
+		{name: "target token 128 bytes", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationTarget] = strings.Repeat("t", maxBasicTokenBytes)
+		}},
+		// spec §5.3: a filename may be 255 ASCII bytes long.
+		{name: "filename 255 bytes", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationFilename] = "a" + strings.Repeat("b", maxFilenameBytes-2) + "a"
+		}},
+		// spec §5.2: descriptor size may be 9007199254740991.
+		{name: "size at 2^53-1", mut: func(v *Value) { v.Manifests[0].Size = maxManifestSize }},
+		// spec §5.1: the release version may be 1 to 128 printable ASCII characters.
+		{name: "version one character", mut: func(v *Value) { v.Annotations[AnnotationVersion] = "7" }},
+		{name: "version 128 characters", mut: func(v *Value) {
+			v.Annotations[AnnotationVersion] = strings.Repeat("9", maxReleaseVersion)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			v := cloneValue(validValue())
+			tc.mut(v)
+			if err := Validate(v); err != nil {
+				t.Fatalf("Validate rejected a boundary value: %v", err)
+			}
+		})
+	}
+}
+
+// TestValidateRejectsWholeIndexForLaterDescriptor covers spec §6: an invalid
+// entry anywhere invalidates the whole index, so validation does not stop after
+// a valid first descriptor.
+func TestValidateRejectsWholeIndexForLaterDescriptor(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		mut  func(*Descriptor)
+		rule int
+	}{
+		{
+			name: "second descriptor missing filename annotation",
+			mut:  func(d *Descriptor) { delete(d.Annotations, AnnotationFilename) },
+			rule: specRuleDescriptor,
+		},
+		{
+			name: "second descriptor malformed filename",
+			mut:  func(d *Descriptor) { d.Annotations[AnnotationFilename] = "not/a-filename" },
+			rule: specRuleSyntax,
+		},
+	}
+	first := validDescriptor(
+		"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+		"a", testContentDigestA, "0", testManifestDigest1, 1,
+	)
+	if err := Validate(validValue(first)); err != nil {
+		t.Fatalf("first descriptor must be valid on its own: %v", err)
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			second := validDescriptor(
+				"amd64", "x-test-target", "x-test-format", "x-test-other", "none",
+				"b", testContentDigestB, "0", testManifestDigest2, 1,
+			)
+			tc.mut(&second)
+			assertRule(t, Validate(validValue(first, second)), tc.rule)
 		})
 	}
 }
@@ -211,17 +367,70 @@ func TestValidateRule5(t *testing.T) {
 	assertRule(t, Validate(validValue(d1, d2)), specRuleSelector)
 }
 
-func TestValidateRule6(t *testing.T) {
-	t.Parallel()
+// rule6Pair returns two valid transport alternatives for one file: the same
+// (architecture, target, representation, role) under different compressions,
+// agreeing on content digest, content size, and filename as spec §6 rule 6
+// requires. The pair is already in canonical order.
+func rule6Pair() (Descriptor, Descriptor) {
 	gzip := validDescriptor(
 		"amd64", "x-test-target", "x-test-format", "x-test-file", "gzip",
 		"a", testContentDigestA, "1", testManifestDigest1, 1,
 	)
 	none := validDescriptor(
 		"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
-		"a", testContentDigestB, "1", testManifestDigest2, 1,
+		"a", testContentDigestA, "1", testManifestDigest2, 1,
 	)
-	assertRule(t, Validate(validValue(gzip, none)), specRuleFileIdentity)
+	return gzip, none
+}
+
+// TestValidateRule6 covers spec §6 rule 6: transport alternatives for one file
+// must agree on content digest, content size, and filename.
+//
+// Each case mutates one of the three fields on an otherwise valid pair, and the
+// baseline assertion proves the unmutated pair validates, so a failure can only
+// come from the mutation.
+func TestValidateRule6(t *testing.T) {
+	t.Parallel()
+	base := func() *Value {
+		gzip, none := rule6Pair()
+		return validValue(gzip, none)
+	}
+	if err := Validate(base()); err != nil {
+		t.Fatalf("unmutated pair must validate: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		// mutate disagrees with the first alternative on one rule-6 field.
+		mutate func(*Descriptor)
+	}{
+		{
+			name: "different content digest",
+			mutate: func(d *Descriptor) {
+				d.Annotations[AnnotationContentDigest] = testContentDigestB
+			},
+		},
+		{
+			name: "different content size",
+			mutate: func(d *Descriptor) {
+				d.Annotations[AnnotationContentSize] = "2"
+			},
+		},
+		{
+			name: "different filename",
+			mutate: func(d *Descriptor) {
+				d.Annotations[AnnotationFilename] = "b"
+			},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			v := base()
+			tc.mutate(&v.Manifests[1])
+			assertRule(t, Validate(v), specRuleFileIdentity)
+		})
+	}
 }
 
 func TestValidateRule7(t *testing.T) {
@@ -237,45 +446,145 @@ func TestValidateRule7(t *testing.T) {
 	assertRule(t, Validate(validValue(a, b)), specRuleFilename)
 }
 
+// rule8Pair returns two valid descriptors that share a file-manifest digest
+// and differ only in architecture, which spec §6 rule 8 permits. The pair is
+// already in canonical order.
+func rule8Pair() (Descriptor, Descriptor) {
+	left := validDescriptor(
+		"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+		"a", testContentDigestA, "1", testManifestDigest1, 1,
+	)
+	right := validDescriptor(
+		"arm64", "x-test-target", "x-test-format", "x-test-file", "none",
+		"a", testContentDigestA, "1", testManifestDigest1, 1,
+	)
+	return left, right
+}
+
+// TestValidateRule8 covers spec §6 rule 8: two descriptors naming the same file
+// manifest must agree on artifact type, descriptor size, compression, content
+// digest, and content size.
+//
+// Each case mutates one of those fields on an otherwise valid shared pair. The
+// pair differs in architecture, which keeps the file key distinct so rule 6 does
+// not fire first on the content mutations.
+//
+// Descriptor media type is the sixth field rule 8 names and has no reachable
+// case: rule 2 already requires every descriptor mediaType to identify
+// [MediaTypeManifest], and rule 8 compares media types with [equalMediaType],
+// so any spelling that survives rule 2 also compares equal under rule 8.
 func TestValidateRule8(t *testing.T) {
+	t.Parallel()
+	base := func() *Value {
+		left, right := rule8Pair()
+		return validValue(left, right)
+	}
+	if err := Validate(base()); err != nil {
+		t.Fatalf("unmutated shared-digest pair must validate: %v", err)
+	}
+
+	tests := []struct {
+		name string
+		// mutate disagrees with the first descriptor on one rule-8 field.
+		mutate func(*Descriptor)
+	}{
+		{
+			name:   "different artifactType",
+			mutate: func(d *Descriptor) { d.ArtifactType = ArtifactTypeBigOCI },
+		},
+		{
+			name:   "different descriptor size",
+			mutate: func(d *Descriptor) { d.Size = 2 },
+		},
+		{
+			name:   "different compression",
+			mutate: func(d *Descriptor) { d.Annotations[AnnotationCompression] = "gzip" },
+		},
+		{
+			name:   "different content digest",
+			mutate: func(d *Descriptor) { d.Annotations[AnnotationContentDigest] = testContentDigestB },
+		},
+		{
+			name:   "different content size",
+			mutate: func(d *Descriptor) { d.Annotations[AnnotationContentSize] = "2" },
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			v := base()
+			tc.mutate(&v.Manifests[1])
+			assertRule(t, Validate(v), specRuleSharedManifest)
+		})
+	}
+}
+
+// TestValidateRule8PermittedDifferences covers spec §6 rule 8: descriptors that
+// share a file-manifest digest may differ in architecture, target,
+// representation, role, and filename.
+//
+// The role case also changes filename, because rule 7 forbids two roles in one
+// deliverable from sharing a filename and would fire first. Filename is
+// exercised again across two targets, where rule 7 does not apply. Every pair
+// is written in canonical order so rule 9 does not fire first.
+func TestValidateRule8PermittedDifferences(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
 		name string
 		v    *Value
 	}{
 		{
-			name: "shared digest different compression",
+			name: "architecture",
 			v: validValue(
-				validDescriptor(
-					"amd64", "x-test-target", "x-test-format", "x-test-file", "gzip",
-					"a", testContentDigestA, "1", testManifestDigest1, 1,
-				),
-				validDescriptor(
-					"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
-					"a", testContentDigestA, "1", testManifestDigest1, 1,
-				),
+				validDescriptor("amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+					"a", testContentDigestA, "1", testManifestDigest1, 1),
+				validDescriptor("arm64", "x-test-target", "x-test-format", "x-test-file", "none",
+					"a", testContentDigestA, "1", testManifestDigest1, 1),
 			),
 		},
 		{
-			name: "shared digest different artifactType",
-			v: func() *Value {
-				left := validDescriptor(
-					"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
-					"a", testContentDigestA, "0", testManifestDigest1, 1,
-				)
-				right := validDescriptor(
-					"arm64", "x-test-target", "x-test-format", "x-test-file", "none",
-					"a", testContentDigestA, "0", testManifestDigest1, 1,
-				)
-				right.ArtifactType = ArtifactTypeBigOCI
-				return validValue(left, right)
-			}(),
+			name: "target",
+			v: validValue(
+				validDescriptor("amd64", "x-test-other-target", "x-test-format", "x-test-file", "none",
+					"a", testContentDigestA, "1", testManifestDigest1, 1),
+				validDescriptor("amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+					"a", testContentDigestA, "1", testManifestDigest1, 1),
+			),
+		},
+		{
+			name: "representation",
+			v: validValue(
+				validDescriptor("amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+					"a", testContentDigestA, "1", testManifestDigest1, 1),
+				validDescriptor("amd64", "x-test-target", "x-test-other-format", "x-test-file", "none",
+					"a", testContentDigestA, "1", testManifestDigest1, 1),
+			),
+		},
+		{
+			name: "role with distinct filename",
+			v: validValue(
+				validDescriptor("amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+					"a", testContentDigestA, "1", testManifestDigest1, 1),
+				validDescriptor("amd64", "x-test-target", "x-test-format", "x-test-other", "none",
+					"b", testContentDigestA, "1", testManifestDigest1, 1),
+			),
+		},
+		{
+			name: "filename across targets",
+			v: validValue(
+				validDescriptor("amd64", "x-test-other-target", "x-test-format", "x-test-file", "none",
+					"a", testContentDigestA, "1", testManifestDigest1, 1),
+				validDescriptor("amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+					"b", testContentDigestA, "1", testManifestDigest1, 1),
+			),
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			assertRule(t, Validate(tc.v), specRuleSharedManifest)
+			if err := Validate(tc.v); err != nil {
+				t.Fatalf("permitted shared-manifest difference rejected: %v", err)
+			}
 		})
 	}
 }

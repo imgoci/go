@@ -170,6 +170,52 @@ func TestGetSentinels(t *testing.T) {
 	}
 }
 
+func TestGetNon200SuccessStatusIsTerminal(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		status int
+	}{
+		{name: "201 is not a manifest response", status: http.StatusCreated},
+		{name: "202 is not a manifest response", status: http.StatusAccepted},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			var hits atomic.Int32
+			registry := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				hits.Add(1)
+				w.Header().Set(headerContentType, testAccept)
+				w.WriteHeader(tt.status)
+				_, _ = io.WriteString(w, testPayload)
+			}))
+			t.Cleanup(registry.Close)
+
+			var waits []time.Duration
+			client, err := New(testConfig(t, registry))
+			requireNoError(t, err)
+			client.retry = instantPolicy(&waits)
+
+			_, _, err = client.Get(t.Context(), testTag, testAccept)
+			if err == nil {
+				t.Fatalf("status %d must fail: spec section 7.1 step 1 requires 200 OK", tt.status)
+			}
+			if _, transient := retry.IsTransient(err); transient {
+				t.Fatalf("status %d must be terminal, not transient", tt.status)
+			}
+			if hits.Load() != 1 {
+				t.Fatalf("hits = %d, want 1: a terminal status must not be retried", hits.Load())
+			}
+			if len(waits) != 0 {
+				t.Fatalf("waits = %v, want none", waits)
+			}
+		})
+	}
+}
+
 func TestGetRetries503HonoringRetryAfter(t *testing.T) {
 	t.Parallel()
 

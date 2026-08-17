@@ -1,6 +1,7 @@
 package decomp
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -25,6 +26,11 @@ const probeSize = 1
 // check. BoundedReader never synthesizes EOF: a digest mismatch from the
 // underlying reader is returned as itself, and an extra byte on the probe
 // is [ErrSizeExceeded].
+//
+// An [io.EOF] arriving before the count reaches exact means the stored file
+// is shorter than declared and fails wrapping [ErrSizeMismatch]. The
+// declared size is therefore an equality check, as spec §8 requires of a
+// consumer verifying a file layer.
 type BoundedReader struct {
 	// r is the stored-file reader, typically go-oci-blob's verified body.
 	r io.Reader
@@ -58,6 +64,9 @@ func (b *BoundedReader) Read(p []byte) (int, error) {
 	}
 	if b.n < b.exact {
 		if err != nil {
+			if errors.Is(err, io.EOF) {
+				err = short(b.n, b.exact)
+			}
 			b.err = err
 		}
 		return n, err
@@ -117,4 +126,16 @@ func (b *BoundedReader) probe() error {
 // exceeded wraps [ErrSizeExceeded] with a which-limit detail.
 func exceeded(kind string) error {
 	return fmt.Errorf("decomp: %s size exceeded: %w", kind, ErrSizeExceeded)
+}
+
+// short wraps [ErrSizeMismatch] with the actual and declared byte counts.
+func short(got, want int64) error {
+	return fmt.Errorf("decomp: stored size mismatch: read %d bytes, declared %d: %w", got, want, ErrSizeMismatch)
+}
+
+// sizeSentinel reports whether err is a raw stored-size violation from a
+// [BoundedReader]. Codec wrappers use it to pass such an error through
+// instead of reclassifying an integrity failure as [ErrDecode].
+func sizeSentinel(err error) bool {
+	return errors.Is(err, ErrSizeExceeded) || errors.Is(err, ErrSizeMismatch)
 }

@@ -30,7 +30,7 @@ func TestDecoderUnsupported(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			open := Decoder(tt.compression)
+			open := Decoder(tt.compression, DefaultDecoderMaxWindow)
 			if open == nil {
 				t.Fatal("Decoder returned a nil constructor")
 			}
@@ -67,7 +67,7 @@ func TestDecoderKnownNames(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			open := Decoder(tt.compression)
+			open := Decoder(tt.compression, DefaultDecoderMaxWindow)
 			if open == nil {
 				t.Fatal("Decoder returned a nil constructor")
 			}
@@ -77,7 +77,7 @@ func TestDecoderKnownNames(t *testing.T) {
 
 func TestDecoderRejectsNilConstructorCallOnUnsupported(t *testing.T) {
 	t.Parallel()
-	_, err := Decoder("brotli")(io.NopCloser(strings.NewReader("")))
+	_, err := Decoder("brotli", DefaultDecoderMaxWindow)(io.NopCloser(strings.NewReader("")))
 	if !errors.Is(err, ErrUnsupported) {
 		t.Fatalf("error %v is not ErrUnsupported", err)
 	}

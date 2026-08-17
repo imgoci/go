@@ -14,6 +14,17 @@ const (
 	nameZstd = "zstd"
 )
 
+// DefaultDecoderMaxWindow is the default working-set ceiling one decoder may
+// allocate: 128 MiB, covering both the zstd window and the xz LZMA2
+// dictionary.
+//
+// 128 MiB is the zstd CLI's own default decode limit
+// (ZSTD_WINDOWLOG_LIMIT_DEFAULT, windowLog 27), so `zstd --long=27` output
+// decodes, and it covers the 64 MiB LZMA2 dictionary of `xz -9`. The bound
+// is per active decoder, not per transfer: peak decoder memory is this value
+// times the number of entries decoding at once.
+const DefaultDecoderMaxWindow uint64 = 128 << 20
+
 // Sentinel errors for the decomp contract. Callers match with [errors.Is].
 var (
 	// ErrDecode reports a strict decompression violation: a corrupt stream,
@@ -27,6 +38,13 @@ var (
 	// the declared stored size, or that a [CountingHashWriter] would write
 	// past io.imgoci.content.size.
 	ErrSizeExceeded = errors.New("size exceeded")
+
+	// ErrSizeMismatch reports that a [BoundedReader] reached a clean end of
+	// stream with fewer raw bytes than the declared stored size. With
+	// [ErrSizeExceeded] it makes the layer descriptor size an equality check
+	// rather than a ceiling. Both are integrity failures, not decode
+	// failures.
+	ErrSizeMismatch = errors.New("size mismatch")
 )
 
 // Decoder returns a constructor for the named compression.
@@ -36,18 +54,26 @@ var (
 // "gzip", "xz", and "zstd". Any unrecognized name fails with
 // [ErrUnsupported] and a detail that names it unknown.
 //
+// maxWindow caps the working set a single decoder may allocate: the zstd
+// Window_Size an ordinary frame declares (or the Frame_Content_Size a
+// single-segment frame declares) and the LZMA2 dictionary capacity an xz
+// Block Header declares. A stored file that needs more fails with
+// [ErrDecode] at open, before the buffer is allocated. Callers without a
+// narrower bound pass [DefaultDecoderMaxWindow]. "none" and "gzip" have no
+// such working set and ignore maxWindow.
+//
 // The returned constructor is safe to call concurrently with other
 // constructors; each call produces an independent decoder.
-func Decoder(name string) func(r io.Reader) (io.ReadCloser, error) {
+func Decoder(name string, maxWindow uint64) func(r io.Reader) (io.ReadCloser, error) {
 	switch name {
 	case nameNone:
 		return openNone
 	case nameGzip:
 		return openGzip
 	case nameXZ:
-		return openXZ
+		return func(r io.Reader) (io.ReadCloser, error) { return openXZ(r, maxWindow) }
 	case nameZstd:
-		return openZstd
+		return func(r io.Reader) (io.ReadCloser, error) { return openZstd(r, maxWindow) }
 	default:
 		return rejectUnknown(name)
 	}

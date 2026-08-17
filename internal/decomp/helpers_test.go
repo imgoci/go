@@ -18,7 +18,7 @@ const (
 
 func assertDecodeBomb(t *testing.T, name string, stored []byte) {
 	t.Helper()
-	rc, err := Decoder(name)(onlyReader{r: bytes.NewReader(stored)})
+	rc, err := Decoder(name, DefaultDecoderMaxWindow)(onlyReader{r: bytes.NewReader(stored)})
 	if err != nil {
 		t.Fatalf("open %s: %v", name, err)
 	}

@@ -63,7 +63,9 @@ type Layer struct {
 // members are checked against spec §3.1: schemaVersion 2, mediaType and
 // artifactType, the empty-config constant, and exactly one
 // application/octet-stream layer. Additional members on the manifest, config
-// descriptor, or layer descriptor are ignored for imgoci behavior.
+// descriptor, or layer descriptor are ignored for imgoci behavior, except that
+// an annotations member on any of those three objects must map string keys to
+// string values.
 func ValidateStandard(b []byte) (*Standard, error) {
 	tree, err := decodeJSON(b)
 	if err != nil {
@@ -105,7 +107,7 @@ func standardFromObject(obj map[string]any) (*Standard, error) {
 		return nil, fmt.Errorf("artifactType must identify %s", index.ArtifactTypeFile)
 	}
 
-	if err = validateAnnotations(obj); err != nil {
+	if err = validateAnnotations(obj, "annotations"); err != nil {
 		return nil, err
 	}
 	if err = validateEmptyConfig(obj); err != nil {
@@ -157,6 +159,10 @@ func validateEmptyConfig(obj map[string]any) error {
 	if dgst != EmptyConfigDigest {
 		return fmt.Errorf("config digest must be %s", EmptyConfigDigest)
 	}
+
+	if err = validateAnnotations(cfg, "config.annotations"); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -202,21 +208,28 @@ func validateSingleLayer(obj map[string]any) (Layer, error) {
 		return Layer{}, fmt.Errorf("layers[0] size must be a JSON integer from 0 through %d", maxLayerSize)
 	}
 
+	if err = validateAnnotations(layerObj, "layers[0].annotations"); err != nil {
+		return Layer{}, err
+	}
+
 	return Layer{MediaType: mediaType, Digest: dgst, Size: size}, nil
 }
 
-// validateAnnotations requires annotations, when present, to map strings to strings.
-func validateAnnotations(obj map[string]any) error {
+// validateAnnotations requires annotations, when present, to map string keys to
+// string values; spec §3.1 applies that rule to the manifest, the config
+// descriptor, and the file-layer descriptor alike. path is the member path
+// reported in diagnostics, such as `config.annotations`.
+func validateAnnotations(obj map[string]any, path string) error {
 	raw, ok := obj["annotations"]
 	if !ok {
 		return nil
 	}
-	ann, err := asObject(raw, "annotations")
+	ann, err := asObject(raw, path)
 	if err != nil {
 		return err
 	}
 	for k, v := range ann {
-		if _, err := asString(v, "annotations["+k+"]"); err != nil {
+		if _, err := asString(v, path+"["+k+"]"); err != nil {
 			return err
 		}
 	}

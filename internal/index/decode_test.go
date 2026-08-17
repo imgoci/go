@@ -85,6 +85,32 @@ func TestDecodeWrongMemberTypes(t *testing.T) {
 	}
 }
 
+// TestDecodeRejectsNonIntegerNumberTokens covers spec §5.1 (schemaVersion must
+// be the number 2) and spec §5.2 (size must be a JSON integer): a number token
+// that carries a fraction is not an integer even when its value is integral.
+func TestDecodeRejectsNonIntegerNumberTokens(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		raw  string
+	}{
+		{name: "schemaVersion trailing zero fraction", raw: `{"schemaVersion":2.0}`},
+		{name: "descriptor size trailing zero fraction", raw: `{"manifests":[{"size":1.0}]}`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := Decode([]byte(tc.raw))
+			if err == nil {
+				t.Fatalf("Decode accepted %s", tc.raw)
+			}
+			if !strings.Contains(err.Error(), "must be a JSON integer") {
+				t.Fatalf("error %v does not name the JSON integer rule", err)
+			}
+		})
+	}
+}
+
 func TestDecodeUnknownMembersTolerated(t *testing.T) {
 	t.Parallel()
 	raw, err := os.ReadFile(filepath.Join(fixtureRoot, "pass", "additional-members.json"))

@@ -189,7 +189,7 @@ func validateRule4(v *Value) error {
 	}
 	for _, key := range order {
 		have := roles[key]
-		if key.representation == "incus-vm" && key.target != "incus" {
+		if key.representation == representationIncusVM && key.target != targetIncus {
 			return ruleError(
 				specRuleRoles,
 				"incus-vm deliverable %s, %s must use target incus",
@@ -363,24 +363,28 @@ func requiredFileAnnotationKeys() []string {
 	}
 }
 
-// Role names the spec requires for particular representations.
+// Role names from the spec §5.4 public role registry.
 const (
 	// roleDisk is the role every disk-image representation must include.
 	roleDisk = "disk"
-	// roleMetadata is the additional role the incus-vm representation requires.
-	roleMetadata = "metadata"
 	// roleKernel is the role the linux-netboot representation requires.
 	roleKernel = "kernel"
+	// roleInitramfs is the optional linux-netboot initial-RAM-filesystem role.
+	roleInitramfs = "initramfs"
+	// roleMetadata is the additional role the incus-vm representation requires.
+	roleMetadata = "metadata"
+	// roleRootfs is the optional linux-netboot root-filesystem role.
+	roleRootfs = "rootfs"
 )
 
 // requiredRoles returns the roles a standard representation must include.
 func requiredRoles(representation string) []string {
 	switch representation {
-	case "raw", "raw-4kn", "qcow2", "iso":
+	case representationRaw, representationRaw4kn, representationQcow2, representationISO:
 		return []string{roleDisk}
-	case "incus-vm":
+	case representationIncusVM:
 		return []string{roleDisk, roleMetadata}
-	case "linux-netboot":
+	case representationLinuxNetboot:
 		return []string{roleKernel}
 	default:
 		return nil

@@ -71,6 +71,10 @@ type FetchFilesRequest struct {
 	Workers int
 	// Progress receives serialized absolute snapshots. It may be nil.
 	Progress func(Progress)
+	// DecoderMaxWindow caps the working set one decompressor may allocate:
+	// the zstd window or xz LZMA2 dictionary a stored file declares. Zero
+	// means [decomp.DefaultDecoderMaxWindow].
+	DecoderMaxWindow uint64
 }
 
 // FetchFiles retrieves and verifies every entry, then commits destinations.
@@ -209,6 +213,16 @@ func workerCount(requested, entries int) int {
 	return n
 }
 
+// decoderMaxWindow returns the effective decoder working-set ceiling. Zero
+// resolves to [decomp.DefaultDecoderMaxWindow] and never requests an
+// unbounded decoder.
+func decoderMaxWindow(requested uint64) uint64 {
+	if requested == 0 {
+		return decomp.DefaultDecoderMaxWindow
+	}
+	return requested
+}
+
 // cacheUse is one verified stored-cache entry to delete after a successful commit.
 type cacheUse struct {
 	// cache holds the per-parent stored cache.
@@ -332,7 +346,15 @@ func fetchStandard(
 		}
 	}
 
-	if err = copyLayer(ctx, req.Blobs, plan, progress, entry, std.Layer); err != nil {
+	if err = copyLayer(
+		ctx,
+		req.Blobs,
+		plan,
+		progress,
+		entry,
+		std.Layer,
+		decoderMaxWindow(req.DecoderMaxWindow),
+	); err != nil {
 		return err
 	}
 	progress.entryVerified(entry.ContentSize)
@@ -449,6 +471,7 @@ func copyLayer(
 	progress *reporter,
 	entry Entry,
 	layer filemanifest.Layer,
+	maxWindow uint64,
 ) error {
 	staged, err := plan.Stage(entry.Role)
 	if err != nil {
@@ -463,7 +486,7 @@ func copyLayer(
 	defer func() { _ = rc.Close() }()
 
 	br := decomp.NewBoundedReader(&countingReader{r: rc, add: progress.addWire}, layer.Size)
-	dec, err := decomp.Decoder(entry.Compression)(br)
+	dec, err := decomp.Decoder(entry.Compression, maxWindow)(br)
 	if err != nil {
 		return roleError(entry.Role, err)
 	}
@@ -507,7 +530,7 @@ func copyStored(
 			return req.Multipart.PullTo(ctx, req.Repository, entry.Digest, dst, progress.multipartReport())
 		},
 		func(path string) error {
-			return decodeStored(ctx, plan, entry, profile, path)
+			return decodeStored(ctx, plan, entry, profile, path, decoderMaxWindow(req.DecoderMaxWindow))
 		},
 	)
 
@@ -528,6 +551,7 @@ func decodeStored(
 	entry Entry,
 	profile *filemanifest.BigOCIProfile,
 	path string,
+	maxWindow uint64,
 ) error {
 	staged, err := plan.Stage(entry.Role)
 	if err != nil {
@@ -543,7 +567,7 @@ func decodeStored(
 
 	digester := digest.SHA256.Digester()
 	counted := &storedCounter{r: &ctxReader{ctx: ctx, r: f}, h: digester.Hash()}
-	dec, err := decomp.Decoder(entry.Compression)(counted)
+	dec, err := decomp.Decoder(entry.Compression, maxWindow)(counted)
 	if err != nil {
 		return err
 	}

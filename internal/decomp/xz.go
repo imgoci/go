@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
+	"math"
 
 	"github.com/ulikunitz/xz"
+	"github.com/ulikunitz/xz/lzma"
 )
 
 const (
@@ -101,18 +103,53 @@ type xzSource struct {
 	err error
 }
 
-// openXZ constructs a strict single-stream xz decoder over r.
-func openXZ(r io.Reader) (io.ReadCloser, error) {
+// openXZ constructs a strict single-stream xz decoder over r, refusing a
+// stream whose declared LZMA2 dictionary exceeds maxWindow and configuring
+// the decoder with the declared capacity.
+//
+// DictCap is a floor, not a cap: ulikunitz substitutes 8 MiB for a zero
+// DictCap, and lzmaFilter.reader raises whatever is configured to the
+// capacity the Block Header declares. [inspectXZDictCap] running first is
+// therefore the only bound on that allocation; passing the declared value
+// through also drops the 8 MiB floor for a stream that declares less.
+//
+// When the inspector reads no declared capacity — incomplete or non-xz
+// input — the library default stands and [xz.Reader] diagnoses the stream.
+func openXZ(r io.Reader, maxWindow uint64) (io.ReadCloser, error) {
 	src := &xzSource{r: r}
 	br := bufio.NewReader(src)
-	if err := inspectXZDictCap(br); err != nil {
+	declared, err := inspectXZDictCap(br, maxWindow)
+	if err != nil {
 		return nil, err
 	}
-	zr, err := xz.ReaderConfig{SingleStream: true}.NewReader(br)
+	cfg := xz.ReaderConfig{SingleStream: true}
+	if declared > 0 {
+		cfg.DictCap = xzDictCap(declared)
+	}
+	zr, err := cfg.NewReader(br)
 	if err != nil {
 		return nil, fmt.Errorf("xz: header: %w: %w", ErrDecode, err)
 	}
 	return &xzReader{br: br, src: src, zr: zr}, nil
+}
+
+// xzDictCap maps a declared LZMA2 dictionary capacity onto
+// [xz.ReaderConfig.DictCap].
+//
+// ulikunitz rejects a capacity below [lzma.MinDictCap], and a hand-built xz
+// Block Header can declare one, so the floor is raised rather than reported
+// as a decode failure. The ceiling is already bounded: the property-byte
+// encoding tops out at [lzma.MaxDictCap], and [inspectXZDictCap] has
+// rejected anything above the configured limit.
+func xzDictCap(declared int64) int {
+	switch {
+	case declared < lzma.MinDictCap:
+		return lzma.MinDictCap
+	case declared > math.MaxInt:
+		return math.MaxInt
+	default:
+		return int(declared)
+	}
 }
 
 // Read decompressed bytes from the single xz stream. On library [io.EOF], the
@@ -168,15 +205,15 @@ func (x *xzReader) probeTrailing() error {
 }
 
 // wrapRead maps a non-EOF xz read error onto [ErrDecode], preserving
-// [ErrSizeExceeded] and any other underlying sentinel the library's
-// SingleStream one-byte probe would replace with "unexpected data after
-// stream".
+// [ErrSizeExceeded], [ErrSizeMismatch], and any other underlying sentinel
+// the library's SingleStream one-byte probe would replace with "unexpected
+// data after stream".
 func (x *xzReader) wrapRead(err error) error {
-	if errors.Is(err, ErrSizeExceeded) {
+	if sizeSentinel(err) {
 		return err
 	}
 	if srcErr := x.src.err; srcErr != nil {
-		if errors.Is(srcErr, ErrSizeExceeded) {
+		if sizeSentinel(srcErr) {
 			return srcErr
 		}
 		return fmt.Errorf("xz: trailing-byte probe: %w", srcErr)
@@ -240,39 +277,47 @@ func (s *xzSource) checkFooter() error {
 }
 
 // inspectXZDictCap peeks the first Block Header after the Stream Header and
-// rejects an LZMA2 dictionary above [maxDecodeWindow] before the library can
-// allocate it. Incomplete or non-xz input is left for [xz.Reader] to diagnose.
-func inspectXZDictCap(br *bufio.Reader) error {
+// returns the LZMA2 dictionary capacity it declares, rejecting one above
+// maxWindow before the library can allocate it.
+//
+// A zero return means no capacity was read: incomplete or non-xz input, a
+// Block Header this walk cannot parse, or a filter chain with no LZMA2
+// filter. [xz.Reader] diagnoses those, and the caller keeps the library's
+// default construction.
+func inspectXZDictCap(br *bufio.Reader, maxWindow uint64) (int64, error) {
 	peeked, err := br.Peek(xzStreamHeaderLen + probeSize)
 	if len(peeked) < xzStreamHeaderLen+probeSize {
-		return nil
+		return 0, nil
 	}
 	if err != nil && len(peeked) == 0 {
-		return nil
+		return 0, nil
 	}
 	if string(peeked[:xzMagicLen]) != xzStreamMagic {
-		return nil
+		return 0, nil
 	}
 	sizeByte := peeked[xzStreamHeaderLen]
 	if sizeByte == 0 {
-		return nil
+		return 0, nil
 	}
 	blockLen := (int(sizeByte) + 1) * xzBlockSizeUnit
 	peeked, err = br.Peek(xzStreamHeaderLen + blockLen)
 	if len(peeked) < xzStreamHeaderLen+blockLen {
-		return nil
+		return 0, nil
 	}
 	if err != nil && len(peeked) == 0 {
-		return nil
+		return 0, nil
 	}
 	dictCap, ok := xzBlockLZMA2Dict(peeked[xzStreamHeaderLen : xzStreamHeaderLen+blockLen])
 	if !ok {
-		return nil
+		return 0, nil
 	}
-	if dictCap > int64(maxDecodeWindow) {
-		return fmt.Errorf("xz: LZMA2 dictionary %d exceeds %d: %w", dictCap, maxDecodeWindow, ErrDecode)
+	if uint64(dictCap) > maxWindow { //nolint:gosec // G115: decodeXZDictCap returns a positive capacity.
+		return 0, fmt.Errorf(
+			"xz: stream declares a %d-byte LZMA2 dictionary, above the %d-byte limit: %w",
+			dictCap, maxWindow, ErrDecode,
+		)
 	}
-	return nil
+	return dictCap, nil
 }
 
 // xzBlockLZMA2Dict returns the LZMA2 dictionary capacity declared in a Block
