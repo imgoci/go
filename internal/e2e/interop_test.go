@@ -1,6 +1,6 @@
 //go:build e2e
 
-package imgoci
+package e2e
 
 import (
 	"os"
@@ -11,14 +11,15 @@ import (
 
 	"github.com/opencontainers/go-digest"
 
+	imgoci "github.com/imgoci/go"
 	"github.com/imgoci/go/internal/filemanifest"
 	"github.com/imgoci/go/internal/index"
 )
 
-// TestE2EBigOCICaseVariedMediaType raw-seeds a BigOCI file manifest whose
+// TestBigOCICaseVariedMediaType raw-seeds a BigOCI file manifest whose
 // mediaType, artifactType, and part mediaType spellings vary in ASCII case.
 // Spec §4 comparison is case-insensitive; the consumer must accept the file.
-func TestE2EBigOCICaseVariedMediaType(t *testing.T) {
+func TestBigOCICaseVariedMediaType(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eRegistries()[0].image)
 	repo := testRepo(t)
@@ -51,14 +52,14 @@ func TestE2EBigOCICaseVariedMediaType(t *testing.T) {
 	rel = mustFetch(t, client, tagRef(host, repo))
 	sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
 	dir := t.TempDir()
-	mustFetchFiles(t, client, rel, sel, ToDir(dir))
+	mustFetchFiles(t, client, rel, sel, imgoci.ToDir(dir))
 	assertFileContent(t, filepath.Join(dir, filename), content)
 }
 
-// TestE2EBigOCIPushByDigestWritesNoTag asserts that after a multipart
+// TestBigOCIPushByDigestWritesNoTag asserts that after a multipart
 // Publish the registry's raw /v2/<repo>/tags/list contains only the release
 // tag. File manifests are digest-only (PushByDigest).
-func TestE2EBigOCIPushByDigestWritesNoTag(t *testing.T) {
+func TestBigOCIPushByDigestWritesNoTag(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eRegistries()[0].image)
 	repo := testRepo(t)
@@ -74,14 +75,14 @@ func TestE2EBigOCIPushByDigestWritesNoTag(t *testing.T) {
 	}
 }
 
-// TestE2EBigOCICLIInterop round-trips a file through the bigoci CLI in both
+// TestBigOCICLIInterop round-trips a file through the bigoci CLI in both
 // directions: our Publish then `bigoci pull` by descriptor digest, and
 // `bigoci push` then our FetchFiles via a raw-seeded index.
 //
 // The CLI directory is resolved once on this parent so a cloned checkout
 // outlives the parallel subtests. See [bigociCLIDir] for IMGOCI_BIGOCI_CLI_DIR
 // and IMGOCI_BIGOCI_FORCE_CLONE.
-func TestE2EBigOCICLIInterop(t *testing.T) {
+func TestBigOCICLIInterop(t *testing.T) {
 	t.Parallel()
 	_ = bigociCLIDir(t)
 	host := startRegistry(t, e2eRegistries()[0].image)
@@ -128,14 +129,14 @@ func TestE2EBigOCICLIInterop(t *testing.T) {
 		rel := mustFetch(t, client, tagRef(host, repo))
 		sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
 		dir := t.TempDir()
-		mustFetchFiles(t, client, rel, sel, ToDir(dir))
+		mustFetchFiles(t, client, rel, sel, imgoci.ToDir(dir))
 		assertFileContent(t, filepath.Join(dir, "disk.qcow2"), content)
 	})
 }
 
-// TestE2EBigOCIGraphCompleteness HEADs every blob referenced by a published
+// TestBigOCIGraphCompleteness HEADs every blob referenced by a published
 // BigOCI file: the empty config and every part.
-func TestE2EBigOCIGraphCompleteness(t *testing.T) {
+func TestBigOCIGraphCompleteness(t *testing.T) {
 	t.Parallel()
 	host := startRegistry(t, e2eRegistries()[0].image)
 	repo := testRepo(t)
@@ -153,13 +154,13 @@ func TestE2EBigOCIGraphCompleteness(t *testing.T) {
 	headReferencedBlobs(t, host, repo, manifest)
 }
 
-// TestE2EBigOCIGzippedProxy fails FetchFiles when a reverse proxy gzip-codes
+// TestBigOCIGzippedProxy fails FetchFiles when a reverse proxy gzip-codes
 // blob GETs. The index GET stays identity-coded, so Fetch succeeds;
 // Multipart.PullTo then hits bigoci's identity enforcement through our adapter.
 // A gzipped file-manifest GET is intercepted by the identity-wrapped registry
 // adapter before PullTo, so this test covers the blob path the adapter
 // forwards.
-func TestE2EBigOCIGzippedProxy(t *testing.T) {
+func TestBigOCIGzippedProxy(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eRegistries()[0].image)
 	repo := testRepo(t)
@@ -173,15 +174,15 @@ func TestE2EBigOCIGzippedProxy(t *testing.T) {
 	rel := mustFetch(t, client, tagRef(front, repo))
 	sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
 	dir := t.TempDir()
-	err := client.FetchFiles(t.Context(), rel, sel, ToDir(dir))
+	err := client.FetchFiles(t.Context(), rel, sel, imgoci.ToDir(dir))
 	assertIdentityError(t, err)
 	assertNoFile(t, filepath.Join(dir, filename))
 }
 
-// TestE2EBigOCICrossHostRedirect 307s blob GETs to a second in-process host
+// TestBigOCICrossHostRedirect 307s blob GETs to a second in-process host
 // that serves the bytes. Identity-coded storage succeeds under bigoci's
 // default verified mode; gzip on the second host fails.
-func TestE2EBigOCICrossHostRedirect(t *testing.T) {
+func TestBigOCICrossHostRedirect(t *testing.T) {
 	t.Parallel()
 	backend := startRegistry(t, e2eRegistries()[0].image)
 	repo := testRepo(t)
@@ -199,7 +200,7 @@ func TestE2EBigOCICrossHostRedirect(t *testing.T) {
 		rel := mustFetch(t, client, tagRef(front, repo))
 		sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
 		dir := t.TempDir()
-		mustFetchFiles(t, client, rel, sel, ToDir(dir))
+		mustFetchFiles(t, client, rel, sel, imgoci.ToDir(dir))
 		assertFileContent(t, filepath.Join(dir, filename), content)
 	})
 
@@ -210,7 +211,7 @@ func TestE2EBigOCICrossHostRedirect(t *testing.T) {
 		rel := mustFetch(t, client, tagRef(front, repo))
 		sel := mustResolve(t, client, rel, qemuDiskQuery("none"))
 		dir := t.TempDir()
-		err := client.FetchFiles(t.Context(), rel, sel, ToDir(dir))
+		err := client.FetchFiles(t.Context(), rel, sel, imgoci.ToDir(dir))
 		assertIdentityError(t, err)
 		assertNoFile(t, filepath.Join(dir, filename))
 	})

@@ -1,9 +1,9 @@
 # testdata/bigoci
 
 Committed BigOCI File Format v1 artifacts shared by the `internal/transfer`
-unit suite and the container-gated root e2e suite. They exist so a BigOCI test
-is exercised against a manifest that a real BigOCI reader accepts, instead of
-an ad-hoc JSON object that only the imgoci consumer profile happens to
+unit suite and the container-gated `internal/e2e` suite. They exist so a BigOCI
+test is exercised against a manifest that a real BigOCI reader accepts, instead
+of an ad-hoc JSON object that only the imgoci consumer profile happens to
 tolerate.
 
 Spec §8 rule 2 makes the consumer validate a BigOCI file manifest against

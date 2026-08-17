@@ -40,6 +40,7 @@ moon run root:format
 moon run root:lint
 moon run root:build
 moon run root:test
+moon run root:test-e2e   # internal/e2e, build-tagged; needs a Docker daemon
 ```
 
 ## Release Changes

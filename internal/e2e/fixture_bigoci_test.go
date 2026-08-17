@@ -1,6 +1,6 @@
 //go:build e2e
 
-package imgoci
+package e2e
 
 import (
 	"bytes"
@@ -12,7 +12,6 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -23,6 +22,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 
+	imgoci "github.com/imgoci/go"
 	"github.com/imgoci/go/internal/index"
 )
 
@@ -60,13 +60,13 @@ type e2eOCIManifest struct {
 // WithProgress callback is safe under -race.
 type progressSink struct {
 	mu    sync.Mutex
-	last  Progress
-	snaps []Progress
+	last  imgoci.Progress
+	snaps []imgoci.Progress
 }
 
 // fn returns a [WithProgress] callback that stores each snapshot.
-func (s *progressSink) fn() func(Progress) {
-	return func(p Progress) {
+func (s *progressSink) fn() func(imgoci.Progress) {
+	return func(p imgoci.Progress) {
 		s.mu.Lock()
 		s.last = p
 		s.snaps = append(s.snaps, p)
@@ -75,17 +75,17 @@ func (s *progressSink) fn() func(Progress) {
 }
 
 // snapshot returns the latest stored snapshot.
-func (s *progressSink) snapshot() Progress {
+func (s *progressSink) snapshot() imgoci.Progress {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.last
 }
 
 // snapshots returns a copy of every stored snapshot.
-func (s *progressSink) snapshots() []Progress {
+func (s *progressSink) snapshots() []imgoci.Progress {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]Progress, len(s.snaps))
+	out := make([]imgoci.Progress, len(s.snaps))
 	copy(out, s.snaps)
 	return out
 }
@@ -135,7 +135,7 @@ func seedIndexForFileManifest(
 	registry, repo string,
 	fileManifest []byte,
 	artifactType, mediaType string,
-	sel Selector,
+	sel imgoci.Selector,
 	filename string,
 	content []byte,
 ) {
@@ -172,15 +172,15 @@ func seedIndexForFileManifest(
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err = ParseIndex(raw); err != nil {
+	if _, err = imgoci.ParseIndex(raw); err != nil {
 		t.Fatalf("seeded index is not consumer-valid: %v", err)
 	}
 	seedManifest(t, registry, repo, e2eTag, index.MediaTypeIndex, raw, e2eCreds{})
 }
 
 // qemuDiskSelector is the single-role qemu/qcow2 disk used by BigOCI e2e.
-func qemuDiskSelector(compression string) Selector {
-	return Selector{
+func qemuDiskSelector(compression string) imgoci.Selector {
+	return imgoci.Selector{
 		Architecture:   "amd64",
 		Target:         "qemu",
 		Representation: "qcow2",
@@ -190,8 +190,8 @@ func qemuDiskSelector(compression string) Selector {
 }
 
 // qemuDiskQuery selects the qemu/qcow2 disk at compression.
-func qemuDiskQuery(compression string) ResolveQuery {
-	return ResolveQuery{
+func qemuDiskQuery(compression string) imgoci.ResolveQuery {
+	return imgoci.ResolveQuery{
 		Architecture:   "amd64",
 		Target:         "qemu",
 		Representation: "qcow2",
@@ -200,8 +200,8 @@ func qemuDiskQuery(compression string) ResolveQuery {
 }
 
 // metalDiskSelector is the shared-digest metal/raw companion.
-func metalDiskSelector(compression string) Selector {
-	return Selector{
+func metalDiskSelector(compression string) imgoci.Selector {
+	return imgoci.Selector{
 		Architecture:   "amd64",
 		Target:         "metal",
 		Representation: "raw",
@@ -211,12 +211,12 @@ func metalDiskSelector(compression string) Selector {
 }
 
 // multipartFileSpec is one FileSpec requesting BigOCI publication at partSize.
-func multipartFileSpec(path string, sel Selector, filename string, partSize int64) FileSpec {
-	return FileSpec{
-		Source:    FromFile(path),
+func multipartFileSpec(path string, sel imgoci.Selector, filename string, partSize int64) imgoci.FileSpec {
+	return imgoci.FileSpec{
+		Source:    imgoci.FromFile(path),
 		Selector:  sel,
 		Filename:  filename,
-		Multipart: &MultipartSpec{PartSize: partSize},
+		Multipart: &imgoci.MultipartSpec{PartSize: partSize},
 	}
 }
 
@@ -226,27 +226,32 @@ func singleRoleMultipartSpec(
 	compression string,
 	content []byte,
 	partSize int64,
-) (ReleaseSpec, string, string) {
+) (imgoci.ReleaseSpec, string, string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := writeStoredSource(t, dir, "disk.qcow2", compression, content)
-	spec := ReleaseSpec{
+	spec := imgoci.ReleaseSpec{
 		Name:    "e2e",
 		Version: "1",
-		Files:   []FileSpec{multipartFileSpec(path, qemuDiskSelector(compression), "disk.qcow2", partSize)},
+		Files:   []imgoci.FileSpec{multipartFileSpec(path, qemuDiskSelector(compression), "disk.qcow2", partSize)},
 	}
 	return spec, path, "disk.qcow2"
 }
 
 // sharedDigestMultipartSpec publishes one stored file as qemu and metal.
-func sharedDigestMultipartSpec(t *testing.T, compression string, content []byte, partSize int64) (ReleaseSpec, string) {
+func sharedDigestMultipartSpec(
+	t *testing.T,
+	compression string,
+	content []byte,
+	partSize int64,
+) (imgoci.ReleaseSpec, string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := writeStoredSource(t, dir, "shared.bin", compression, content)
-	spec := ReleaseSpec{
+	spec := imgoci.ReleaseSpec{
 		Name:    "e2e",
 		Version: "1",
-		Files: []FileSpec{
+		Files: []imgoci.FileSpec{
 			multipartFileSpec(path, qemuDiskSelector(compression), "disk.qcow2", partSize),
 			multipartFileSpec(path, metalDiskSelector(compression), "disk.raw", partSize),
 		},
@@ -255,7 +260,7 @@ func sharedDigestMultipartSpec(t *testing.T, compression string, content []byte,
 }
 
 // firstFileEntry returns the first index entry of rel.
-func firstFileEntry(t *testing.T, rel *Release) FileEntry {
+func firstFileEntry(t *testing.T, rel *imgoci.Release) imgoci.FileEntry {
 	t.Helper()
 	entries := rel.Index().Entries()
 	if len(entries) == 0 {
@@ -265,7 +270,7 @@ func firstFileEntry(t *testing.T, rel *Release) FileEntry {
 }
 
 // fileManifestOf GETs the file manifest named by entry.
-func fileManifestOf(t *testing.T, host, repo string, entry FileEntry) ([]byte, e2eOCIManifest) {
+func fileManifestOf(t *testing.T, host, repo string, entry imgoci.FileEntry) ([]byte, e2eOCIManifest) {
 	t.Helper()
 	raw := getManifestRaw(t, host, repo, entry.Digest.String(), index.MediaTypeManifest, e2eCreds{})
 	return raw, parseOCIManifest(t, raw)
@@ -294,9 +299,10 @@ func sortedTags(tags []string) []string {
 	return out
 }
 
-// bigOCIFixtureDir is the module-root BigOCI v1 artifact tree, shared with
-// the internal/transfer unit suite. See testdata/bigoci/README.md.
-const bigOCIFixtureDir = "testdata/bigoci/v1"
+// bigOCIFixtureDir is the module-root BigOCI v1 artifact tree, shared with the
+// internal/transfer unit suite, relative to this package directory. See
+// testdata/bigoci/README.md.
+const bigOCIFixtureDir = "../../testdata/bigoci/v1"
 
 // bigOCIFixtureTwoPartName is the committed two-part artifact directory.
 const bigOCIFixtureTwoPartName = "valid-two-part"
@@ -453,134 +459,4 @@ func resizeBlobBody(body []byte, delta int) []byte {
 	default:
 		return out
 	}
-}
-
-// bigociCLIDir returns the bigoci CLI module directory used by interop
-// tests. Resolution order:
-//
-//  1. IMGOCI_BIGOCI_CLI_DIR, when set.
-//  2. ~/code/imgoci/bigoci/cli, when that checkout exists.
-//  3. A shallow clone of github.com/imgoci/bigoci at the go.mod pin, into
-//     t.TempDir() once per test run.
-//
-// IMGOCI_BIGOCI_FORCE_CLONE=1 skips (1) and (2) and always takes (3). A failed
-// clone is fatal; this helper never skips.
-func bigociCLIDir(t *testing.T) string {
-	t.Helper()
-	bigociCLIOnce.Do(func() {
-		bigociCLIPath, bigociCLISource, bigociCLIFail = resolveBigociCLI(t)
-	})
-	if bigociCLIFail != "" {
-		t.Fatalf("bigoci CLI: %s", bigociCLIFail)
-	}
-	t.Logf("bigoci CLI source: %s (%s)", bigociCLISource, bigociCLIPath)
-	return bigociCLIPath
-}
-
-var (
-	bigociCLIOnce   sync.Once
-	bigociCLIPath   string
-	bigociCLISource string
-	bigociCLIFail   string
-)
-
-func resolveBigociCLI(t *testing.T) (dir, source, fail string) {
-	t.Helper()
-	if os.Getenv("IMGOCI_BIGOCI_FORCE_CLONE") == "1" {
-		return cloneBigociCLI(t)
-	}
-	if override := os.Getenv("IMGOCI_BIGOCI_CLI_DIR"); override != "" {
-		if _, err := os.Stat(override); err != nil {
-			return "", "", "IMGOCI_BIGOCI_CLI_DIR " + override + ": " + err.Error()
-		}
-		return override, "IMGOCI_BIGOCI_CLI_DIR", ""
-	}
-	if local, version, ok := localBigociCLI(); ok {
-		return local, "local sibling " + version, ""
-	}
-	return cloneBigociCLI(t)
-}
-
-func localBigociCLI() (dir, version string, ok bool) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", "", false
-	}
-	root := filepath.Join(home, "code", "imgoci", "bigoci")
-	dir = filepath.Join(root, "cli")
-	if _, err = os.Stat(dir); err != nil {
-		return "", "", false
-	}
-	out, err := exec.Command("git", "-C", root, "describe", "--tags").Output()
-	version = strings.TrimSpace(string(out))
-	if err != nil || version == "" {
-		version = "unknown"
-	}
-	return dir, version, true
-}
-
-func cloneBigociCLI(t *testing.T) (dir, source, fail string) {
-	t.Helper()
-	ver, fail := pinnedBigociVersion(t)
-	if fail != "" {
-		return "", "", fail
-	}
-	dest := filepath.Join(t.TempDir(), "bigoci")
-	cmd := exec.CommandContext(t.Context(), "git", "clone", "--depth", "1", "--branch", ver,
-		"https://github.com/imgoci/bigoci", dest)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return "", "", "git clone github.com/imgoci/bigoci@" + ver + ": " + err.Error() + "\n" + string(out)
-	}
-	dir = filepath.Join(dest, "cli")
-	if _, err := os.Stat(dir); err != nil {
-		return "", "", "cloned bigoci CLI directory " + dir + ": " + err.Error()
-	}
-	return dir, "clone " + ver, ""
-}
-
-func pinnedBigociVersion(t *testing.T) (string, string) {
-	t.Helper()
-	cmd := exec.CommandContext(t.Context(), "go", "list", "-m", "-f", "{{.Version}}", "github.com/imgoci/bigoci")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return "", "go list -m github.com/imgoci/bigoci: " + err.Error() + "\n" + string(out)
-	}
-	ver := strings.TrimSpace(string(out))
-	if ver == "" {
-		return "", "go list -m github.com/imgoci/bigoci returned an empty version"
-	}
-	return ver, ""
-}
-
-// runBigociCLI runs `go run .` in the bigoci CLI module with args and
-// returns stdout. DOCKER_CONFIG points at an empty directory so the CLI's
-// always-on Docker credential helper cannot pick up unrelated logins.
-func runBigociCLI(t *testing.T, args ...string) string {
-	t.Helper()
-	stdout, _ := runBigociCLIOutput(t, args...)
-	return strings.TrimSpace(stdout)
-}
-
-// runBigociCLIPull is [runBigociCLI] for pull, which writes nothing to stdout.
-func runBigociCLIPull(t *testing.T, args ...string) {
-	t.Helper()
-	_, _ = runBigociCLIOutput(t, args...)
-}
-
-// runBigociCLIOutput executes the CLI and returns stdout and stderr.
-func runBigociCLIOutput(t *testing.T, args ...string) (string, string) {
-	t.Helper()
-	cliDir := bigociCLIDir(t)
-	dockerConfig := t.TempDir()
-	cmdArgs := append([]string{"run", "."}, args...)
-	cmd := exec.CommandContext(t.Context(), "go", cmdArgs...)
-	cmd.Dir = cliDir
-	cmd.Env = append(os.Environ(), "DOCKER_CONFIG="+dockerConfig)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("bigoci CLI %v: %v\nstderr:\n%s\nstdout:\n%s", args, err, stderr.String(), stdout.String())
-	}
-	return stdout.String(), stderr.String()
 }
