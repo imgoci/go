@@ -5,7 +5,7 @@ description: Inspect what a release stores and select the exact files to fetch, 
 
 # Resolve deliverables
 
-This guide shows how to pick concrete files out of a release: inspect the stored alternatives, then resolve one deliverable by architecture, target, and representation, with your compression preferences and, when needed, explicit roles or extended capabilities.
+This guide shows how to pick concrete files out of a release: inspect the stored alternatives, then resolve one deliverable by architecture, target, representation, and complete usage set, with your compression preferences and, when needed, explicit roles or extended capabilities.
 
 Prerequisites:
 
@@ -13,7 +13,7 @@ Prerequisites:
 - for the CLI steps, the private reference CLI built from `cli/` ([tutorial](../tutorials/first-release.md#build-the-cli)); for the Go steps, `github.com/imgoci/go` in your module
 - credentials, if the registry needs them ([Use Docker credentials](use-docker-credentials.md))
 
-A deliverable is every file entry that shares one `(architecture, target, representation)` key. Resolving selects exactly one deliverable, then one stored file per selected role.
+A deliverable is every file entry that shares one `(architecture, target, representation, usage)` key. Resolving selects exactly one deliverable, then one stored file per selected role.
 
 ## Inspect the alternatives
 
@@ -28,16 +28,20 @@ imgoci list ghcr.io/example/os:v1
 Output is one tab-separated line per stored transport alternative:
 
 ```
-<architecture>	<target>	<representation>	<role>	<compression>	<artifactType>
+<architecture>	<target>	<representation>	<usage>	<role>	<compression>	<artifactType>
 ```
 
 Narrow it when the release is large:
 
 ```sh
-imgoci list -architecture arm64 -role disk ghcr.io/example/os:v1
+imgoci list -architecture arm64 -usage install -role disk ghcr.io/example/os:v1
 ```
 
-`-role` repeats: each occurrence adds a role a matching deliverable must contain.
+`-usage` and `-role` repeat. Each `-usage` occurrence is a containment filter:
+the result may carry additional usage values. Each `-role` occurrence adds a
+role that a matching deliverable must contain. The output's `usage` field
+always reports the deliverable's exact comma-separated set; the empty set is
+an empty fourth field.
 
 Go — `List` on the fetched index:
 
@@ -51,15 +55,18 @@ if err != nil {
 	return err
 }
 
-deliverables, err := rel.Index().List(imgoci.ListQuery{Architecture: "arm64"})
+deliverables, err := rel.Index().List(imgoci.ListQuery{
+	Architecture: "arm64",
+	Usage:        []string{"install"},
+})
 if err != nil {
 	return err
 }
 for _, d := range deliverables {
 	for _, role := range d.Roles {
 		for _, alt := range role.Alternatives {
-			fmt.Printf("%s/%s/%s %s %s %s\n",
-				d.Architecture, d.Target, d.Representation,
+			fmt.Printf("%s/%s/%s usage=%s %s %s %s\n",
+				d.Architecture, d.Target, d.Representation, d.Usage.String(),
 				role.Role, alt.Compression, alt.ArtifactType)
 		}
 	}
@@ -70,13 +77,17 @@ Listing never filters by consumer capabilities: it shows alternatives your clien
 
 ## Select the deliverable
 
-Resolving requires the three deliverable selectors and at least one accepted compression.
+Resolving requires the three scalar deliverable selectors, the complete usage set, and at least one accepted compression. The usage set may be empty.
+
+Read the complete set from the `usage` field in the list output. The examples
+below assume that field was `install,install-offline`.
 
 CLI:
 
 ```sh
 imgoci resolve \
   -architecture arm64 -target qemu -representation qcow2 \
+  -usage install -usage install-offline \
   -compression zstd -compression none \
   ghcr.io/example/os:v1
 ```
@@ -88,6 +99,7 @@ query := imgoci.ResolveQuery{
 	Architecture:   "arm64",
 	Target:         "qemu",
 	Representation: "qcow2",
+	Usage:          []string{"install", "install-offline"},
 	Compressions:   []string{"zstd", "none"},
 }
 sel, err := client.Resolve(rel, query)
@@ -102,8 +114,12 @@ for _, entry := range sel.Entries() {
 The CLI prints one tab-separated line per selected role:
 
 ```
-<architecture>	<target>	<representation>	<role>	<compression>	<filename>	<artifactType>	<contentDigest>	<contentSize>
+<architecture>	<target>	<representation>	<usage>	<role>	<compression>	<filename>	<artifactType>	<contentDigest>	<contentSize>
 ```
+
+When the list output has an empty `usage` field, omit `-usage` in `resolve` and
+`fetch`. In Go, nil and empty `ResolveQuery.Usage` both request that empty set.
+Omitting usage does not match a deliverable that carries any usage value.
 
 `fetch` takes the same selector flags, so a command line that resolves is a command line that fetches.
 
@@ -156,9 +172,13 @@ See [capabilities reference](../reference/capabilities.md) for the exact validat
 `list` and `resolve` behave differently when nothing matches:
 
 - **`list` with no matches is a valid, empty result.** The Go API returns an empty slice and a nil error; the CLI prints nothing to standard output and exits `0`.
-- **`resolve` with no match is a failure.** No deliverable for the three selectors, a selected role absent from that deliverable, or no accepted compression for a role all return a descriptive error without a matchable sentinel; the CLI exits `1`. One case is distinguishable: when capability filtering leaves a selected role with no retrievable alternative, the error matches `imgoci.ErrUnsupportedType` and the CLI exits `9`.
+- **`resolve` with no match is a failure.** No deliverable for the four-field key, including exact usage-set equality, a selected role absent from that deliverable, or no accepted compression for a role all return a descriptive error without a matchable sentinel; the CLI exits `1`. One case is distinguishable: when capability filtering leaves a selected role with no retrievable alternative, the error matches `imgoci.ErrUnsupportedType` and the CLI exits `9`.
 
-The CLI rejects a missing required selector before it builds a client. An unknown compression token or a duplicate role fails when `Resolve` validates the query — after the CLI has already fetched the index. The Go `Resolve` call itself does no network I/O.
+The CLI rejects a missing required scalar selector before it builds a client.
+An unknown compression token, a duplicate role or usage value, or a malformed
+usage token fails when `Resolve` validates the query — after the CLI has
+already fetched the index. A syntactically valid unknown or private usage value
+remains usable. The Go `Resolve` call itself does no network I/O.
 
 ## Related pages
 

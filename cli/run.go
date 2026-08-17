@@ -59,6 +59,8 @@ const (
 	flagTarget = "target"
 	// flagRepresentation filters or selects io.imgoci.representation.
 	flagRepresentation = "representation"
+	// flagUsage filters or selects io.imgoci.usage.
+	flagUsage = "usage"
 	// flagRole appends one required or selected role.
 	flagRole = "role"
 	// flagCompression appends one accepted compression, most preferred first.

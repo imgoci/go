@@ -31,7 +31,8 @@
 //
 // Incomplete or ambiguous operands are rejected before a registry adapter is
 // built. Publish is tag-only. Resolve and fetch require -architecture,
-// -target, -representation, and at least one -compression.
+// -target, -representation, and at least one -compression. Unset -usage on
+// resolve and fetch selects the empty usage set.
 //
 // # Publish spec
 //
@@ -50,10 +51,10 @@
 //	      "architecture": "amd64",
 //	      "target": "qemu",
 //	      "representation": "qcow2",
+//	      "usage": ["install-offline", "install"],
 //	      "role": "disk",
 //	      "compression": "none",
 //	      "annotations": {"note": "file"},
-//	      "multipart": {"partSize": 16777216}
 //	    }
 //	  ]
 //	}
@@ -64,9 +65,12 @@
 // Each file requires path, filename, and the five selector fields. filename is
 // 1–255 bytes, ASCII alphanumeric first and last, with ASCII alphanumerics plus
 // ".", "_", "+", "-" internally.
-// annotations may be omitted. multipart omitted or null selects the standard
-// form; a present object requests BigOCI publication. partSize must not be
-// negative; 0 uses the library default (512 MiB) as the effective part size.
+// usage is optional: omitted, null, and [] are the empty set. Order is
+// irrelevant; the CLI sorts, de-duplicates, and rejects install-offline
+// without install. annotations may be omitted. multipart omitted or null
+// selects the standard form; a present object requests BigOCI publication.
+// partSize must not be negative; 0 uses the library default (512 MiB) as the
+// effective part size.
 // A multipart plan must satisfy ceil(storedSize/effectivePartSize) <= 4096.
 //
 // # Output contract
@@ -80,12 +84,12 @@
 // list prints one line per stored transport alternative, in the order
 // [imgoci.Index.List] already sorts:
 //
-//	<architecture>\t<target>\t<representation>\t<role>\t<compression>\t<artifactType>
+//	<architecture>\t<target>\t<representation>\t<usage>\t<role>\t<compression>\t<artifactType>
 //
 // resolve prints one line per selected role, in [imgoci.Resolved.Entries]
 // order:
 //
-//	<architecture>\t<target>\t<representation>\t<role>\t<compression>\t<filename>\t<artifactType>\t<contentDigest>\t<contentSize>
+//	<architecture>\t<target>\t<representation>\t<usage>\t<role>\t<compression>\t<filename>\t<artifactType>\t<contentDigest>\t<contentSize>
 //
 // An empty match prints nothing. Diagnostics, progress, failure summaries,
 // and usage complaints go to standard error, each prefixed "imgoci: ".

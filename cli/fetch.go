@@ -93,8 +93,8 @@ verified files into directory <dest>, named by io.imgoci.filename. Standard
 output stays empty.
 
 -architecture, -target, -representation, and at least one -compression are
-required and are checked before any network I/O. Diagnostics and optional
-progress go to stderr.
+required and are checked before any network I/O. Unset -usage selects the
+empty usage set. Diagnostics and optional progress go to stderr.
 
 flags:
 `, fs)

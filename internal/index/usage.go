@@ -90,3 +90,45 @@ func ValidateUsageRelationship(canonical string) error {
 	}
 	return nil
 }
+
+// UsageValues returns the tokens of a canonical usage value as a fresh slice.
+//
+// The empty set returns nil. The result is safe for the caller to retain and
+// mutate.
+func UsageValues(canonical string) []string {
+	if canonical == "" {
+		return nil
+	}
+	return strings.Split(canonical, ",")
+}
+
+// UsageContainsAll reports whether every token of subset appears in set.
+//
+// Both arguments must be canonical: sorted, de-duplicated, comma-separated
+// tokens, or empty for the empty set. The comparison walks both values once
+// and allocates nothing. An empty subset is contained in every set.
+func UsageContainsAll(set, subset string) bool {
+	if subset == "" {
+		return true
+	}
+	if set == "" {
+		return false
+	}
+	next, remaining := "", set
+	for want := range strings.SplitSeq(subset, ",") {
+		for {
+			if remaining == "" {
+				return false
+			}
+			next, remaining, _ = strings.Cut(remaining, ",")
+			if next == want {
+				break
+			}
+			// Both values are sorted, so a token past want means want is absent.
+			if next > want {
+				return false
+			}
+		}
+	}
+	return true
+}

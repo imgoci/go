@@ -189,7 +189,7 @@ func validateRule4(v *Value) error {
 				specRuleRoles,
 				"manifests[%d] usage set %s: %s",
 				i,
-				formatUsage(sel.Usage),
+				FormatUsage(sel.Usage),
 				err,
 			)
 		}
@@ -210,13 +210,13 @@ func validateRule4(v *Value) error {
 				"incus-vm deliverable %s, %s, %s must use target incus",
 				key.architecture,
 				key.target,
-				formatUsage(key.usage),
+				FormatUsage(key.usage),
 			)
 		}
 		for _, role := range requiredRoles(key.representation) {
 			if _, ok := have[role]; !ok {
 				return ruleError(specRuleRoles, "deliverable %s, %s, %s, %s must contain the %s role",
-					key.architecture, key.target, key.representation, formatUsage(key.usage), role)
+					key.architecture, key.target, key.representation, FormatUsage(key.usage), role)
 			}
 		}
 	}
@@ -271,7 +271,7 @@ func validateRule6(v *Value) error {
 					sel.Architecture,
 					sel.Target,
 					sel.Representation,
-					formatUsage(sel.Usage),
+					FormatUsage(sel.Usage),
 					sel.Role,
 				)
 			}
@@ -303,7 +303,7 @@ func validateRule7(v *Value) error {
 				sel.Architecture,
 				sel.Target,
 				sel.Representation,
-				formatUsage(sel.Usage),
+				FormatUsage(sel.Usage),
 			)
 		}
 		owner[key] = sel.Role
@@ -623,16 +623,16 @@ func isASCIIAlnum(c byte) bool {
 // formatSelector renders a six-field selector for error messages.
 func formatSelector(s Selector) string {
 	return strings.Join(
-		[]string{s.Architecture, s.Target, s.Representation, formatUsage(s.Usage), s.Role, s.Compression},
+		[]string{s.Architecture, s.Target, s.Representation, FormatUsage(s.Usage), s.Role, s.Compression},
 		", ",
 	)
 }
 
-// formatUsage renders a usage set for error messages. A present value is quoted
+// FormatUsage renders a usage set for error messages. A present value is quoted
 // because it is itself comma-separated, and the surrounding messages join their
 // fields with commas; the empty set is usage=<empty>, which no basic token can
 // spell.
-func formatUsage(usage string) string {
+func FormatUsage(usage string) string {
 	if usage == "" {
 		return "usage=<empty>"
 	}

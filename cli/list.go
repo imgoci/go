@@ -68,7 +68,7 @@ func listUsage() string {
 Fetch the release index <ref> names and write every matching deliverable as
 tab-separated lines:
 
-  <architecture>	<target>	<representation>	<role>	<compression>	<artifactType>
+  <architecture>	<target>	<representation>	<usage>	<role>	<compression>	<artifactType>
 
 Empty filters match every value. An empty match prints nothing. Diagnostics
 go to stderr.

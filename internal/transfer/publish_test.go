@@ -26,9 +26,10 @@ import (
 const publishTag = "v1"
 
 type callLog struct {
-	mu   sync.Mutex
-	ops  []string
-	puts []string
+	mu     sync.Mutex
+	ops    []string
+	puts   []string
+	bodies map[string][]byte
 }
 
 func (c *callLog) add(op string) {
@@ -41,6 +42,15 @@ func (c *callLog) addPut(ref string) {
 	c.mu.Lock()
 	c.ops = append(c.ops, "put:"+ref)
 	c.puts = append(c.puts, ref)
+	c.mu.Unlock()
+}
+
+func (c *callLog) recordBody(ref string, raw []byte) {
+	c.mu.Lock()
+	if c.bodies == nil {
+		c.bodies = make(map[string][]byte)
+	}
+	c.bodies[ref] = bytes.Clone(raw)
 	c.mu.Unlock()
 }
 
@@ -58,6 +68,12 @@ func (c *callLog) putRefs() []string {
 	out := make([]string, len(c.puts))
 	copy(out, c.puts)
 	return out
+}
+
+func (c *callLog) body(ref string) []byte {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.bodies[ref]
 }
 
 func writeTemp(t *testing.T, name string, data []byte) string {
@@ -103,8 +119,9 @@ func recordingPorts(t *testing.T, log *callLog, exists map[digest.Digest]bool) P
 	t.Helper()
 	manifests := regmocks.NewMockManifests(t)
 	manifests.EXPECT().Put(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, ref, _ string, _ []byte) error {
+		RunAndReturn(func(_ context.Context, ref, _ string, raw []byte) error {
 			log.addPut(ref)
+			log.recordBody(ref, raw)
 			return nil
 		}).Maybe()
 
@@ -718,6 +735,117 @@ func TestPublishFileIdentityBeforeUpload(t *testing.T) {
 	if ops := log.snapshot(); len(ops) != 0 {
 		t.Fatalf("port calls = %v, want none before upload", ops)
 	}
+}
+
+func TestPublishFileIdentityDifferentUsage(t *testing.T) {
+	t.Parallel()
+	a := writeTemp(t, "a.bin", []byte("content-a"))
+	b := writeTemp(t, "b.bin", []byte("content-b"))
+	log := &callLog{}
+	ports := recordingPorts(t, log, nil)
+	empty := testSel("x-test-file", compressionNone)
+	live := empty
+	live.Usage = "live"
+
+	_, err := Publish(t.Context(), ports, PublishRequest{
+		Tag:     publishTag,
+		Name:    "example",
+		Version: "1",
+		Entries: []PublishEntry{
+			{SourcePath: a, Selector: empty, Filename: "a"},
+			{SourcePath: b, Selector: live, Filename: "b"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ops := log.snapshot(); len(ops) == 0 {
+		t.Fatal("expected upload after distinct usage identities")
+	}
+}
+
+func TestPublishSameSourceDifferentUsageBothReachIndex(t *testing.T) {
+	t.Parallel()
+	data := []byte("shared-bytes")
+	path := writeTemp(t, "shared.bin", data)
+	log := &callLog{}
+	ports := recordingPorts(t, log, nil)
+	empty := testSel("x-test-file", compressionNone)
+	live := empty
+	live.Usage = "live"
+	stored := digest.FromBytes(data)
+
+	_, err := Publish(t.Context(), ports, PublishRequest{
+		Tag:     publishTag,
+		Name:    "example",
+		Version: "1",
+		Entries: []PublishEntry{
+			{SourcePath: path, Selector: empty, Filename: "shared.bin"},
+			{SourcePath: path, Selector: live, Filename: "shared.bin"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertSharedBlobOnce(t, log, stored, int64(len(data)))
+	assertBothUsageEntries(t, log.body(publishTag), stored)
+}
+
+func assertSharedBlobOnce(t *testing.T, log *callLog, stored digest.Digest, size int64) {
+	t.Helper()
+	man := "put:" + manifestRef(t, stored, size)
+	var pushes, exists, manPuts int
+	ops := log.snapshot()
+	for _, op := range ops {
+		switch op {
+		case "push:" + stored.String():
+			pushes++
+		case "exists:" + stored.String():
+			exists++
+		case man:
+			manPuts++
+		}
+	}
+	if exists != 1 || pushes != 1 || manPuts != 1 {
+		t.Fatalf("shared source: exists=%d pushes=%d manifests=%d ops=%v", exists, pushes, manPuts, ops)
+	}
+}
+
+func assertBothUsageEntries(t *testing.T, raw []byte, stored digest.Digest) {
+	t.Helper()
+	value, err := index.Decode(raw)
+	if err != nil {
+		t.Fatalf("decode index: %v", err)
+	}
+	if len(value.Manifests) != 2 {
+		t.Fatalf("index manifests = %d, want both request entries", len(value.Manifests))
+	}
+	got := map[string]index.Descriptor{}
+	for _, desc := range value.Manifests {
+		got[desc.Selector().Usage] = desc
+	}
+	emptyDesc, okEmpty := got[""]
+	liveDesc, okLive := got["live"]
+	if !okEmpty || !okLive {
+		t.Fatalf("index usage sets = %v, want empty and live", usageKeys(got))
+	}
+	if emptyDesc.Filename() != "shared.bin" || liveDesc.Filename() != "shared.bin" {
+		t.Fatalf("filenames = %q, %q", emptyDesc.Filename(), liveDesc.Filename())
+	}
+	if emptyDesc.ContentDigest() != stored || liveDesc.ContentDigest() != stored {
+		t.Fatalf("content digests = %s, %s; want %s", emptyDesc.ContentDigest(), liveDesc.ContentDigest(), stored)
+	}
+	if emptyDesc.Digest == "" || emptyDesc.Digest != liveDesc.Digest {
+		t.Fatalf("manifest digests = %s, %s; want the same de-duplicated digest", emptyDesc.Digest, liveDesc.Digest)
+	}
+}
+
+func usageKeys(got map[string]index.Descriptor) []string {
+	out := make([]string, 0, len(got))
+	for key := range got {
+		out = append(out, key)
+	}
+	return out
 }
 
 func TestOracleIndexDoesNotWrapErrRule(t *testing.T) {

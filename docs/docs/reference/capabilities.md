@@ -6,8 +6,9 @@ description: Consumer capability sets, their defaults, validation rules, and com
 # Capabilities reference
 
 A `Capabilities` value is a validated set of file-manifest types a consumer
-can retrieve. It is the single representation of the spec section 7 capability
-set, shared by offline `Index.Resolve` and the network client. This page
+can retrieve. It contains only file-manifest types; it does not describe
+deliverable usage. The value is shared by offline `Index.Resolve` and the
+network client. This page
 describes the implemented spec revision: imgoci v1 draft, 2026-08-11
 (`imgoci/spec` commit `5b957102eeda16498fdcb80a738431b83abd4197`).
 
@@ -44,6 +45,18 @@ because the pinned bigoci version (v0.2.0) passes the interop suite; see
 
 `Index.List` never filters by capabilities: a listing shows every stored
 transport alternative, including types the consumer cannot retrieve.
+
+## Usage selectors
+
+Consumer capabilities do not filter `io.imgoci.usage`. A syntactically valid
+unknown or private usage value remains listable. It is also resolvable when the
+resolve query supplies the deliverable's complete usage set and the other
+selectors match. This follows spec section 7.3: a consumer can select and
+verify a deliverable without understanding what a usage value means.
+
+Usage values are producer assertions, not file-manifest capabilities.
+Validation and retrieval do not prove that a deliverable is bootable,
+installable, or offline-installable.
 
 ## NewCapabilities validation
 

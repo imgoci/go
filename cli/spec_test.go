@@ -207,14 +207,144 @@ func TestLoadReleaseSpecReadsRelativePaths(t *testing.T) {
 	assert.Equal(t, imgoci.FromFile(filepath.Join(dir, "disk.bin")), got.Files[0].Source)
 }
 
+func TestDocumentToReleaseSpecNormalizesUsage(t *testing.T) {
+	t.Parallel()
+
+	doc := publishDocument{
+		Name:    "example",
+		Version: "1",
+		Files: []publishFile{{
+			Path:           "/abs/disk.qcow2",
+			Filename:       "disk.qcow2",
+			Architecture:   "amd64",
+			Target:         "qemu",
+			Representation: "qcow2",
+			Usage:          []string{"install-offline", "install", "install"},
+			Role:           "disk",
+			Compression:    "none",
+		}},
+	}
+
+	got, err := documentToReleaseSpec(doc, t.TempDir())
+	require.NoError(t, err)
+	require.Len(t, got.Files, 1)
+	assert.Equal(t, "install,install-offline", got.Files[0].Selector.Usage.String())
+}
+
+func TestDocumentToReleaseSpecOmitsUsageWhenAbsent(t *testing.T) {
+	t.Parallel()
+
+	doc := publishDocument{
+		Name:    "example",
+		Version: "1",
+		Files: []publishFile{{
+			Path:           "/abs/disk.qcow2",
+			Filename:       "disk.qcow2",
+			Architecture:   "amd64",
+			Target:         "qemu",
+			Representation: "qcow2",
+			Role:           "disk",
+			Compression:    "none",
+		}},
+	}
+
+	got, err := documentToReleaseSpec(doc, t.TempDir())
+	require.NoError(t, err)
+	require.Len(t, got.Files, 1)
+	assert.Equal(t, imgoci.Usage{}, got.Files[0].Selector.Usage)
+	assert.Empty(t, got.Files[0].Selector.Usage.String())
+}
+
+func TestLoadReleaseSpecUsageVariants(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		file string
+		want string
+	}{
+		{name: "omitted", file: "", want: ""},
+		{name: "null", file: `"usage": null,`, want: ""},
+		{name: "empty array", file: `"usage": [],`, want: ""},
+		{name: "unsorted", file: `"usage": ["install-offline", "install"],`, want: "install,install-offline"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(dir, "disk.bin"), []byte("payload"), 0o600))
+			specPath := filepath.Join(dir, "spec.json")
+			body := `{
+  "name": "example",
+  "version": "1",
+  "files": [{
+    "path": "disk.bin",
+    "filename": "disk.bin",
+    "architecture": "amd64",
+    "target": "qemu",
+    "representation": "qcow2",
+    ` + tt.file + `
+    "role": "disk",
+    "compression": "none"
+  }]
+}`
+			require.NoError(t, os.WriteFile(specPath, []byte(body), 0o600))
+
+			got, err := loadReleaseSpec(specPath)
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got.Files[0].Selector.Usage.String())
+		})
+	}
+}
+
+func TestDocumentToReleaseSpecRejectsInvalidUsage(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name  string
+		usage []string
+		want  string
+	}{
+		{name: "invalid token", usage: []string{"INSTALL"}, want: "INSTALL"},
+		{name: "install-offline without install", usage: []string{"install-offline"}, want: "install-offline"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			doc := publishDocument{
+				Name:    "example",
+				Version: "1",
+				Files: []publishFile{{
+					Path:           "/abs/disk.qcow2",
+					Filename:       "disk.qcow2",
+					Architecture:   "amd64",
+					Target:         "qemu",
+					Representation: "qcow2",
+					Usage:          tt.usage,
+					Role:           "disk",
+					Compression:    "none",
+				}},
+			}
+			_, err := documentToReleaseSpec(doc, t.TempDir())
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), "files[0]")
+			assert.Contains(t, err.Error(), tt.want)
+		})
+	}
+}
+
 func TestQueryFlagsMapListAndResolve(t *testing.T) {
 	t.Parallel()
 
 	var list queryFlags
 	list.architecture = "amd64"
+	list.usage.values = []string{"install"}
 	list.roles.values = []string{"disk", "metadata"}
 	assert.Equal(t, imgoci.ListQuery{
 		Architecture: "amd64",
+		Usage:        []string{"install"},
 		Roles:        []string{"disk", "metadata"},
 	}, list.listQuery())
 
@@ -222,6 +352,7 @@ func TestQueryFlagsMapListAndResolve(t *testing.T) {
 	resolve.architecture = "amd64"
 	resolve.target = "qemu"
 	resolve.representation = "qcow2"
+	resolve.usage.values = []string{"install-offline", "install"}
 	resolve.compressions.values = []string{"gzip", "none"}
 	got, err := resolve.resolveQuery()
 	require.NoError(t, err)
@@ -229,6 +360,7 @@ func TestQueryFlagsMapListAndResolve(t *testing.T) {
 		Architecture:   "amd64",
 		Target:         "qemu",
 		Representation: "qcow2",
+		Usage:          []string{"install-offline", "install"},
 		Compressions:   []string{"gzip", "none"},
 	}, got)
 	assert.Equal(t, imgoci.Capabilities{}, got.Capabilities)
