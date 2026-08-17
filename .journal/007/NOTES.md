@@ -283,7 +283,30 @@ Ops findings worth keeping:
   download are never ours. Some runs report `cannot be rerun`; an empty commit is
   the reliable retrigger.
 
-Next: nothing outstanding on the usage work. At close, promote to TECH_NOTES: the
-usage design (canonical string, comparable Selector, producer/consumer split), the
-`cli/` replace-directive trap, the `programmer`-agent rehabilitation (9/9 this
-session), and the two tooling gotchas above.
+## 2026-08-17 13:05 — Completeness audit found two stragglers
+Asked whether #23 was the last step, I audited rather than answered from memory,
+and plan step 7 ("documentation and stale source language") was NOT fully done.
+Two files still claimed the old pin:
+- `doc.go:5-7` said "imgoci v1 draft, 2026-08-11 (commit 5b957102..., the same pin
+  recorded in testdata/conformance/SPEC_COMMIT)". That sentence asserts agreement
+  with a file THIS PR changes, so #23 would have shipped a self-contradicting
+  package doc.
+- `README.md:7` tracked "imgoci spec v1 draft (2026-08-11)".
+Both corrected in `1164ed4`. A repo-wide grep for `5b957102` and `2026-08-11`
+outside `.git`, `docs/build` and `docs/.venv` is now empty.
+
+The one other hit, `validate_test.go:469` "one of the three fields", is correct:
+it means content digest, size and filename, not a selector tuple width.
+
+Lesson: a doc line that claims consistency with a pinned file is a landmine when
+the pin moves. Grep for the OLD pin value as the last act of any pin bump; the
+seven-step plan listed the docs pages by name but not this cross-reference.
+
+Usage work is now complete: PR #21 (value layer), #22 (public API and CLI), #23
+(producer registry, pin, fixtures, docs), each green.
+
+Next: at close, promote to TECH_NOTES: the usage design (canonical string,
+comparable Selector, producer/consumer split), the `cli/` replace-directive trap,
+the `programmer`-agent rehabilitation (9/9 this session, against 0/5 in sessions
+002 and 006), the stale golangci-lint cache after `wt remove`, the PATH-vs-mise
+`cue` version trap, and the old-pin grep habit above.
