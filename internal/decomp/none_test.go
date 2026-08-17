@@ -21,7 +21,7 @@ func TestNonePassthrough(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			rc, err := Decoder(nameNone)(bytes.NewReader(tt.payload))
+			rc, err := Decoder(nameNone, DefaultDecoderMaxWindow)(bytes.NewReader(tt.payload))
 			if err != nil {
 				t.Fatalf("open none: %v", err)
 			}

@@ -106,14 +106,35 @@ func TestBoundedReaderExactLimitProbe(t *testing.T) {
 func TestBoundedReaderShortStream(t *testing.T) {
 	t.Parallel()
 
-	payload := []byte("short")
-	br := NewBoundedReader(bytes.NewReader(payload), boundedExact)
-	got, err := io.ReadAll(br)
-	if err != nil {
-		t.Fatalf("short stream: %v", err)
+	tests := []struct {
+		name    string
+		payload []byte
+	}{
+		{name: "one byte short", payload: bytes.Repeat([]byte{'a'}, boundedExact-1)},
+		{name: "well short", payload: []byte("short")},
+		{name: "empty", payload: nil},
 	}
-	if !bytes.Equal(got, payload) {
-		t.Fatalf("got %q, want %q", got, payload)
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			br := NewBoundedReader(bytes.NewReader(tt.payload), boundedExact)
+			got, err := io.ReadAll(br)
+			if !errors.Is(err, ErrSizeMismatch) {
+				t.Fatalf("error %v is not ErrSizeMismatch", err)
+			}
+			if errors.Is(err, ErrSizeExceeded) {
+				t.Fatal("underrun was reported as ErrSizeExceeded")
+			}
+			if !bytes.Equal(got, tt.payload) && len(tt.payload) > 0 {
+				t.Fatalf("got %q, want %q", got, tt.payload)
+			}
+
+			if _, err := br.Read(make([]byte, 1)); !errors.Is(err, ErrSizeMismatch) {
+				t.Fatalf("sticky error %v is not ErrSizeMismatch", err)
+			}
+		})
 	}
 }
 

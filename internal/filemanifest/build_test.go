@@ -3,6 +3,7 @@ package filemanifest
 import (
 	"bytes"
 	"maps"
+	"os"
 	"strings"
 	"testing"
 
@@ -12,6 +13,100 @@ import (
 	"github.com/imgoci/go/internal/jcs"
 )
 
+// goldenStandardPath holds the independent byte oracle for [BuildStandard].
+//
+// The file is the spec §13 standard file-manifest example (spec.md:889-907)
+// rendered as compact canonical JSON by an implementation OUTSIDE this
+// repository, so that it cannot drift in lockstep with a producer defect. It
+// was generated with CPython 3 from the pretty-printed spec example:
+//
+//	python3 -c 'import json,sys; print(json.dumps(json.load(sys.stdin), sort_keys=True, separators=(",",":"), ensure_ascii=False), end="")' \
+//	  < spec-standard-example.json > standard-v1.json
+//
+// json.dumps(sort_keys=True, separators=(",",":")) is NOT an RFC 8785
+// implementation in general: it sorts keys by Unicode code point rather than
+// UTF-16 code unit, and formats floats with repr rather than the ECMAScript
+// Number.prototype.toString algorithm. The two agree here only because this
+// object is pure ASCII with integer-valued numbers only, the subset on which
+// both rules coincide.
+//
+// The golden must NEVER be regenerated from [BuildStandard] or internal/jcs:
+// doing so would copy any producer defect into the oracle and defeat the whole
+// point of the file. See testdata/README.md.
+const goldenStandardPath = "testdata/standard-v1.json"
+
+// goldenLayerDigest is the layer digest of the spec §13 example manifest.
+const goldenLayerDigest = "sha256:" + goldenLayerHex
+
+// goldenLayerHex is the 64-character hex body of [goldenLayerDigest].
+const goldenLayerHex = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+
+// goldenLayerSize is the layer size of the spec §13 example manifest.
+const goldenLayerSize int64 = 123456789
+
+// TestBuildStandardGoldenBytes pins [BuildStandard] output to an independent
+// artifact.
+//
+// Unlike the round-trip tests in this file, the oracle is a checked-in byte
+// string produced outside this module. A change to the producer member set or
+// to the encoding therefore fails here even when this package's own
+// [ValidateStandard] and internal/jcs change identically.
+func TestBuildStandardGoldenBytes(t *testing.T) {
+	t.Parallel()
+	want, err := os.ReadFile(goldenStandardPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(want); n == 0 || want[n-1] == '\n' {
+		t.Fatalf("golden %s must be non-empty and have no trailing newline", goldenStandardPath)
+	}
+
+	got, err := BuildStandard(BuildInput{
+		LayerDigest: digest.Digest(goldenLayerDigest),
+		LayerSize:   goldenLayerSize,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Fatalf("BuildStandard bytes differ from %s\ngot:  %s\nwant: %s", goldenStandardPath, got, want)
+	}
+}
+
+// TestBuildStandardGoldenCatchesSelfOracleBlindSpot proves the golden is worth
+// having, by exhibiting producer output that the package's own oracle accepts
+// and the golden rejects.
+//
+// [ValidateStandard] is consumer validation, and spec §6:559-561 requires it
+// to keep accepting producer-only violations such as an extra annotations
+// member. jcs.Verify likewise only checks that the bytes are the canonical
+// form of whatever tree they encode. So a producer that grew a member set
+// stays green under both. Byte equality against the independent artifact is
+// the only check that fails, which is exactly how the removed
+// BuildInput.Annotations defect should have been caught.
+func TestBuildStandardGoldenCatchesSelfOracleBlindSpot(t *testing.T) {
+	t.Parallel()
+	want, err := os.ReadFile(goldenStandardPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Canonical order puts "annotations" first, so this is still valid JCS.
+	drifted := []byte(strings.Replace(string(want),
+		`{"artifactType"`,
+		`{"annotations":{"io.imgoci.filename":"exampleos-42.1.qcow2"},"artifactType"`, 1))
+	if bytes.Equal(drifted, want) {
+		t.Fatal("mutation did not change the bytes; the test would be vacuous")
+	}
+
+	if _, err := ValidateStandard(drifted); err != nil {
+		t.Fatalf("ValidateStandard rejected a producer-only violation: %v", err)
+	}
+	assertCanonicalBytes(t, drifted)
+	if bytes.Equal(drifted, want) {
+		t.Fatal("golden did not catch the extra producer member")
+	}
+}
+
 func TestBuildStandardSelfOracle(t *testing.T) {
 	t.Parallel()
 	layerDigest := digest.FromBytes([]byte("stored"))
@@ -20,24 +115,12 @@ func TestBuildStandardSelfOracle(t *testing.T) {
 		in   BuildInput
 	}{
 		{
-			name: "no_annotations",
+			name: "nonzero_layer",
 			in:   BuildInput{LayerDigest: layerDigest, LayerSize: 6},
 		},
 		{
-			name: "with_annotations",
-			in: BuildInput{
-				LayerDigest: layerDigest,
-				LayerSize:   6,
-				Annotations: map[string]string{"io.example.key": "v"},
-			},
-		},
-		{
-			name: "custom_artifactType",
-			in: BuildInput{
-				ArtifactType: "APPLICATION/VND.IMGOCI.FILE.V1",
-				LayerDigest:  layerDigest,
-				LayerSize:    0,
-			},
+			name: "empty_layer",
+			in:   BuildInput{LayerDigest: layerDigest, LayerSize: 0},
 		},
 	}
 	for _, tc := range tests {
@@ -53,7 +136,7 @@ func TestBuildStandardSelfOracle(t *testing.T) {
 			}
 			assertRoundTrip(t, tc.in, std, raw)
 			assertCanonicalBytes(t, raw)
-			assertFixedMembers(t, raw, len(tc.in.Annotations) > 0)
+			assertFixedMembers(t, raw)
 		})
 	}
 }
@@ -63,7 +146,6 @@ func TestBuildStandardDigestStability(t *testing.T) {
 	in := BuildInput{
 		LayerDigest: digest.FromBytes([]byte("stored")),
 		LayerSize:   6,
-		Annotations: map[string]string{"io.example.key": "v", "io.example.other": "w"},
 	}
 	first, err := BuildStandard(in)
 	if err != nil {
@@ -117,24 +199,6 @@ func TestBuildStandardRejects(t *testing.T) {
 			in:   BuildInput{LayerDigest: layerDigest, LayerSize: maxLayerSize + 1},
 			want: "size",
 		},
-		{
-			name: "invalid utf8 annotation key",
-			in: BuildInput{
-				LayerDigest: layerDigest,
-				LayerSize:   0,
-				Annotations: map[string]string{string([]byte{0xff}): "v"},
-			},
-			want: "UTF-8",
-		},
-		{
-			name: "invalid utf8 annotation value",
-			in: BuildInput{
-				LayerDigest: layerDigest,
-				LayerSize:   0,
-				Annotations: map[string]string{"k": string([]byte{0xff})},
-			},
-			want: "UTF-8",
-		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -152,12 +216,8 @@ func TestBuildStandardRejects(t *testing.T) {
 
 func assertRoundTrip(t *testing.T, in BuildInput, std *Standard, raw []byte) {
 	t.Helper()
-	wantType := in.ArtifactType
-	if wantType == "" {
-		wantType = index.ArtifactTypeFile
-	}
-	if std.ArtifactType != wantType {
-		t.Fatalf("artifactType %q, want %q", std.ArtifactType, wantType)
+	if std.ArtifactType != index.ArtifactTypeFile {
+		t.Fatalf("artifactType %q, want %q", std.ArtifactType, index.ArtifactTypeFile)
 	}
 	if std.Layer.Digest != in.LayerDigest {
 		t.Fatalf("layer digest %s, want %s", std.Layer.Digest, in.LayerDigest)
@@ -165,9 +225,9 @@ func assertRoundTrip(t *testing.T, in BuildInput, std *Standard, raw []byte) {
 	if std.Layer.Size != in.LayerSize {
 		t.Fatalf("layer size %d, want %d", std.Layer.Size, in.LayerSize)
 	}
-	got := manifestAnnotations(t, raw)
-	if !maps.Equal(got, in.Annotations) {
-		t.Fatalf("annotations %v, want %v", got, in.Annotations)
+	obj := mustObject(t, raw, "file manifest")
+	if _, ok := obj["annotations"]; ok {
+		t.Fatalf("producer emitted annotations: %v", maps.Keys(obj))
 	}
 }
 
@@ -182,20 +242,16 @@ func assertCanonicalBytes(t *testing.T, raw []byte) {
 	}
 }
 
-func assertFixedMembers(t *testing.T, raw []byte, wantAnnotations bool) {
+func assertFixedMembers(t *testing.T, raw []byte) {
 	t.Helper()
 	obj := mustObject(t, raw, "file manifest")
-	want := map[string]struct{}{
+	assertKeySet(t, obj, map[string]struct{}{
 		"schemaVersion": {},
 		"mediaType":     {},
 		"artifactType":  {},
 		"config":        {},
 		"layers":        {},
-	}
-	if wantAnnotations {
-		want["annotations"] = struct{}{}
-	}
-	assertKeySet(t, obj, want)
+	})
 
 	cfg := mustChildObject(t, obj, "config")
 	assertKeySet(t, cfg, map[string]struct{}{
@@ -220,28 +276,6 @@ func assertFixedMembers(t *testing.T, raw []byte, wantAnnotations bool) {
 		"mediaType": {},
 		"size":      {},
 	})
-}
-
-func manifestAnnotations(t *testing.T, raw []byte) map[string]string {
-	t.Helper()
-	obj := mustObject(t, raw, "file manifest")
-	rawAnn, ok := obj["annotations"]
-	if !ok {
-		return nil
-	}
-	ann, err := asObject(rawAnn, "annotations")
-	if err != nil {
-		t.Fatal(err)
-	}
-	out := make(map[string]string, len(ann))
-	for k, v := range ann {
-		s, err := asString(v, "annotations["+k+"]")
-		if err != nil {
-			t.Fatal(err)
-		}
-		out[k] = s
-	}
-	return out
 }
 
 func mustObject(t *testing.T, raw []byte, field string) map[string]any {

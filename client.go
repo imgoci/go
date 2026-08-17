@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/imgoci/go/internal/auth"
+	"github.com/imgoci/go/internal/decomp"
 	"github.com/imgoci/go/internal/multipart"
 	"github.com/imgoci/go/internal/registry"
 	"github.com/imgoci/go/internal/transfer"
@@ -51,6 +52,10 @@ type clientSettings struct {
 	// resolved is the credential source [New] built from credentials, nil
 	// for anonymous.
 	resolved auth.Credentials
+	// decoderMaxWindow is the working-set ceiling one decompressor may
+	// allocate, applied to every decode a transfer performs. [New] defaults
+	// it to [decomp.DefaultDecoderMaxWindow] and rejects zero.
+	decoderMaxWindow uint64
 }
 
 // adapterKey identifies one cached repository adapter.
@@ -101,12 +106,20 @@ type Option func(*clientSettings)
 // full exchange, made anonymously, which is what registries that hand out
 // public-read tokens expect. It only means this client has no user name or
 // secret to offer when the exchange asks for one.
+//
+// A [WithDecoderMaxWindow] of zero is the other error. Zero is the value a
+// caller reaches for to mean "no limit", and it is the one thing the option
+// cannot express, so it is rejected here rather than silently reinstating the
+// default or refusing every compressed file later.
 func New(opts ...Option) (*Client, error) {
-	var settings clientSettings
+	settings := clientSettings{decoderMaxWindow: decomp.DefaultDecoderMaxWindow}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(&settings)
 		}
+	}
+	if settings.decoderMaxWindow == 0 {
+		return nil, errors.New("decoder max window must be positive, got 0")
 	}
 
 	if settings.credentials != nil {
@@ -144,6 +157,34 @@ func WithHTTPClient(client *http.Client) Option {
 func WithPlainHTTP() Option {
 	return func(s *clientSettings) {
 		s.plainHTTP = true
+	}
+}
+
+// WithDecoderMaxWindow caps the working set one decompressor may allocate at
+// maxBytes, instead of the default 128 MiB
+// ([decomp.DefaultDecoderMaxWindow]).
+//
+// One ceiling covers both codecs that have a working set: the zstd
+// Window_Size a frame declares (or, for a single-segment frame, its
+// Frame_Content_Size) and the LZMA2 dictionary capacity an xz stream
+// declares. A stored file that needs more fails with [ErrDecode] before the
+// buffer is allocated, on fetch and on the strict decode Publish performs
+// over its own sources alike, so a producer cannot write a release this
+// client would refuse to read back.
+//
+// The bound is per active decoder, not per transfer. Concurrent role
+// transfers each hold their own working set, so peak decoder memory is
+// maxBytes times the number of entries decoding at once — see
+// [WithWorkers], which sets that number.
+//
+// The default is what mainstream producer output needs: it is the zstd CLI's
+// own default decode limit (windowLog 27), and it covers the 64 MiB
+// dictionary of `xz -9`. Lowering it rejects such files; raising it accepts
+// more hostile ones. Zero is not a way to disable the bound and [New]
+// rejects it.
+func WithDecoderMaxWindow(maxBytes uint64) Option {
+	return func(s *clientSettings) {
+		s.decoderMaxWindow = maxBytes
 	}
 }
 

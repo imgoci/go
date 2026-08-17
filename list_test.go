@@ -72,6 +72,28 @@ func TestListFiltersAndSort(t *testing.T) {
 	if len(got) != 1 || got[0].Representation != "incus-vm" {
 		t.Fatalf("role filter: %#v", got)
 	}
+
+	full, err := idx.List(ListQuery{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	keys := make([][3]string, 0, len(full))
+	for _, deliverable := range full {
+		keys = append(keys, [3]string{
+			deliverable.Architecture,
+			deliverable.Target,
+			deliverable.Representation,
+		})
+	}
+	wantKeys := [][3]string{
+		{"amd64", "incus", "incus-vm"},
+		{"amd64", "qemu", "qcow2"},
+		{"amd64", "qemu", "raw"},
+		{"arm64", "metal", "qcow2"},
+	}
+	if !slices.Equal(keys, wantKeys) {
+		t.Fatalf("deliverable keys = %v, want %v: sort is architecture, then target, then representation", keys, wantKeys)
+	}
 }
 
 func TestListEmptyAndInvalidQuery(t *testing.T) {
@@ -113,8 +135,15 @@ func TestListDoesNotFilterCapabilities(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 1 || len(got[0].Roles[0].Alternatives) != 2 {
+	if len(got) != 1 || len(got[0].Roles) != 1 || len(got[0].Roles[0].Alternatives) != 2 {
 		t.Fatalf("listing must keep unsupported types: %#v", got)
+	}
+	alts := got[0].Roles[0].Alternatives
+	if alts[0].Compression != "none" || alts[0].ArtifactType != standardFileMediaType {
+		t.Fatalf("first alternative = %#v, want the standard type under none", alts[0])
+	}
+	if alts[1].Compression != "zstd" || alts[1].ArtifactType != "application/vnd.bigoci.file.v1" {
+		t.Fatalf("second alternative = %#v, want the BigOCI type exposed, not filtered", alts[1])
 	}
 }
 

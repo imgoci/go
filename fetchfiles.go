@@ -120,14 +120,15 @@ func (c *Client) FetchFiles(
 	}
 
 	return mapFetchError(transfer.FetchFiles(ctx, transfer.FetchFilesRequest{
-		Manifests:  ports.manifests,
-		Blobs:      ports.blobs,
-		Multipart:  ports.multipart,
-		Repository: rel.host + "/" + rel.repository,
-		Entries:    transferEntries(entries),
-		ByRole:     byRole,
-		Workers:    settings.workers,
-		Progress:   convertProgress(settings.progress),
+		Manifests:        ports.manifests,
+		Blobs:            ports.blobs,
+		Multipart:        ports.multipart,
+		Repository:       rel.host + "/" + rel.repository,
+		Entries:          transferEntries(entries),
+		ByRole:           byRole,
+		Workers:          settings.workers,
+		Progress:         convertProgress(settings.progress),
+		DecoderMaxWindow: c.settings.decoderMaxWindow,
 	}))
 }
 
@@ -220,6 +221,12 @@ func transferEntries(entries []FileEntry) []transfer.Entry {
 // (retrieved-document rule, same as a standard-form manifest failure) and
 // stored digest/size mismatches as [transfer.ErrDigestMismatch]. A nil
 // Multipart wiring error is not a sentinel and is returned unchanged.
+//
+// Both raw stored-size sentinels are integrity failures, not decode
+// failures: [decomp.ErrSizeExceeded] for a stored file longer than the layer
+// descriptor declares and [decomp.ErrSizeMismatch] for one shorter. They are
+// matched ahead of [decomp.ErrDecode] so the size verdict is not restated as
+// a codec verdict.
 func mapFetchError(err error) error {
 	if err == nil {
 		return nil
@@ -238,7 +245,9 @@ func mapFetchError(err error) error {
 		return fmt.Errorf("%w: %w", ErrInvalidDest, err)
 	case errors.Is(err, transfer.ErrInvalidDocument):
 		return fmt.Errorf("%w: %w", ErrInvalidIndex, err)
-	case errors.Is(err, decomp.ErrSizeExceeded), errors.Is(err, transfer.ErrDigestMismatch):
+	case errors.Is(err, decomp.ErrSizeExceeded),
+		errors.Is(err, decomp.ErrSizeMismatch),
+		errors.Is(err, transfer.ErrDigestMismatch):
 		return fmt.Errorf("%w: %w", ErrDigestMismatch, err)
 	case errors.Is(err, decomp.ErrDecode):
 		return fmt.Errorf("%w: %w", ErrDecode, err)

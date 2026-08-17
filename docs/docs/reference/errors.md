@@ -27,24 +27,62 @@ The private reference CLI maps each sentinel onto a fixed exit code; see the
 | `ErrDigestMismatch` | `Client.Fetch`, `Client.FetchFiles`, `Client.Publish` | Retrieved or published bytes did not match a declared digest or size: a fetched index that fails the reference's digest pin, a manifest or blob that fails verification, a decoded stream that exceeds its declared size, or a `Source` that changed between pass 1 and upload. | On fetch: retry may help against a transient corruption, but a stable mismatch means the published content is wrong. On publish: stop mutating the `Source` during `Publish`. |
 | `ErrUnsupportedType` | `Index.Resolve`, `Client.Resolve`, `Client.FetchFiles` | A selected file-manifest type is outside the consumer capability set: capability filtering left a selected role with no remaining transport alternative, or a selected entry's `ArtifactType` is outside `Client.Capabilities`. | Widen the capability set with `NewCapabilities` (see the [capabilities reference](capabilities.md)) or select a different deliverable. |
 | `ErrSelectionMismatch` | `Client.FetchFiles` | The `Resolved` value was not derived from the release being retrieved. Binding is by canonical index digest, not pointer identity. | Re-run `Client.Resolve` against the `Release` you are fetching from. |
-| `ErrDecode` | `Client.FetchFiles`, `Client.Publish` | Strict decompression of a stored file failed — for example a two-member gzip stream, a zstd frame whose window exceeds 8 MiB, or an xz stream whose LZMA2 dictionary exceeds 8 MiB. The producer path is as strict as the consumer: `Publish` fails such a file before any upload. | Re-encode the stored file as one compression unit. For zstd and xz, configure a window or dictionary no larger than 8 MiB. |
+| `ErrDecode` | `Client.FetchFiles`, `Client.Publish` | Strict decompression of a stored file failed — for example a two-member gzip stream, or a zstd frame or xz stream that needs a decoder working set above the configured ceiling (128 MiB by default). The producer path is as strict as the consumer: `Publish` fails such a file before any upload. | Re-encode the stored file as one compression unit. For a working-set rejection, either re-encode with a smaller window or dictionary, or raise the ceiling with `WithDecoderMaxWindow`. |
 
 `ErrNotFound`, `ErrUnauthorized`, and `ErrDigestMismatch` on the fetch path
 wrap the transfer orchestrator's detail; `ErrDigestMismatch` also covers a
-size bound exceeded during decode, because a size bound is digest discipline.
+declared size a stored file disagrees with in either direction, because a
+size bound is digest discipline. See
+[stored-file size verification](#stored-file-size-verification).
 
 ## Decode working-set limits
 
-The decoder rejects a zstd frame whose declared window exceeds 8 MiB and an
-xz stream whose LZMA2 dictionary exceeds 8 MiB. It checks the declared value
-before allocating the decoder buffer. This working-set bound is independent of
-the file's decoded content size.
+A zstd frame declares the window it must be decoded against, and an xz stream
+declares the LZMA2 dictionary capacity it must be decoded against. The decoder
+reads that declared value out of the frame or block header and refuses the file
+with `ErrDecode` *before* allocating the buffer. This working-set bound is
+independent of the file's decoded content size, which is bounded separately by
+`io.imgoci.content.size`.
 
-The zstd command-line encoder's default window through compression level 19 is
-within the limit. Higher levels and `--long` can exceed it. The xz command-line
-encoder's `-9` preset uses a 64 MiB dictionary and exceeds the limit. Configure
-either encoder with an explicit window or dictionary of at most 8 MiB when
-producing imgoci files.
+One ceiling covers both codecs. It defaults to **128 MiB** and is configured
+with `WithDecoderMaxWindow`:
+
+```go
+client, err := imgoci.New(imgoci.WithDecoderMaxWindow(32 << 20))
+```
+
+Zero is rejected by `New`: it is not a way to turn the bound off.
+
+The default is the ceiling mainstream producer output needs. It is the zstd
+command-line tool's own default decode limit (`windowLog` 27), so a frame from
+`zstd --long=27` is accepted, and it covers the 64 MiB dictionary of the xz
+command-line tool's `-9` preset. Lowering the ceiling rejects such files;
+raising it accepts more hostile ones.
+
+The bound applies to **each active decoder**, not to a transfer as a whole, and
+it is joint across the two codecs: one number, whichever codec a given file
+uses. A transfer decoding several roles at once therefore holds one working set
+per role in flight, so peak decoder memory is roughly the ceiling times the
+worker count set by `WithWorkers`. Raising both at the same time multiplies
+them.
+
+The same ceiling applies on publish. Pass 1 decodes every source with it, so a
+producer cannot write a release that a consumer running the same configuration
+would refuse to read back.
+
+## Stored-file size verification
+
+Spec section 8 has the consumer verify a file layer's digest **and** size, so
+`Client.FetchFiles` treats `layers[0].size` as an equality check rather than a
+ceiling. A stored file that runs past the declared size fails, and so does one
+that ends before it — a manifest declaring `N+1` bytes over a blob of exactly
+the `N` bytes its layer digest names is rejected even though every digest in
+the release is correct, because the digest alone cannot catch an overstated
+length. Both directions are integrity failures and surface as
+`ErrDigestMismatch`, never as `ErrDecode`, even when the disagreement is
+noticed while a gzip, xz, or zstd stream is being decoded. Nothing is
+committed: the transfer stages every role and only renames destinations into
+place once all of them verify.
 
 ## Offline Resolve failures
 

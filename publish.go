@@ -120,7 +120,7 @@ func (c *Client) Publish(
 		Manifests: ports.manifests,
 		Blobs:     ports.blobs,
 		Multipart: ports.multipart,
-	}, toPublishRequest(parsed.host+"/"+parsed.repository, parsed.tag, spec, settings))
+	}, toPublishRequest(parsed.host+"/"+parsed.repository, parsed.tag, spec, settings, c.settings.decoderMaxWindow))
 	return dgst, mapPublishError(err)
 }
 
@@ -357,8 +357,15 @@ func toIndexSelector(s Selector) index.Selector {
 
 // toPublishRequest maps a validated spec onto the transfer request.
 // Annotation maps are cloned so later mutation of the caller's spec cannot
-// change what was validated.
-func toPublishRequest(repo, tag string, spec ReleaseSpec, settings publishSettings) transfer.PublishRequest {
+// change what was validated. maxWindow is the client-wide decoder ceiling,
+// which pass-1 strict decode applies so a producer cannot write a release
+// this client would refuse to read back.
+func toPublishRequest(
+	repo, tag string,
+	spec ReleaseSpec,
+	settings publishSettings,
+	maxWindow uint64,
+) transfer.PublishRequest {
 	entries := make([]transfer.PublishEntry, len(spec.Files))
 	for i, file := range spec.Files {
 		entry := transfer.PublishEntry{
@@ -373,14 +380,15 @@ func toPublishRequest(repo, tag string, spec ReleaseSpec, settings publishSettin
 		entries[i] = entry
 	}
 	return transfer.PublishRequest{
-		Tag:         tag,
-		Name:        spec.Name,
-		Version:     spec.Version,
-		Annotations: maps.Clone(spec.Annotations),
-		Entries:     entries,
-		Workers:     settings.workers,
-		Progress:    convertProgress(settings.progress),
-		Repo:        repo,
+		Tag:              tag,
+		Name:             spec.Name,
+		Version:          spec.Version,
+		Annotations:      maps.Clone(spec.Annotations),
+		Entries:          entries,
+		Workers:          settings.workers,
+		Progress:         convertProgress(settings.progress),
+		Repo:             repo,
+		DecoderMaxWindow: maxWindow,
 	}
 }
 

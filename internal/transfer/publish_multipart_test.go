@@ -136,8 +136,8 @@ func TestPublishMultipartReportsLatestAbsoluteProgress(t *testing.T) {
 		Version: "1",
 		Repo:    publishRepo,
 		Entries: []PublishEntry{
-			publishEntry(stdPath, "file-a", compressionNone, "a"),
-			multipartEntry(mpPath, "file-b", 8),
+			publishEntry(stdPath, "disk", compressionNone, "a"),
+			multipartEntry(mpPath, "kernel", 8),
 		},
 		Progress: func(p Progress) { snaps = append(snaps, p) },
 	})
@@ -371,8 +371,8 @@ func TestPublishMixedStandardAndMultipartIndexLast(t *testing.T) {
 		Version: "1",
 		Repo:    publishRepo,
 		Entries: []PublishEntry{
-			publishEntry(stdPath, "file-a", compressionNone, "a"),
-			multipartEntry(mpPath, "file-b", 8),
+			publishEntry(stdPath, "disk", compressionNone, "a"),
+			multipartEntry(mpPath, "kernel", 8),
 		},
 	})
 	if err != nil {

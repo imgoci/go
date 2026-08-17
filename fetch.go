@@ -23,6 +23,16 @@ import (
 // MediaType accessor: [ParseIndex] already validated the JSON member against
 // the spec index type (rule 1), and the HTTP Content-Type is required to
 // identify that same type.
+//
+// Spec section 7.1 requires a consumer to validate the query before fetching
+// the release. This API is fetch-once, query-many: Fetch receives only a
+// [Reference], and no query exists yet, so it cannot validate one. A query
+// first reaches the library at [Index.List], [Index.Resolve], or
+// [Client.Resolve], each of which validates it in full before inspecting any
+// index entry — that is, at the first method that receives the query, but
+// necessarily after this explicit fetch. Fetch performs no prefetch query
+// validation. The only consequence is one wasted manifest round trip for an
+// invalid query; an invalid query never yields a result.
 func (c *Client) Fetch(ctx context.Context, ref Reference) (*Release, error) {
 	if c == nil {
 		return nil, errors.New("fetch: nil client")

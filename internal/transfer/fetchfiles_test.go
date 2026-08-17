@@ -18,6 +18,7 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/mock"
 
+	"github.com/imgoci/go/internal/decomp"
 	"github.com/imgoci/go/internal/file"
 	"github.com/imgoci/go/internal/filemanifest"
 	"github.com/imgoci/go/internal/index"
@@ -378,6 +379,53 @@ func TestFetchFilesHappyGzip(t *testing.T) {
 	}
 }
 
+// TestFetchFilesLayerSizeOverstatedRejected is the spec §8 layer-size
+// reproduction: a well-formed gzip blob of N bytes whose layer digest is the
+// digest of exactly those N bytes, inside a canonical standard manifest that
+// declares layers[0].size = N+1. Content digest and content size are
+// correct, so the digest checks all pass and only the raw stored-size
+// equality can reject the entry.
+func TestFetchFilesLayerSizeOverstatedRejected(t *testing.T) {
+	t.Parallel()
+	content := []byte("hello imgoci overstated layer size")
+	fx := overstatedSizeFixture(t, "disk", content)
+	dest := filepath.Join(t.TempDir(), "disk.img")
+
+	m := regmocks.NewMockManifests(t)
+	m.EXPECT().Get(mock.Anything, fx.entry.Digest.String(), fx.entry.MediaType).
+		Return(fx.manifest, index.MediaTypeManifest, nil).Once()
+	blobs := regmocks.NewMockBlobs(t)
+	blobs.EXPECT().Pull(mock.Anything, fx.layer).
+		Return(io.NopCloser(bytes.NewReader(fx.stored)), nil).Once()
+
+	var (
+		mu    sync.Mutex
+		snaps []Progress
+	)
+	err := FetchFiles(t.Context(), FetchFilesRequest{
+		Manifests: m,
+		Blobs:     blobs,
+		Entries:   []Entry{fx.entry},
+		ByRole:    map[string]string{"disk": dest},
+		Progress: func(p Progress) {
+			mu.Lock()
+			snaps = append(snaps, p)
+			mu.Unlock()
+		},
+	})
+	if err == nil {
+		t.Fatal("declared layer size N+1 over an N-byte blob verified clean")
+	}
+	if !errors.Is(err, decomp.ErrSizeMismatch) {
+		t.Fatalf("error %v is not decomp.ErrSizeMismatch", err)
+	}
+	if errors.Is(err, decomp.ErrDecode) {
+		t.Fatalf("stored-size underrun was reclassified as a decode failure: %v", err)
+	}
+	assertAbsent(t, dest)
+	assertNoSuccessTerminal(t, &mu, &snaps)
+}
+
 func TestFetchFilesRegistrySentinels(t *testing.T) {
 	t.Parallel()
 	fx := noneFixture(t, "disk", []byte("payload"))
@@ -499,6 +547,18 @@ func gzipFixture(t *testing.T, role string, content []byte) fileFixture {
 	return newFixture(t, role, content, gzipBytes(t, content), "gzip")
 }
 
+// overstatedSizeFixture builds a gzip fixture whose manifest declares
+// layers[0].size one byte larger than the blob its layer digest names. Every
+// other field, including the manifest digest, is consistent.
+func overstatedSizeFixture(t *testing.T, role string, content []byte) fileFixture {
+	t.Helper()
+	fx := gzipFixture(t, role, content)
+	fx.manifest = canonicalManifest(t, fx.layer, int64(len(fx.stored))+1)
+	fx.entry.Digest = digest.FromBytes(fx.manifest)
+	fx.entry.Size = int64(len(fx.manifest))
+	return fx
+}
+
 func newFixture(t *testing.T, role string, content, stored []byte, compression string) fileFixture {
 	t.Helper()
 	layer := digest.FromBytes(stored)
@@ -524,7 +584,16 @@ func newFixture(t *testing.T, role string, content, stored []byte, compression s
 	}
 }
 
+// mustCanonicalManifest encodes a canonical standard file manifest whose
+// layer descriptor agrees with stored.
 func mustCanonicalManifest(t *testing.T, stored []byte) []byte {
+	t.Helper()
+	return canonicalManifest(t, digest.FromBytes(stored), int64(len(stored)))
+}
+
+// canonicalManifest encodes a canonical standard file manifest declaring the
+// given layer digest and size, which need not describe the same bytes.
+func canonicalManifest(t *testing.T, layer digest.Digest, size int64) []byte {
 	t.Helper()
 	raw, err := jcs.Encode(map[string]any{
 		"artifactType": index.ArtifactTypeFile,
@@ -535,9 +604,9 @@ func mustCanonicalManifest(t *testing.T, stored []byte) []byte {
 		},
 		"layers": []any{
 			map[string]any{
-				"digest":    digest.FromBytes(stored).String(),
+				"digest":    layer.String(),
 				"mediaType": filemanifest.MediaTypeLayer,
-				"size":      int64(len(stored)),
+				"size":      size,
 			},
 		},
 		"mediaType":     index.MediaTypeManifest,
@@ -568,6 +637,23 @@ func assertAbsent(t *testing.T, path string) {
 		t.Fatalf("path %s exists after failed fetch", path)
 	} else if !os.IsNotExist(err) {
 		t.Fatal(err)
+	}
+}
+
+// assertNoSuccessTerminal requires that a failed transfer emitted no
+// success-terminal snapshot: no commit phase was ever reported and no file
+// was ever counted complete.
+func assertNoSuccessTerminal(t *testing.T, mu *sync.Mutex, snaps *[]Progress) {
+	t.Helper()
+	mu.Lock()
+	defer mu.Unlock()
+	for i, s := range *snaps {
+		if s.Phase == PhaseCommit {
+			t.Fatalf("snap %d reported commit phase after a failed transfer: %+v", i, s)
+		}
+		if s.CompletedFiles != 0 {
+			t.Fatalf("snap %d counted %d completed files after a failed transfer", i, s.CompletedFiles)
+		}
 	}
 }
 

@@ -2,6 +2,16 @@ package index
 
 import "testing"
 
+// TestDescriptorOrderUTF8ByteOrder covers spec §9:794-800: manifests sort by
+// (architecture, target, representation, role, compression), each field
+// compared by ascending UTF-8 byte order.
+//
+// The table proves two things per tuple component. A "decides" case holds
+// every earlier component equal and shows the component alone chooses the
+// order. A "dominates" case gives the earlier component the smaller value
+// while the later component argues the other way, and shows the earlier
+// component wins. Together those pin each component to its own precedence
+// rather than merely to being consulted somewhere.
 func TestDescriptorOrderUTF8ByteOrder(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
@@ -25,6 +35,54 @@ func TestDescriptorOrderUTF8ByteOrder(t *testing.T) {
 			name: "compression gzip before none",
 			a:    Selector{Architecture: "amd64", Target: "t", Representation: "r", Role: "role", Compression: "gzip"},
 			b:    Selector{Architecture: "amd64", Target: "t", Representation: "r", Role: "role", Compression: "none"},
+			want: -1,
+		},
+		{
+			name: "target decides when architecture is equal",
+			a:    Selector{Architecture: "amd64", Target: "aws", Representation: "r", Role: "role", Compression: "none"},
+			b:    Selector{Architecture: "amd64", Target: "azure", Representation: "r", Role: "role", Compression: "none"},
+			want: -1,
+		},
+		{
+			name: "architecture dominates target",
+			a:    Selector{Architecture: "amd64", Target: "zzz", Representation: "r", Role: "role", Compression: "none"},
+			b:    Selector{Architecture: "arm64", Target: "aws", Representation: "r", Role: "role", Compression: "none"},
+			want: -1,
+		},
+		{
+			name: "representation decides when architecture and target are equal",
+			a:    Selector{Architecture: "amd64", Target: "t", Representation: "iso", Role: "role", Compression: "none"},
+			b:    Selector{Architecture: "amd64", Target: "t", Representation: "qcow2", Role: "role", Compression: "none"},
+			want: -1,
+		},
+		{
+			name: "target dominates representation",
+			a:    Selector{Architecture: "amd64", Target: "aws", Representation: "qcow2", Role: "role", Compression: "none"},
+			b:    Selector{Architecture: "amd64", Target: "azure", Representation: "iso", Role: "role", Compression: "none"},
+			want: -1,
+		},
+		{
+			name: "role decides when architecture, target, and representation are equal",
+			a:    Selector{Architecture: "amd64", Target: "t", Representation: "r", Role: "disk", Compression: "none"},
+			b:    Selector{Architecture: "amd64", Target: "t", Representation: "r", Role: "kernel", Compression: "none"},
+			want: -1,
+		},
+		{
+			name: "representation dominates role",
+			a:    Selector{Architecture: "amd64", Target: "t", Representation: "iso", Role: "kernel", Compression: "none"},
+			b:    Selector{Architecture: "amd64", Target: "t", Representation: "qcow2", Role: "disk", Compression: "none"},
+			want: -1,
+		},
+		{
+			name: "role dominates compression",
+			a:    Selector{Architecture: "amd64", Target: "t", Representation: "r", Role: "disk", Compression: "zstd"},
+			b:    Selector{Architecture: "amd64", Target: "t", Representation: "r", Role: "kernel", Compression: "gzip"},
+			want: -1,
+		},
+		{
+			name: "role compares by byte order not case-insensitively",
+			a:    Selector{Architecture: "amd64", Target: "t", Representation: "r", Role: "Kernel", Compression: "none"},
+			b:    Selector{Architecture: "amd64", Target: "t", Representation: "r", Role: "disk", Compression: "none"},
 			want: -1,
 		},
 		{

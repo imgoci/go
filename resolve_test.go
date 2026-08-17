@@ -2,6 +2,7 @@ package imgoci
 
 import (
 	"errors"
+	"slices"
 	"testing"
 )
 
@@ -227,6 +228,99 @@ func TestValidateResolveQueryCompressions(t *testing.T) {
 			}
 			if err != nil {
 				t.Fatalf("validateResolveQuery(%q): %v", tc.compressions, err)
+			}
+		})
+	}
+}
+
+func TestResolveRoleListAndPerRoleCompression(t *testing.T) {
+	t.Parallel()
+
+	netboot := testIndex(
+		testEntry("amd64", "metal", "linux-netboot", "initramfs", "none", standardFileMediaType),
+		testEntry("amd64", "metal", "linux-netboot", "kernel", "none", standardFileMediaType),
+		testEntry("amd64", "metal", "linux-netboot", "rootfs", "none", standardFileMediaType),
+	)
+	mixed := testIndex(
+		testEntry("amd64", "incus", "incus-vm", "disk", "gzip", standardFileMediaType),
+		testEntry("amd64", "incus", "incus-vm", "metadata", "gzip", standardFileMediaType),
+		testEntry("amd64", "incus", "incus-vm", "metadata", "zstd", standardFileMediaType),
+	)
+
+	tests := []struct {
+		// name describes the spec section 7.3 behavior under test.
+		name string
+		// idx is the index the query resolves against.
+		idx *Index
+		// query is the resolve query under test.
+		query ResolveQuery
+		// want is the expected "role/compression" pair per selected entry.
+		want []string
+		// wantErr requires a nil result and a non-nil error.
+		wantErr bool
+	}{
+		{
+			name: "a present role list limits the result to those roles",
+			idx:  netboot,
+			query: ResolveQuery{
+				Architecture:   "amd64",
+				Target:         "metal",
+				Representation: "linux-netboot",
+				Roles:          []string{"initramfs"},
+				Compressions:   []string{"none"},
+			},
+			want: []string{"initramfs/none"},
+		},
+		{
+			name: "an absent selected role fails without a partial result",
+			idx:  netboot,
+			query: ResolveQuery{
+				Architecture:   "amd64",
+				Target:         "metal",
+				Representation: "linux-netboot",
+				Roles:          []string{"kernel", "x-absent"},
+				Compressions:   []string{"none"},
+			},
+			wantErr: true,
+		},
+		{
+			name: "one preference list may choose a different compression per role",
+			idx:  mixed,
+			query: ResolveQuery{
+				Architecture:   "amd64",
+				Target:         "incus",
+				Representation: "incus-vm",
+				Roles:          []string{"disk", "metadata"},
+				Compressions:   []string{"zstd", "gzip"},
+			},
+			want: []string{"disk/gzip", "metadata/zstd"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got, err := tt.idx.Resolve(tt.query)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatal("expected a selection error")
+				}
+				if got != nil {
+					t.Fatalf("failed selection must return no roles, got %#v", got.Entries())
+				}
+
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			entries := got.Entries()
+			chosen := make([]string, 0, len(entries))
+			for _, entry := range entries {
+				chosen = append(chosen, entry.Selector.Role+"/"+entry.Selector.Compression)
+			}
+			if !slices.Equal(chosen, tt.want) {
+				t.Fatalf("selection = %v, want %v", chosen, tt.want)
 			}
 		})
 	}

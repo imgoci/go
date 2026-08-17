@@ -101,6 +101,13 @@ func (r *Resolved) IndexDigest() digest.Digest {
 // Offline selection failures (no deliverable, a selected role absent from that
 // deliverable, or no accepted compression) return a descriptive error without a
 // matchable sentinel. Only the capability filter wraps [ErrUnsupportedType].
+//
+// Spec section 7.1 requires a consumer to validate the query before fetching
+// the release. This API is fetch-once, query-many: a query first exists here,
+// after the caller's explicit [Client.Fetch]. Resolve therefore validates q
+// completely before it inspects a single index entry, but necessarily after
+// the index was retrieved. The only consequence is one wasted manifest round
+// trip for an invalid query; an invalid query never yields a result.
 func (x *Index) Resolve(q ResolveQuery) (*Resolved, error) {
 	if x == nil {
 		return nil, errors.New("resolve: nil index")
@@ -272,11 +279,15 @@ func requireRolesPresent(roles []string, byRole map[string][]FileEntry) error {
 	return nil
 }
 
-// filterByCapabilities removes alternatives whose artifactType is outside the
-// effective capability set. It completes this step for every role before
-// returning. Failure wraps [ErrUnsupportedType] and yields no remaining map
-// mutation that callers can observe as a partial result: the input map is
-// replaced in place only after every role still has at least one alternative.
+// filterByCapabilities implements spec section 7.3 steps 8 and 9 as two
+// separate phases, honoring the section 7.3 barrier that each step completes
+// for every selected role before the next step starts. The first pass removes,
+// for every selected role, the alternatives whose descriptor artifactType is
+// outside the effective capability set. Only once that pass has covered every
+// role does the second pass fail a role that has no remaining alternative.
+// Failure wraps [ErrUnsupportedType] and leaves byRole untouched, so no caller
+// can observe a partial result: the filtered alternatives are published into
+// byRole only after both phases succeed.
 func filterByCapabilities(roles []string, byRole map[string][]FileEntry, caps Capabilities) error {
 	filtered := make(map[string][]FileEntry, len(roles))
 	for _, role := range roles {
@@ -286,27 +297,36 @@ func filterByCapabilities(roles []string, byRole map[string][]FileEntry, caps Ca
 				kept = append(kept, entry)
 			}
 		}
-		if len(kept) == 0 {
-			return fmt.Errorf("%w: role %q has no supported file-manifest type", ErrUnsupportedType, role)
-		}
 		filtered[role] = kept
 	}
+	for _, role := range roles {
+		if len(filtered[role]) == 0 {
+			return fmt.Errorf("%w: role %q has no supported file-manifest type", ErrUnsupportedType, role)
+		}
+	}
 	maps.Copy(byRole, filtered)
+
 	return nil
 }
 
-// pickCompressions chooses, for every role, the first accepted compression
-// that remains after capability filtering. It completes this step for every
-// role before returning any entries.
+// pickCompressions implements spec section 7.3 steps 10 and 11 as two separate
+// phases. The first pass records, for every selected role, the first accepted
+// compression that remains after capability filtering, or its absence. Only
+// once that pass has covered every role does the second pass fail a role with
+// no accepted alternative. Entries are cloned, and therefore handed to the
+// caller, only after both phases succeed.
 func pickCompressions(roles []string, byRole map[string][]FileEntry, compressions []string) ([]FileEntry, error) {
-	chosen := make([]FileEntry, 0, len(roles))
-	for _, role := range roles {
-		entry, ok := firstAccepted(byRole[role], compressions)
-		if !ok {
+	chosen := make([]FileEntry, len(roles))
+	accepted := make([]bool, len(roles))
+	for i, role := range roles {
+		chosen[i], accepted[i] = firstAccepted(byRole[role], compressions)
+	}
+	for i, role := range roles {
+		if !accepted[i] {
 			return nil, fmt.Errorf("resolve: role %q has no accepted compression", role)
 		}
-		chosen = append(chosen, entry)
 	}
+
 	return cloneEntries(chosen), nil
 }
 
