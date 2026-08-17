@@ -8,3 +8,4 @@
 | 004 | 2026-08-16 | Manual release rehearsal | complete | Manually exercised 101 library scenarios, found no release-blocking implementation defect, and merged PR #15 to correct the required documentation gaps. |
 | 005 | 2026-08-16 | Release-readiness functional test plan | in-progress | Composing a manual functional test plan that proves the public surfaces are release-ready. |
 | 006 | 2026-08-16 | Spec conformance audit of the Go implementation | complete | Audited all 942 spec lines against the implementation and its proving tests, then merged PR #20 fixing two real defects, the producer/consumer discipline gaps, and the test oracles that had hidden them. |
+| 007 | 2026-08-16 | Session opened, goal pending | in-progress | Session primed on request; goal to be recorded once the developer states it. |
