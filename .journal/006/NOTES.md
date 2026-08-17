@@ -189,3 +189,26 @@ while the spec is draft (§9.1); the manual coverage gaps recorded in
 credential helpers, Bearer/OAuth, multi-GiB BigOCI payloads, concurrent same-tag
 publication) are untouched by this work; and the per-codec ceiling split
 (64 MiB xz / 128 MiB zstd) was considered and deliberately not taken.
+
+## 2026-08-16 18:51 — Close
+
+Session closed. Work landed in one merged PR: imgoci/go #20, squash-merged as
+`9b144ae`. Master fast-forwarded to that commit, the `fix/spec-conformance`
+worktree and branch are removed, and `wt list` shows only master and this journal
+worktree. Master CI, Release Please, and GitHub Pages are green on the merge.
+
+Recorded `SUMMARY.md` alongside the full audit at
+`.journal/006/CONFORMANCE_REPORT.md`, which stays as the section-by-section
+evidence base — the summary is the postmortem, the report is the rule-by-rule
+record with file:line citations.
+
+Promoted to `TECH_NOTES.md`: the configurable decoder ceiling and the
+never-hardcode-it-again rule with the two producer settings that motivated it;
+the `ulikunitz/xz` DictCap floor semantics; the producer-only rule boundary and
+its SPEC_COMMIT pin, including why architecture stays syntax-only; the
+independent-golden and assert-the-phase oracle rules; and the two orchestration
+traps (the `programmer` agent type's second mass failure, and subagent relative
+paths resolving against the session cwd).
+
+Hand-off state: nothing in flight. Release Please PR #9 remains the open decision
+and now carries this work, still behind the draft-spec guard.
