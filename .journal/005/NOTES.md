@@ -1009,3 +1009,59 @@ only after PR 1 plus the passing re-run — and never propose a v1 while the spe
 is draft.
 
 Next: owner review of the remediation plan, then execute PR 1.
+
+## 2026-08-16 19:55 — Remediation implemented as three PRs
+
+Orchestrated the remediation plan with programmer/technical-writer agents across
+three fresh worktrees created from `origin/master` (`0b4be41`) and reset to the
+fetched tip per the worktree race rule.
+
+- **PR #17 `docs: publish the security policy`** — branch `docs/security-policy`,
+  commit `79ee972`. The blocker fix; I applied the single-file replacement inline
+  rather than dispatching. All five authoring phrases are gone (verified by
+  grep), the pre-v1 support policy is stated, and the private route is
+  unconditional. CI green.
+- **PR #18 `docs: correct release-readiness contracts`** — branch
+  `docs/release-readiness-contracts`, commit `4618d8c`. Nine files by three
+  parallel agents on disjoint file sets: `PR2GoDoc` (`publish.go`, `cli/doc.go`,
+  `testdata/canonical/README.md`), `PR2Reference` (the three `reference/*.md`),
+  `PR2Guides` (`index.md`, `first-release.md`, `architecture.md`). CI green.
+- **PR #19 `fix(cli): reject a missing publish filename`** — branch
+  `fix/cli-publish-filename`, commit `473c195`. The campaign's only code change.
+  CI green.
+
+Gates I ran (agents were instructed to run none):
+
+- PR #17 branch: `root:build`, `cli:build`.
+- PR #18 branch: `docs:build` (strict), `root:format`, `root:lint`, `root:build`,
+  `root:test`, `cli:format`, `cli:lint`, `cli:build`, `cli:test`.
+- PR #19 branch: `cli:format`, `cli:lint`, `cli:build`, `cli:test`.
+
+One red-tree iteration, worth recording. Adding the `filename` guard before the
+selector guards made two pre-existing table cases fail — `missing architecture`
+and `missing compression` omitted `filename` as well as their own member, so the
+new guard fired first and they had been passing for the wrong reason all along.
+Corrective agent `FixSpecTestTable` supplied the other members instead of
+loosening the assertions; `missing path` had the same latent defect and was fixed
+too. `cli:format` then rejected the literal layout, so I applied
+`golangci-lint fmt` once at the orchestrator level and re-gated to green.
+
+Journal bookkeeping (commit `eccfe73`, scoped pathspec):
+
+- `TECH_NOTES.md` — retired the "Remaining manual coverage gaps" bullet (all
+  eight closed) and the session-004 rehearsal summary, replaced by the
+  session-005 campaign-context and accepted-non-blocking-behavior bullets. The
+  session-004 zstd diagnostic thread is retired; the three closed observations
+  (`Retry-After: 0`, write-path gzip, Darwin x509 wording) were deliberately not
+  promoted to durable debts.
+- `.journal/005/FUNCTIONAL_TEST_PLAN.md` — the four plan-only corrections:
+  `LIB-03` now separates semantic from grammar-malformed publish references,
+  `BIG-02` writes a distinct marker at each of the twelve part offsets and
+  requires `WireBytes` `3221225472` in both directions, `BIG-02` step 4 permits
+  an empty `.imgoci-stage/stored/`, and `ADV-03` plus `## Verdict Criteria` no
+  longer describe the zstd wording as a known misleading-window finding.
+
+Remaining before `0.1.0`: owner review and squash merge of #17, then re-run
+`REL-04` against the merge commit to flip the campaign verdict to READY, then
+#18 and #19, then let Release Please refresh PR #9 and merge it. No v1 while the
+spec is draft.
