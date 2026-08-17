@@ -236,3 +236,54 @@ Next: the remaining plan steps collapse to one PR — the §5.4 producer usage
 registry, the `SPEC_COMMIT` bump to `46d18b7`, the five vendored upstream
 fixtures with counts 13/25, the repo-owned `testdata/canonical` usage fixtures,
 and `cue_crosscheck.sh` minima.
+
+## 2026-08-17 12:20 — Step 3 merged; final step shipped as PR #23
+PR #22 squash-merged as `46a2efb`. Final step on `feat/usage-conformance-pin` in
+`.wt/feat-usage-conformance-pin`, commit `97c9c6e` plus one empty retrigger
+commit, PR https://github.com/imgoci/go/pull/23. All checks green. Local
+`moon run root:check`: 17 tasks green.
+
+Content: the §5.4 producer usage registry in `producer.go` reached only from
+`Build`; `SPEC_COMMIT` at `46d18b74cc407ac7d61ded7692fc42b644f4d1e2` with the five
+vendored upstream fixtures (counts 13/25); `pinnedUsages()` added to the registry
+review gate; eight hand-written `testdata/canonical` fixtures (2 pass, 6 fail
+covering rules 3, 4, 5, 9); `cue_crosscheck.sh` minima 13/15/25; docs.
+
+The implementation is now caught up with spec `46d18b7`. The independent upstream
+oracle runs in CI instead of only in a reviewer's scratch harness, which was the
+one real weakness of PR #21.
+
+Agent shape: 4 parallel agents off a base I prepared inline by running
+`sync_conformance.sh --pin` first, so all four saw a consistent fixture set.
+`RegistryDocs` asked before widening scope: it noticed that `index.md`,
+`explanation/architecture.md`, `capabilities.md` and two how-tos still quoted the
+old pin `5b95710` / 2026-08-11, outside its assigned files. Authorized the
+docs-wide pin bump; that is a question worth an agent asking rather than either
+silently expanding or silently leaving the repo inconsistent.
+
+Verified evidence rather than claims: each of the six new canonical fail fixtures
+was reported with its observed error, and every one names the rule it is named
+for (3/3/3/4/5/9). Registry mutation kills
+`TestProducerOnlyViolations/{bare_unknown_usage,unknown_token_after_public_usage}`;
+deleting a vendored fixture fails the count assertion; a wrong rule mapping fails
+its subtest with a rule mismatch.
+
+Ops findings worth keeping:
+- The stale golangci-lint cache bit again, this time naming the removed
+  `feat-usage-public-api` worktree. `golangci-lint cache clean` after every
+  `wt remove` is the cheap habit.
+- `cue` on PATH is 0.16.1 and REFUSES the spec module (language `v0.17.1`),
+  rejecting even valid fixtures with a closed-field error. `mise exec` supplies
+  0.17.1 and the cross-check exits 0. Anyone debugging a CUE "failure" locally
+  should check which binary they got before believing it.
+- GitHub had a multi-hour GraphQL/codeload outage during this step: 503s on
+  `gh pr create` (GraphQL AND REST), 429/502/503 on codeload for `mise-action`,
+  `configure-pages` and `codeql-action`, and a CodeQL job that failed on
+  "determine feature enablement". Runs that fail in `Set up job` on a codeload
+  download are never ours. Some runs report `cannot be rerun`; an empty commit is
+  the reliable retrigger.
+
+Next: nothing outstanding on the usage work. At close, promote to TECH_NOTES: the
+usage design (canonical string, comparable Selector, producer/consumer split), the
+`cli/` replace-directive trap, the `programmer`-agent rehabilitation (9/9 this
+session), and the two tooling gotchas above.
