@@ -9,8 +9,8 @@ A `Capabilities` value is a validated set of file-manifest types a consumer
 can retrieve. It contains only file-manifest types; it does not describe
 deliverable usage. The value is shared by offline `Index.Resolve` and the
 network client. This page
-describes the implemented spec revision: imgoci v1 draft, 2026-08-16
-(`imgoci/spec` commit `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`).
+describes the implemented spec revision: imgoci v1, spec release v0.1.0
+(`imgoci/spec` commit `8083159daebe15dc1d78da3e8a03b6b80526d427`).
 
 ## Media types
 

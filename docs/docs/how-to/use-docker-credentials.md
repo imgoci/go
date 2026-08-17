@@ -89,4 +89,4 @@ Naming both credential options on one `New` call leaves the last one named in ef
 - [Publish and fetch your first release](../tutorials/first-release.md) — a local registry needs no credentials at all.
 - [API reference](../reference/api.md) — `New`, `WithDockerCredentials`, `WithCredentials`.
 
-Implemented spec revision: imgoci v1 draft, 2026-08-16 ([imgoci/spec](https://github.com/imgoci/spec) commit `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`).
+Implemented spec revision: imgoci v1, spec release v0.1.0 ([imgoci/spec](https://github.com/imgoci/spec) commit `8083159daebe15dc1d78da3e8a03b6b80526d427`).

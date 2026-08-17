@@ -4,7 +4,16 @@ Go library implementing the imgoci release format for OS-image releases in OCI r
 
 ## Status
 
-The library is under development and has no stable API yet. It tracks the [imgoci spec v1 draft (2026-08-16)](https://github.com/imgoci/spec).
+The library is under development and has no stable API yet.
+
+## Spec Compatibility
+
+The package version tracks this library's Go API. Format compatibility is
+carried by the imgoci media types (`.v1`), not by version numbers.
+
+| imgoci/go | Implements | Format |
+|-----------|------------|--------|
+| v0.1.x | [imgoci spec v0.1.0](https://github.com/imgoci/spec/releases/tag/v0.1.0) | `.v1` |
 
 ## Related Projects
 

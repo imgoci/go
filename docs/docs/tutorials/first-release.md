@@ -197,4 +197,4 @@ rm -rf imgoci-tutorial imgoci-go
 - [Use Docker credentials](../how-to/use-docker-credentials.md) — authenticate against real registries.
 - [CLI reference](../reference/cli.md) — every flag, output column, and exit code.
 
-Implemented spec revision: imgoci v1 draft, 2026-08-16 ([imgoci/spec](https://github.com/imgoci/spec) commit `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`).
+Implemented spec revision: imgoci v1, spec release v0.1.0 ([imgoci/spec](https://github.com/imgoci/spec) commit `8083159daebe15dc1d78da3e8a03b6b80526d427`).

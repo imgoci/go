@@ -6,8 +6,8 @@ description: Public API of the imgoci Go library, grouped by surface.
 # API reference
 
 Everything public lives in one package: `github.com/imgoci/go`, imported as
-`imgoci`. This page describes the implemented spec revision: imgoci v1 draft,
-2026-08-16 (`imgoci/spec` commit `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`).
+`imgoci`. This page describes the implemented spec revision: imgoci v1, spec
+release v0.1.0 (`imgoci/spec` commit `8083159daebe15dc1d78da3e8a03b6b80526d427`).
 The library is pre-v1; the API is not yet stable.
 
 Generated documentation is also available on

@@ -7,8 +7,8 @@ description: Why imgoci/go is shaped the way it is - identity, binding, retries,
 
 imgoci/go implements both sides of the imgoci release format: a producer that
 publishes releases and a consumer that fetches, validates, selects, and
-verifies them. The implemented spec revision is imgoci v1 draft, 2026-08-16
-(`imgoci/spec` commit `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`). This page
+verifies them. The implemented spec revision is imgoci v1, spec release
+v0.1.0 (`imgoci/spec` commit `8083159daebe15dc1d78da3e8a03b6b80526d427`). This page
 explains the design; for exact signatures and contracts, see the
 [API reference](../reference/api.md).
 
@@ -130,9 +130,10 @@ uses standard+BigOCI unless passed `StandardCapabilities` (see the
 
 ## Why the CLI and release boundaries are separate
 
-The library is the release unit. It is pre-v1 and versions as `0.x` because
-the spec it implements is a draft; there is no `v1.0.0` before the spec
-promotes. A pure library publishes no binaries.
+The library is the release unit. Its version tracks the Go API and is
+decoupled from spec releases: format compatibility is carried by the imgoci
+media types (`.v1`), and a breaking format change requires new type
+identifiers. A pure library publishes no binaries.
 
 The CLI lives in `cli/` as a separate module pinned to the library by a local
 `replace` directive. That boundary does two jobs. It keeps the CLI's

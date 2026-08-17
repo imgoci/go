@@ -47,8 +47,9 @@ moon run root:test
 Release Please reads Conventional Commit subjects to build changelogs and release PRs.
 Keep release-impacting commits clear; routine docs, CI, and maintenance commits should use the appropriate non-release type.
 
-Do not merge a `v1.0.0` proposal while the imgoci spec is still a draft.
-Review the first release as `v0.1.0`.
+The package version tracks this library's Go API and is decoupled from imgoci
+spec releases; the implemented spec release is pinned in
+`testdata/conformance/SPEC_COMMIT` and stated in the README compatibility table.
 The private CLI submodule is intentionally unreleased.
 
 ## Maintenance

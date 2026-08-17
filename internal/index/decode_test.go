@@ -17,8 +17,8 @@ const (
 	testManifestDigest2  = "sha256:2222222222222222222222222222222222222222222222222222222222222222"
 	testManifestDigest3  = "sha256:3333333333333333333333333333333333333333333333333333333333333333"
 	fixtureRoot          = "../../testdata/conformance/v1"
-	conformancePassCount = 13
-	conformanceFailCount = 25
+	conformancePassCount = 14
+	conformanceFailCount = 29
 )
 
 func TestDecodeInvalidUTF8(t *testing.T) {
