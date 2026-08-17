@@ -51,6 +51,11 @@ const (
 	compressionZstd = "zstd"
 )
 
+// Usage names from the spec §5.4 public usage registry.
+const (
+	usageLive = "live"
+)
+
 // producerTargets returns the spec §5.4 public target registry.
 func producerTargets() map[string]struct{} {
 	return map[string]struct{}{
@@ -113,6 +118,15 @@ func producerCompressions() map[string]struct{} {
 	}
 }
 
+// producerUsages returns the spec §5.4 public usage registry.
+func producerUsages() map[string]struct{} {
+	return map[string]struct{}{
+		usageLive:           {},
+		usageInstall:        {},
+		usageInstallOffline: {},
+	}
+}
+
 // producerRegistries holds the spec §5.4 public selector registries for one
 // [Build] call.
 type producerRegistries struct {
@@ -124,6 +138,8 @@ type producerRegistries struct {
 	roles map[string]struct{}
 	// compressions is the public compression registry.
 	compressions map[string]struct{}
+	// usages is the public usage registry.
+	usages map[string]struct{}
 }
 
 // newProducerRegistries builds the spec §5.4 public selector registries.
@@ -132,6 +148,7 @@ func newProducerRegistries() producerRegistries {
 		targets:         producerTargets(),
 		representations: producerRepresentations(),
 		roles:           producerRoles(),
+		usages:          producerUsages(),
 		compressions:    producerCompressions(),
 	}
 }
@@ -194,7 +211,7 @@ func validateProducerModel(m *Model) error {
 	return nil
 }
 
-// validateProducerSelector checks the four imgoci-owned selector fields against
+// validateProducerSelector checks the five imgoci-owned selector fields against
 // their spec §5.4 registries. Architecture has no registry and is not checked
 // here.
 func validateProducerSelector(i int, sel Selector, registries producerRegistries) error {
@@ -208,6 +225,13 @@ func validateProducerSelector(i int, sel Selector, registries producerRegistries
 		registries.representations,
 	); err != nil {
 		return err
+	}
+	if sel.Usage != "" {
+		for token := range strings.SplitSeq(sel.Usage, ",") {
+			if err := validateProducerRegistryValue(i, AnnotationUsage, token, registries.usages); err != nil {
+				return err
+			}
+		}
 	}
 	if err := validateProducerRegistryValue(i, AnnotationRole, sel.Role, registries.roles); err != nil {
 		return err

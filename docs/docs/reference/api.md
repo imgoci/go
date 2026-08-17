@@ -7,7 +7,7 @@ description: Public API of the imgoci Go library, grouped by surface.
 
 Everything public lives in one package: `github.com/imgoci/go`, imported as
 `imgoci`. This page describes the implemented spec revision: imgoci v1 draft,
-2026-08-11 (`imgoci/spec` commit `5b957102eeda16498fdcb80a738431b83abd4197`).
+2026-08-16 (`imgoci/spec` commit `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`).
 The library is pre-v1; the API is not yet stable.
 
 Generated documentation is also available on
@@ -90,12 +90,12 @@ compared with `==` or used as map keys.
 order, and removes duplicates. Each token must be a spec section 5.3 basic
 token, and the canonical comma-separated value must not exceed 4096 bytes. It
 rejects a set that contains `install-offline` without `install`. It does not
-restrict syntactically valid values to a registry of known usage values.
+check registry membership; `Client.Publish` applies that producer rule as
+described in the [usage registry](#usage-registry).
 
 `String` returns the canonical comma-separated form, or `""` for the empty
 set. `Values` returns a freshly allocated sorted slice, or nil for the empty
-set. Usage values are producer assertions: validation and retrieval do not run
-the deliverable or prove that it behaves as asserted.
+set.
 
 Selector values compare exactly and case-sensitively (spec section 5.3).
 `MediaType` and `ArtifactType` are preserved as written; compare them with
@@ -398,6 +398,32 @@ ASCII bytes matching `^[a-z0-9]+([._-][a-z0-9]+)*$` (spec sections 5.1 and
 contain 1 to 128 printable ASCII characters and must not contain whitespace
 or control characters (spec section 5.1).
 
+### Usage registry
+
+`Client.Publish` enforces the spec section 5.4 public usage registry for every
+token in `FileSpec.Selector.Usage`:
+
+| Value | Meaning |
+|---|---|
+| `live` | The deliverable can boot and run an OS session without first installing the release on persistent storage. |
+| `install` | The deliverable can install the release on persistent storage separate from the source used to run the installer. |
+| `install-offline` | The deliverable can complete the producer-defined baseline installation while network connectivity is unavailable. |
+
+A producer-defined usage value must use the private
+`x-<owner>-<name>` form. `Publish` rejects a syntactically valid bare value
+outside the public registry before network I/O, and the error wraps
+`ErrInvalidSpec`.
+
+This producer/consumer asymmetry is deliberate. Spec sections 6 and 12 make
+public selector naming a producer-only rule. `Publish` checks registry
+membership, while `ParseIndex`, `Fetch`, `List`, and `Resolve` accept every
+syntactically valid usage value, including unknown and private values, and
+preserve or compare those values exactly. `NewUsage` is also registry-neutral:
+it validates a usage set, not producer conformance.
+
+Usage values are producer assertions. Validation and retrieval do not run the
+deliverable or prove that it has the asserted behavior.
+
 ```go
 type PublishOption interface{ /* sealed */ }
 
@@ -413,9 +439,9 @@ Publishes `spec` as an imgoci release at `ref` and returns the canonical index
 digest. Publish is tag-only: digest-only, tag+digest, and name-only references
 are `ErrInvalidSpec` before any I/O. Spec validation (producer rules 1–8,
 `Name` and `Version` grammar, UTF-8 of every caller string, reserved
-`io.imgoci.*` keys, selector and filename grammar, duplicate six-field tuples,
-required roles, filename collisions, and shared-source consistency) also
-runs before any network I/O. A multipart
+`io.imgoci.*` keys, selector and filename grammar, public selector registries,
+duplicate six-field tuples, required roles, filename collisions, and
+shared-source consistency) also runs before any network I/O. A multipart
 plan must satisfy `ceil(storedSize/effectivePartSize) <= 4096`, where a
 zero `PartSize` uses 512 MiB; a plan above that ceiling is
 `ErrInvalidSpec` before any I/O. The index is

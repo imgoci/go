@@ -806,6 +806,10 @@ func failFixtureRule(name string) int {
 		"inconsistent-shared-manifest.json":       specRuleSharedManifest,
 		"inconsistent-shared-artifact-type.json":  specRuleSharedManifest,
 		"noncanonical-order.json":                 specRuleOrder,
+		"duplicate-usage-value.json":              specRuleSyntax,
+		"noncanonical-usage-order.json":           specRuleSyntax,
+		"present-empty-usage-value.json":          specRuleSyntax,
+		"install-offline-without-install.json":    specRuleRoles,
 	}
 	rule, ok := t[name]
 	if !ok {

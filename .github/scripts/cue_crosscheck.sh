@@ -81,9 +81,9 @@ require_json_count() {
 	fi
 }
 
-require_json_count testdata/conformance/v1/pass 12
-require_json_count testdata/canonical/pass 12
-require_json_count testdata/conformance/v1/fail 21
+require_json_count testdata/conformance/v1/pass 13
+require_json_count testdata/canonical/pass 15
+require_json_count testdata/conformance/v1/fail 25
 
 vet_fixture() {
 	local fixture="$1"

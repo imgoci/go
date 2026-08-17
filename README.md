@@ -4,7 +4,7 @@ Go library implementing the imgoci release format for OS-image releases in OCI r
 
 ## Status
 
-The library is under development and has no stable API yet. It tracks the [imgoci spec v1 draft (2026-08-11)](https://github.com/imgoci/spec).
+The library is under development and has no stable API yet. It tracks the [imgoci spec v1 draft (2026-08-16)](https://github.com/imgoci/spec).
 
 ## Related Projects
 

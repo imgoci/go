@@ -7,8 +7,8 @@ description: Why imgoci/go is shaped the way it is - identity, binding, retries,
 
 imgoci/go implements both sides of the imgoci release format: a producer that
 publishes releases and a consumer that fetches, validates, selects, and
-verifies them. The implemented spec revision is imgoci v1 draft, 2026-08-11
-(`imgoci/spec` commit `5b957102eeda16498fdcb80a738431b83abd4197`). This page
+verifies them. The implemented spec revision is imgoci v1 draft, 2026-08-16
+(`imgoci/spec` commit `46d18b74cc407ac7d61ded7692fc42b644f4d1e2`). This page
 explains the design; for exact signatures and contracts, see the
 [API reference](../reference/api.md).
 
