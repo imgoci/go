@@ -156,3 +156,36 @@ Operational lessons for next time:
 Open: PR #20 awaits review. It should merge before Release Please PR #9
 finalizes 0.1.0, or the release ships the obsolete 8 MiB decode contract and
 omits WithDecoderMaxWindow.
+
+## 2026-08-16 18:50 — PR #20 merged
+
+Squash-merged as `9b144ae` after a comment-review pass (`48f4d20`). Master CI,
+Release Please, and GitHub Pages all green on the merge commit. Worktree removed
+and master fast-forwarded; `wt list` shows only master and the journal.
+
+Comment review removed 111 of the 1062 added comment lines across six parallel
+units. The only criterion-1 violations were four change-narrative comments in the
+decoder work ("the 8 MiB this package used to hardcode"). The dominant
+criterion-2 problem was the query-validation deviation repeated near-verbatim on
+Fetch, List, and Resolve; it now reads in full on Fetch with pointers from the
+other two. Two comments were factually wrong and fixed: index.Build claimed it
+does not re-check Validate (it calls it at build.go:96 before encoding), and a
+test doc described a ReleaseSpec constructor as publishing.
+
+Citation style: the branch had introduced three spellings including
+`spec.md:550-551` line ranges. Normalized to master's section-only form, which
+does not rot when the spec is edited.
+
+Release Please PR #9 (`chore(master): release 0.1.0`) is still open and now
+carries this work. Note the version-bump nuance: the PR title was `fix:` but the
+change adds public API (`WithDecoderMaxWindow`), which is conventionally `feat:`.
+It does not matter here because `initial-version: 0.1.0` pins the first release
+regardless, but a later minor-vs-patch decision should not rely on this commit's
+type.
+
+Remaining open threads for a future session: the release guard still forbids v1
+while the spec is draft (§9.1); the manual coverage gaps recorded in
+`.journal/004/SUMMARY.md` (TLS/custom CAs, cross-host redirects, external
+credential helpers, Bearer/OAuth, multi-GiB BigOCI payloads, concurrent same-tag
+publication) are untouched by this work; and the per-codec ceiling split
+(64 MiB xz / 128 MiB zstd) was considered and deliberately not taken.
