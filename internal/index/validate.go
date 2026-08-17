@@ -154,6 +154,11 @@ func validateDescriptorRule3(i int, d Descriptor) error {
 	if !isBasicToken(sel.Compression) {
 		return ruleError(specRuleSyntax, "manifests[%d] %s must be a basic token", i, AnnotationCompression)
 	}
+	if usage, present := d.Annotations[AnnotationUsage]; present {
+		if err := ValidateUsage(usage); err != nil {
+			return ruleError(specRuleSyntax, "manifests[%d] %s: %s", i, AnnotationUsage, err)
+		}
+	}
 	if !isSHA256Digest(d.annotation(AnnotationContentDigest)) {
 		return ruleError(specRuleSyntax, "manifests[%d] %s must be sha256: followed by %d lowercase hex digits",
 			i, AnnotationContentDigest, sha256HexLength)
@@ -172,13 +177,23 @@ func validateDescriptorRule3(i int, d Descriptor) error {
 	return nil
 }
 
-// validateRule4 checks spec §6 rule 4: required roles for standard representations.
+// validateRule4 checks spec §6 rule 4: required roles, forbidden targets, and
+// usage-value relationships for each exact usage set.
 func validateRule4(v *Value) error {
 	roles := make(map[deliverableKey]map[string]struct{})
 	order := make([]deliverableKey, 0, len(v.Manifests))
-	for _, d := range v.Manifests {
+	for i, d := range v.Manifests {
 		sel := d.Selector()
-		key := deliverableKey{sel.Architecture, sel.Target, sel.Representation}
+		if err := ValidateUsageRelationship(sel.Usage); err != nil {
+			return ruleError(
+				specRuleRoles,
+				"manifests[%d] usage set %s: %s",
+				i,
+				formatUsage(sel.Usage),
+				err,
+			)
+		}
+		key := deliverableKey{sel.Architecture, sel.Target, sel.Representation, sel.Usage}
 		set, ok := roles[key]
 		if !ok {
 			set = make(map[string]struct{})
@@ -192,22 +207,23 @@ func validateRule4(v *Value) error {
 		if key.representation == representationIncusVM && key.target != targetIncus {
 			return ruleError(
 				specRuleRoles,
-				"incus-vm deliverable %s, %s must use target incus",
+				"incus-vm deliverable %s, %s, %s must use target incus",
 				key.architecture,
 				key.target,
+				formatUsage(key.usage),
 			)
 		}
 		for _, role := range requiredRoles(key.representation) {
 			if _, ok := have[role]; !ok {
-				return ruleError(specRuleRoles, "deliverable %s, %s, %s must contain the %s role",
-					key.architecture, key.target, key.representation, role)
+				return ruleError(specRuleRoles, "deliverable %s, %s, %s, %s must contain the %s role",
+					key.architecture, key.target, key.representation, formatUsage(key.usage), role)
 			}
 		}
 	}
 	return nil
 }
 
-// validateRule5 checks spec §6 rule 5: unique five-field selectors.
+// validateRule5 checks spec §6 rule 5: unique six-field selectors.
 func validateRule5(v *Value) error {
 	seen := make(map[Selector]int)
 	for i, d := range v.Manifests {
@@ -228,8 +244,10 @@ func validateRule5(v *Value) error {
 
 // validateRule6 checks spec §6 rule 6: same-file content identity.
 func validateRule6(v *Value) error {
+	// fileID is the spec §2 file key. usage is the canonical serialized usage
+	// value, empty when the annotation is absent.
 	type fileID struct {
-		architecture, target, representation, role string
+		architecture, target, representation, usage, role string
 	}
 	type fileContent struct {
 		digest, size, filename string
@@ -238,7 +256,7 @@ func validateRule6(v *Value) error {
 	seen := make(map[fileID]fileContent)
 	for i, d := range v.Manifests {
 		sel := d.Selector()
-		id := fileID{sel.Architecture, sel.Target, sel.Representation, sel.Role}
+		id := fileID{sel.Architecture, sel.Target, sel.Representation, sel.Usage, sel.Role}
 		got := fileContent{
 			digest:   d.annotation(AnnotationContentDigest),
 			size:     d.annotation(AnnotationContentSize),
@@ -249,10 +267,11 @@ func validateRule6(v *Value) error {
 			if prev.digest != got.digest || prev.size != got.size || prev.filename != got.filename {
 				return ruleError(
 					specRuleFileIdentity,
-					"transport alternatives for file %s, %s, %s, %s must have the same content digest, content size, and filename",
+					"transport alternatives for file %s, %s, %s, %s, %s must have the same content digest, content size, and filename",
 					sel.Architecture,
 					sel.Target,
 					sel.Representation,
+					formatUsage(sel.Usage),
 					sel.Role,
 				)
 			}
@@ -274,16 +293,17 @@ func validateRule7(v *Value) error {
 	for _, d := range v.Manifests {
 		sel := d.Selector()
 		key := nameKey{
-			deliverableKey: deliverableKey{sel.Architecture, sel.Target, sel.Representation},
+			deliverableKey: deliverableKey{sel.Architecture, sel.Target, sel.Representation, sel.Usage},
 			filename:       d.annotation(AnnotationFilename),
 		}
 		if prev, ok := owner[key]; ok && prev != sel.Role {
 			return ruleError(
 				specRuleFilename,
-				"different roles in deliverable %s, %s, %s must have different filenames",
+				"different roles in deliverable %s, %s, %s, %s must have different filenames",
 				sel.Architecture,
 				sel.Target,
 				sel.Representation,
+				formatUsage(sel.Usage),
 			)
 		}
 		owner[key] = sel.Role
@@ -336,17 +356,20 @@ func validateRule9(v *Value) error {
 	if !manifestsInCanonicalOrder(v.Manifests) {
 		return ruleError(
 			specRuleOrder,
-			"manifests must be ordered by architecture, target, representation, role, and compression in ascending UTF-8 byte order",
+			"manifests must be ordered by architecture, target, representation, usage, role, and compression in ascending UTF-8 byte order",
 		)
 	}
 	return nil
 }
 
-// deliverableKey identifies a (architecture, target, representation) deliverable.
+// deliverableKey identifies a (architecture, target, representation, usage) deliverable.
 type deliverableKey struct {
 	architecture   string
 	target         string
 	representation string
+	// usage is the canonical serialized io.imgoci.usage value. It is empty when
+	// the annotation is absent, which is the empty usage set.
+	usage string
 }
 
 // requiredFileAnnotationKeys returns the eight required file-entry annotation keys.
@@ -597,9 +620,23 @@ func isASCIIAlnum(c byte) bool {
 	return c >= 'a' && c <= 'z' || c >= '0' && c <= '9'
 }
 
-// formatSelector renders a five-field selector for error messages.
+// formatSelector renders a six-field selector for error messages.
 func formatSelector(s Selector) string {
-	return strings.Join([]string{s.Architecture, s.Target, s.Representation, s.Role, s.Compression}, ", ")
+	return strings.Join(
+		[]string{s.Architecture, s.Target, s.Representation, formatUsage(s.Usage), s.Role, s.Compression},
+		", ",
+	)
+}
+
+// formatUsage renders a usage set for error messages. A present value is quoted
+// because it is itself comma-separated, and the surrounding messages join their
+// fields with commas; the empty set is usage=<empty>, which no basic token can
+// spell.
+func formatUsage(usage string) string {
+	if usage == "" {
+		return "usage=<empty>"
+	}
+	return `usage="` + usage + `"`
 }
 
 // ErrRule is the sentinel wrapped by [ruleError] so callers can match spec §6

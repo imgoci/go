@@ -160,6 +160,27 @@ func TestValidateRule3(t *testing.T) {
 		{name: "uppercase content digest", mut: func(v *Value) {
 			v.Manifests[0].Annotations[AnnotationContentDigest] = "sha256:" + strings.Repeat("A", sha256HexLength)
 		}},
+		{name: "present empty usage", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationUsage] = ""
+		}},
+		{name: "duplicate usage token", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationUsage] = "install,install"
+		}},
+		{name: "descending usage tokens", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationUsage] = "live,install"
+		}},
+		{name: "malformed usage delimiter", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationUsage] = "a,,b"
+		}},
+		{name: "invalid usage token", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationUsage] = "Live"
+		}},
+		{name: "trailing usage comma", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationUsage] = "a,"
+		}},
+		{name: "usage value 4097 bytes", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationUsage] = usageValueOfLength(maxUsageBytes + 1)
+		}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -226,6 +247,39 @@ func TestValidateRule4(t *testing.T) {
 				"a", testContentDigestA, "0", testManifestDigest1, 1,
 			)),
 		},
+		{
+			name: "install-offline without install",
+			v: withUsageValue(validValue(validDescriptor(
+				"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+				"a", testContentDigestA, "0", testManifestDigest1, 1,
+			)), 0, "install-offline"),
+		},
+		{
+			name: "required role only under a different usage set",
+			v: validValue(
+				validDescriptor(
+					"amd64", "metal", "linux-netboot", "kernel", "none",
+					"vmlinuz", testContentDigestA, "0", testManifestDigest1, 1,
+				),
+				withUsage(validDescriptor(
+					"amd64", "metal", "linux-netboot", "initramfs", "none",
+					"initrd", testContentDigestB, "0", testManifestDigest2, 1,
+				), "live"),
+			),
+		},
+		{
+			name: "incus-vm required roles split across usage sets",
+			v: validValue(
+				validDescriptor(
+					"amd64", "incus", "incus-vm", "disk", "none",
+					"disk.qcow2", testContentDigestA, "0", testManifestDigest1, 1,
+				),
+				withUsage(validDescriptor(
+					"amd64", "incus", "incus-vm", "metadata", "none",
+					"metadata.tar.xz", testContentDigestB, "0", testManifestDigest2, 1,
+				), "live"),
+			),
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -257,6 +311,17 @@ func TestValidateAcceptsBoundaryValues(t *testing.T) {
 		{name: "version one character", mut: func(v *Value) { v.Annotations[AnnotationVersion] = "7" }},
 		{name: "version 128 characters", mut: func(v *Value) {
 			v.Annotations[AnnotationVersion] = strings.Repeat("9", maxReleaseVersion)
+		}},
+		{name: "usage value 4096 bytes", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationUsage] = usageValueOfLength(maxUsageBytes)
+		}},
+		// spec §5.3: consumers accept every syntactically valid selector
+		// value; the public registry is producer-only.
+		{name: "unknown usage token", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationUsage] = "custom-usage"
+		}},
+		{name: "private usage token", mut: func(v *Value) {
+			v.Manifests[0].Annotations[AnnotationUsage] = "x-owner-name"
 		}},
 	}
 	for _, tc := range tests {
@@ -367,6 +432,21 @@ func TestValidateRule5(t *testing.T) {
 	assertRule(t, Validate(validValue(d1, d2)), specRuleSelector)
 }
 
+func TestValidateRule5DifferentUsage(t *testing.T) {
+	t.Parallel()
+	empty := validDescriptor(
+		"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+		"a", testContentDigestA, "0", testManifestDigest1, 1,
+	)
+	live := withUsage(validDescriptor(
+		"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+		"b", testContentDigestB, "0", testManifestDigest2, 1,
+	), "live")
+	if err := Validate(validValue(empty, live)); err != nil {
+		t.Fatalf("distinct usage sets must be unique selectors: %v", err)
+	}
+}
+
 // rule6Pair returns two valid transport alternatives for one file: the same
 // (architecture, target, representation, role) under different compressions,
 // agreeing on content digest, content size, and filename as spec §6 rule 6
@@ -433,6 +513,21 @@ func TestValidateRule6(t *testing.T) {
 	}
 }
 
+func TestValidateRule6DifferentUsage(t *testing.T) {
+	t.Parallel()
+	empty := validDescriptor(
+		"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+		"a", testContentDigestA, "1", testManifestDigest1, 1,
+	)
+	live := withUsage(validDescriptor(
+		"amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+		"b", testContentDigestB, "2", testManifestDigest2, 1,
+	), "live")
+	if err := Validate(validValue(empty, live)); err != nil {
+		t.Fatalf("different usage sets may carry different content identity: %v", err)
+	}
+}
+
 func TestValidateRule7(t *testing.T) {
 	t.Parallel()
 	a := validDescriptor(
@@ -444,6 +539,21 @@ func TestValidateRule7(t *testing.T) {
 		"a", testContentDigestA, "1", testManifestDigest2, 1,
 	)
 	assertRule(t, Validate(validValue(a, b)), specRuleFilename)
+}
+
+func TestValidateRule7DifferentUsage(t *testing.T) {
+	t.Parallel()
+	empty := validDescriptor(
+		"amd64", "x-test-target", "x-test-format", "x-test-file", "gzip",
+		"a", testContentDigestA, "1", testManifestDigest1, 1,
+	)
+	live := withUsage(validDescriptor(
+		"amd64", "x-test-target", "x-test-format", "x-test-other", "none",
+		"a", testContentDigestB, "1", testManifestDigest2, 1,
+	), "live")
+	if err := Validate(validValue(empty, live)); err != nil {
+		t.Fatalf("same filename under different usage sets must be valid: %v", err)
+	}
 }
 
 // rule8Pair returns two valid descriptors that share a file-manifest digest
@@ -578,6 +688,15 @@ func TestValidateRule8PermittedDifferences(t *testing.T) {
 					"b", testContentDigestA, "1", testManifestDigest1, 1),
 			),
 		},
+		{
+			name: "usage",
+			v: validValue(
+				validDescriptor("amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+					"a", testContentDigestA, "1", testManifestDigest1, 1),
+				withUsage(validDescriptor("amd64", "x-test-target", "x-test-format", "x-test-file", "none",
+					"a", testContentDigestA, "1", testManifestDigest1, 1), "live"),
+			),
+		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -707,4 +826,22 @@ func assertRule(t *testing.T, err error, rule int) {
 	if !strings.Contains(err.Error(), want) {
 		t.Fatalf("error %q does not name %s", err, want)
 	}
+}
+
+// withUsage copies d and sets or deletes io.imgoci.usage.
+func withUsage(d Descriptor, usage string) Descriptor {
+	d.Annotations = copyStringMap(d.Annotations)
+	if usage == "" {
+		delete(d.Annotations, AnnotationUsage)
+		return d
+	}
+	d.Annotations[AnnotationUsage] = usage
+	return d
+}
+
+// withUsageValue copies v and sets usage on manifests[i].
+func withUsageValue(v *Value, i int, usage string) *Value {
+	out := cloneValue(v)
+	out.Manifests[i] = withUsage(out.Manifests[i], usage)
+	return out
 }

@@ -277,6 +277,60 @@ func TestBuildSortsBeforeEncode(t *testing.T) {
 	}
 }
 
+func TestBuildUsageAnnotation(t *testing.T) {
+	t.Parallel()
+	const usageKey = `"io.imgoci.usage"`
+	tests := []struct {
+		name      string
+		usage     string
+		extra     map[string]string
+		wantKey   bool
+		wantValue string
+	}{
+		{name: "empty selector omits key", usage: "", wantKey: false},
+		{
+			name:    "caller annotation dropped when selector is empty",
+			usage:   "",
+			extra:   map[string]string{AnnotationUsage: "live"},
+			wantKey: false,
+		},
+		{
+			name:      "caller annotation overwritten when selector is set",
+			usage:     "install",
+			extra:     map[string]string{AnnotationUsage: "live"},
+			wantKey:   true,
+			wantValue: `"io.imgoci.usage":"install"`,
+		},
+		{
+			name:      "non-empty canonical usage is emitted exactly",
+			usage:     "install,install-offline",
+			wantKey:   true,
+			wantValue: `"io.imgoci.usage":"install,install-offline"`,
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			m := minimalModel()
+			m.Entries[0].Selector.Usage = tc.usage
+			m.Entries[0].Annotations = tc.extra
+			raw, err := Build(m)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.wantKey {
+				if !bytes.Contains(raw, []byte(tc.wantValue)) {
+					t.Fatalf("encoded index missing %s\ngot: %s", tc.wantValue, raw)
+				}
+				return
+			}
+			if bytes.Contains(raw, []byte(usageKey)) {
+				t.Fatalf("encoded index contains %s\ngot: %s", usageKey, raw)
+			}
+		})
+	}
+}
+
 func TestBuildNilModel(t *testing.T) {
 	t.Parallel()
 	if _, err := Build(nil); err == nil {

@@ -34,7 +34,7 @@ type ModelEntry struct {
 	Digest digest.Digest
 	// Size is the byte length of the referenced file manifest.
 	Size int64
-	// Selector is the five-field transport-alternative identity.
+	// Selector is the six-field transport-alternative identity.
 	Selector Selector
 	// ContentDigest is io.imgoci.content.digest.
 	ContentDigest digest.Digest
@@ -78,7 +78,7 @@ type wireDescriptor struct {
 // Build constructs a canonical release index from m.
 //
 // Producer-only selector-registry and annotation-location rules run first, then
-// descriptors are sorted by the five-field UTF-8 byte-order tuple, validated
+// descriptors are sorted by the six-field UTF-8 byte-order tuple, validated
 // with [Validate], and encoded with [jcs.Encode].
 func Build(m *Model) ([]byte, error) {
 	if m == nil {
@@ -151,6 +151,9 @@ func descriptorFromModel(e ModelEntry) (Descriptor, error) {
 	if err := requireUTF8("representation", e.Selector.Representation); err != nil {
 		return Descriptor{}, err
 	}
+	if err := requireUTF8("usage", e.Selector.Usage); err != nil {
+		return Descriptor{}, err
+	}
 	if err := requireUTF8("role", e.Selector.Role); err != nil {
 		return Descriptor{}, err
 	}
@@ -169,6 +172,11 @@ func descriptorFromModel(e ModelEntry) (Descriptor, error) {
 	ann[AnnotationRepresentation] = e.Selector.Representation
 	ann[AnnotationRole] = e.Selector.Role
 	ann[AnnotationCompression] = e.Selector.Compression
+	if e.Selector.Usage != "" {
+		ann[AnnotationUsage] = e.Selector.Usage
+	} else {
+		delete(ann, AnnotationUsage)
+	}
 	ann[AnnotationContentDigest] = e.ContentDigest.String()
 	ann[AnnotationContentSize] = strconv.FormatInt(e.ContentSize, 10)
 	ann[AnnotationFilename] = e.Filename
