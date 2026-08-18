@@ -31,3 +31,8 @@ Verification: example compiled verbatim via scratch module with replace directiv
 
 ## 2026-08-17 15:45 — Post-refactor release-readiness recheck: still READY
 PRs #27-#33 (internal refactors) merged; master tip `7a3c419`. Verified: apidiff between `8d02009` (pre-refactor) and tip reports ZERO exported-surface changes (neither incompatible nor compatible); README example recompiles verbatim against tip; no changes to README/SECURITY.md/testdata/conformance/docs; CI+Release Please+Pages green on tip; 0 open Dependabot alerts; PR #9 still proposes 0.1.0 touching only manifest+CHANGELOG. The refactor commits use non-release types so the changelog is unchanged. Release remains owner-gated on merging PR #9 (creates a DRAFT GitHub release per config).
+
+## 2026-08-17 16:15 — v0.1.0 RELEASED
+Merged PR #9 (squash `2cfe76b`). Release Please created tag `v0.1.0` on `2cfe76b` and a draft release; CI green on the merge commit; published the draft at 2026-08-18T05:11:04Z.
+External-consumer verification: `github.com/imgoci/go@v0.1.0` resolves through proxy.golang.org; the README example compiles verbatim against it; the module zip (357 files) contains the corrected SECURITY.md (0 template-directive matches) and no cli/ entries.
+For session close: TECH_NOTES RELEASE GUARD bullet is now stale (spec stable v0.1.0, package v0.1.0 released) and needs rewriting; also bullet 6 ("no v1.0.0 here before it promotes") and bullet 25 (SECURITY.md blocker) are resolved.
