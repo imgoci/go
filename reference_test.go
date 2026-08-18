@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/opencontainers/go-digest"
+
+	"github.com/imgoci/go/internal/ociref"
 )
 
 const (
@@ -105,8 +107,8 @@ func TestReferenceParse(t *testing.T) {
 			if err != nil {
 				t.Fatalf("parse(%q): %v", tt.ref, err)
 			}
-			if got.host != tt.wantHost || got.repository != tt.wantRepo ||
-				got.tag != tt.wantTag || got.digest != tt.wantDigest {
+			if got.Host != tt.wantHost || got.Repository != tt.wantRepo ||
+				got.Tag != tt.wantTag || got.Digest != tt.wantDigest {
 				t.Fatalf("parse(%q) = %+v", tt.ref, got)
 			}
 		})
@@ -115,12 +117,12 @@ func TestReferenceParse(t *testing.T) {
 
 func TestParsedRefManifestRefPrefersDigest(t *testing.T) {
 	t.Parallel()
-	parsed := parsedRef{tag: "v1", digest: digest.Digest(testSHA256)}
-	if got := parsed.manifestRef(); got != testSHA256 {
+	parsed := ociref.Parsed{Tag: "v1", Digest: digest.Digest(testSHA256)}
+	if got := parsed.ManifestRef(); got != testSHA256 {
 		t.Fatalf("manifestRef = %q, want digest", got)
 	}
-	parsed.digest = ""
-	if got := parsed.manifestRef(); got != "v1" {
+	parsed.Digest = ""
+	if got := parsed.ManifestRef(); got != "v1" {
 		t.Fatalf("manifestRef = %q, want tag", got)
 	}
 }

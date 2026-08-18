@@ -41,19 +41,19 @@ func (c *Client) Fetch(ctx context.Context, ref Reference) (*Release, error) {
 	if err != nil {
 		return nil, err
 	}
-	if parsed.tag == "" && parsed.digest == "" {
+	if parsed.Tag == "" && parsed.Digest == "" {
 		return nil, fmt.Errorf(
 			"reference %q must name a tag or a digest, for example repo:v1 or repo@sha256:<hex>",
 			ref,
 		)
 	}
 
-	ports, err := c.portsFor(ctx, parsed.host, parsed.repository)
+	ports, err := c.portsFor(ctx, parsed.Host, parsed.Repository)
 	if err != nil {
 		return nil, err
 	}
 
-	body, err := transfer.FetchIndex(ctx, ports.Manifests, parsed.manifestRef(), parsed.digest)
+	body, err := transfer.FetchIndex(ctx, ports.Manifests, parsed.ManifestRef(), parsed.Digest)
 	if err != nil {
 		return nil, mapFetchError(err)
 	}
@@ -66,8 +66,8 @@ func (c *Client) Fetch(ctx context.Context, ref Reference) (*Release, error) {
 	return &Release{
 		digest:     idx.Digest(),
 		index:      idx,
-		host:       parsed.host,
-		repository: parsed.repository,
+		host:       parsed.Host,
+		repository: parsed.Repository,
 	}, nil
 }
 

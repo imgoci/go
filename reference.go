@@ -1,10 +1,7 @@
 package imgoci
 
 import (
-	"fmt"
-
-	"github.com/distribution/reference"
-	"github.com/opencontainers/go-digest"
+	"github.com/imgoci/go/internal/ociref"
 )
 
 // Reference names one release: a registry, a repository on it, and a tag or a
@@ -31,58 +28,5 @@ import (
 // underlying parse failure when there is one.
 type Reference string
 
-// parsedRef is the host, repository path, and optional tag and digest a
-// [Reference] named.
-type parsedRef struct {
-	// host is the registry domain, including a port when the reference named
-	// one.
-	host string
-	// repository is the path under /v2, without a leading slash.
-	repository string
-	// tag is the tag when the reference named one, otherwise empty.
-	tag string
-	// digest is the digest when the reference named one, otherwise empty.
-	digest digest.Digest
-}
-
-// parse splits r into host, repository, optional tag, and optional digest.
-//
-// Name-only references (registry/repo with neither tag nor digest) parse
-// successfully; [Client.Fetch] and [Client.Publish] reject them. Fetch must
-// name one index; Publish is tag-only.
-func (r Reference) parse() (parsedRef, error) {
-	named, err := reference.ParseNamed(string(r))
-	if err != nil {
-		return parsedRef{}, fmt.Errorf("parse reference %q: %w", r, err)
-	}
-
-	out := parsedRef{
-		host:       reference.Domain(named),
-		repository: reference.Path(named),
-	}
-	if tagged, ok := named.(reference.NamedTagged); ok {
-		out.tag = tagged.Tag()
-	}
-	if digested, ok := named.(reference.Digested); ok {
-		dgst := digested.Digest()
-		if dgst.Algorithm() != digest.SHA256 {
-			return parsedRef{}, fmt.Errorf(
-				"parse reference %q: digest algorithm %s is not sha256",
-				r, dgst.Algorithm(),
-			)
-		}
-		out.digest = dgst
-	}
-
-	return out, nil
-}
-
-// manifestRef is the tag or digest string [transfer.FetchIndex] addresses
-// within the bound repository. A digest, when present, wins over a tag.
-func (p parsedRef) manifestRef() string {
-	if p.digest != "" {
-		return p.digest.String()
-	}
-
-	return p.tag
-}
+// parse delegates to [ociref.Parse].
+func (r Reference) parse() (ociref.Parsed, error) { return ociref.Parse(string(r)) }
