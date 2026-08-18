@@ -63,30 +63,3 @@ func (u Usage) Values() []string {
 func usageFromCanonical(canonical string) Usage {
 	return Usage{canonical: canonical}
 }
-
-// canonicalUsageQuery canonicalizes a query usage list, which must not contain
-// duplicates. field names the query field in the error.
-func canonicalUsageQuery(values []string, field string) (string, error) {
-	if err := uniqueUsageTokens(values); err != nil {
-		return "", fmt.Errorf("%s: %w", field, err)
-	}
-	canonical, err := index.CanonicalizeUsage(values)
-	if err != nil {
-		return "", fmt.Errorf("%s: %w", field, err)
-	}
-
-	return canonical, nil
-}
-
-// uniqueUsageTokens reports the first duplicated usage token. Token syntax is
-// left to [index.CanonicalizeUsage] so List and Resolve share one grammar.
-func uniqueUsageTokens(values []string) error {
-	seen := make(map[string]struct{}, len(values))
-	for _, value := range values {
-		if _, ok := seen[value]; ok {
-			return fmt.Errorf("duplicate usage %q", value)
-		}
-		seen[value] = struct{}{}
-	}
-	return nil
-}

@@ -18,8 +18,8 @@ type Index struct {
 	name string
 	// version is the org.opencontainers.image.version root annotation.
 	version string
-	// entries are the file entries in canonical descriptor order.
-	entries []FileEntry
+	// entries are the materialized file entries in canonical descriptor order.
+	entries []index.Entry
 	// annotations is the root annotation map, including unknown keys.
 	annotations map[string]string
 }
@@ -56,7 +56,7 @@ func (x *Index) Entries() []FileEntry {
 	if x == nil {
 		return nil
 	}
-	return cloneEntries(x.entries)
+	return fileEntriesFrom(x.entries)
 }
 
 // Annotations returns a copy of the root annotation map, including unknown
@@ -70,41 +70,49 @@ func (x *Index) Annotations() map[string]string {
 
 // indexFromValue maps a validated codec value onto the public immutable view.
 func indexFromValue(v *index.Value, dgst digest.Digest) *Index {
-	entries := make([]FileEntry, 0, len(v.Manifests))
-	for i := range v.Manifests {
-		entries = append(entries, fileEntryFromDescriptor(v.Manifests[i]))
-	}
 	annotations := cloneAnnotations(v.Annotations)
 	return &Index{
 		digest:      dgst,
 		name:        annotations[index.AnnotationName],
 		version:     annotations[index.AnnotationVersion],
-		entries:     entries,
+		entries:     index.EntriesOf(v),
 		annotations: annotations,
 	}
 }
 
-// fileEntryFromDescriptor copies one codec descriptor into a public FileEntry.
-func fileEntryFromDescriptor(d index.Descriptor) FileEntry {
-	sel := d.Selector()
+// fileEntryFrom copies one internal entry into a public FileEntry.
+func fileEntryFrom(e index.Entry) FileEntry {
 	return FileEntry{
-		MediaType:    d.MediaType,
-		ArtifactType: d.ArtifactType,
-		Digest:       d.Digest,
-		Size:         d.Size,
+		MediaType:    e.MediaType,
+		ArtifactType: e.ArtifactType,
+		Digest:       e.Digest,
+		Size:         e.Size,
 		Selector: Selector{
-			Architecture:   sel.Architecture,
-			Target:         sel.Target,
-			Representation: sel.Representation,
-			Usage:          usageFromCanonical(sel.Usage),
-			Role:           sel.Role,
-			Compression:    sel.Compression,
+			Architecture:   e.Selector.Architecture,
+			Target:         e.Selector.Target,
+			Representation: e.Selector.Representation,
+			Usage:          usageFromCanonical(e.Selector.Usage),
+			Role:           e.Selector.Role,
+			Compression:    e.Selector.Compression,
 		},
-		ContentDigest: d.ContentDigest(),
-		ContentSize:   d.ContentSize(),
-		Filename:      d.Filename(),
-		Annotations:   cloneAnnotations(d.Annotations),
+		ContentDigest: e.ContentDigest,
+		ContentSize:   e.ContentSize,
+		Filename:      e.Filename,
+		Annotations:   cloneAnnotations(e.Annotations),
 	}
+}
+
+// fileEntriesFrom maps entries into public FileEntry values.
+// A nil input stays nil. Each annotation map is copied.
+func fileEntriesFrom(entries []index.Entry) []FileEntry {
+	if entries == nil {
+		return nil
+	}
+	out := make([]FileEntry, len(entries))
+	for i := range entries {
+		out[i] = fileEntryFrom(entries[i])
+	}
+	return out
 }
 
 // cloneEntries returns a new slice whose Annotation maps are also copied.

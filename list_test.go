@@ -7,6 +7,8 @@ import (
 	"github.com/opencontainers/go-digest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/imgoci/go/internal/index"
 )
 
 func testEntry(arch, target, repr, role, compression, artifactType string) FileEntry {
@@ -30,11 +32,32 @@ func testEntry(arch, target, repr, role, compression, artifactType string) FileE
 }
 
 func testIndex(entries ...FileEntry) *Index {
+	out := make([]index.Entry, len(entries))
+	for i, entry := range entries {
+		out[i] = index.Entry{
+			MediaType:    entry.MediaType,
+			ArtifactType: entry.ArtifactType,
+			Digest:       entry.Digest,
+			Size:         entry.Size,
+			Selector: index.Selector{
+				Architecture:   entry.Selector.Architecture,
+				Target:         entry.Selector.Target,
+				Representation: entry.Selector.Representation,
+				Usage:          entry.Selector.Usage.String(),
+				Role:           entry.Selector.Role,
+				Compression:    entry.Selector.Compression,
+			},
+			ContentDigest: entry.ContentDigest,
+			ContentSize:   entry.ContentSize,
+			Filename:      entry.Filename,
+			Annotations:   entry.Annotations,
+		}
+	}
 	return &Index{
 		digest:  digest.Digest("sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
 		name:    "example",
 		version: "1",
-		entries: entries,
+		entries: out,
 	}
 }
 
