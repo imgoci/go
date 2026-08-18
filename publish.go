@@ -12,6 +12,7 @@ import (
 	"github.com/opencontainers/go-digest"
 
 	"github.com/imgoci/go/internal/index"
+	"github.com/imgoci/go/internal/ociref"
 	"github.com/imgoci/go/internal/transfer"
 )
 
@@ -112,7 +113,7 @@ func (c *Client) Publish(
 	if err != nil {
 		return "", err
 	}
-	ports, err := c.portsFor(ctx, parsed.host, parsed.repository)
+	ports, err := c.portsFor(ctx, parsed.Host, parsed.Repository)
 	if err != nil {
 		return "", err
 	}
@@ -120,26 +121,26 @@ func (c *Client) Publish(
 		Manifests: ports.Manifests,
 		Blobs:     ports.Blobs,
 		Multipart: ports.Multipart,
-	}, toPublishRequest(parsed.host+"/"+parsed.repository, parsed.tag, spec, settings, c.settings.decoderMaxWindow))
+	}, toPublishRequest(parsed.Host+"/"+parsed.Repository, parsed.Tag, spec, settings, c.settings.decoderMaxWindow))
 	return dgst, mapPublishError(err)
 }
 
 // preparePublish applies options, the tag-only reference contract, and spec
 // validation. Adapter construction must not run until this returns.
-func preparePublish(ref Reference, spec ReleaseSpec, opts []PublishOption) (publishSettings, parsedRef, error) {
+func preparePublish(ref Reference, spec ReleaseSpec, opts []PublishOption) (publishSettings, ociref.Parsed, error) {
 	var settings publishSettings
 	if err := applyPublishOptions(&settings, opts); err != nil {
-		return publishSettings{}, parsedRef{}, err
+		return publishSettings{}, ociref.Parsed{}, err
 	}
 	parsed, err := ref.parse()
 	if err != nil {
-		return publishSettings{}, parsedRef{}, err
+		return publishSettings{}, ociref.Parsed{}, err
 	}
 	if err := checkPublishRef(ref, parsed); err != nil {
-		return publishSettings{}, parsedRef{}, err
+		return publishSettings{}, ociref.Parsed{}, err
 	}
 	if err := validateReleaseSpec(spec); err != nil {
-		return publishSettings{}, parsedRef{}, err
+		return publishSettings{}, ociref.Parsed{}, err
 	}
 	return settings, parsed, nil
 }
@@ -159,16 +160,16 @@ func applyPublishOptions(settings *publishSettings, opts []PublishOption) error 
 }
 
 // checkPublishRef enforces the tag-only publish contract.
-func checkPublishRef(ref Reference, parsed parsedRef) error {
+func checkPublishRef(ref Reference, parsed ociref.Parsed) error {
 	switch {
-	case parsed.tag != "" && parsed.digest == "":
+	case parsed.Tag != "" && parsed.Digest == "":
 		return nil
-	case parsed.tag == "" && parsed.digest != "":
+	case parsed.Tag == "" && parsed.Digest != "":
 		return fmt.Errorf(
 			"%w: digest-only reference %q cannot name a published index",
 			ErrInvalidSpec, ref,
 		)
-	case parsed.tag != "" && parsed.digest != "":
+	case parsed.Tag != "" && parsed.Digest != "":
 		return fmt.Errorf(
 			"%w: tag+digest reference %q has no defined write meaning",
 			ErrInvalidSpec, ref,
