@@ -311,7 +311,7 @@ func filterByCapabilities(roles []string, byRole map[string][]FileEntry, caps Ca
 	for _, role := range roles {
 		kept := make([]FileEntry, 0, len(byRole[role]))
 		for _, entry := range byRole[role] {
-			if supportsType(caps.types, entry.ArtifactType) {
+			if index.SupportsMediaType(caps.types, entry.ArtifactType) {
 				kept = append(kept, entry)
 			}
 		}
