@@ -256,3 +256,42 @@ Caught by my scheduled mid-flight `git -C <main> status --porcelain` check ~2
 minutes in, steered via `hub send`, agent recovered by copying content across and
 restoring the main checkout. The mid-flight check is now non-negotiable for every
 fan-out.
+
+## 2026-08-17 20:00 — Slice 2 merged; slice 3 implemented, reviewed, PR #30 open
+Slice 2 merged as `7cc1737` (#29).
+
+Slice 3 = reference parsing out of root.
+- New pure `internal/ociref` (doc.go, ref.go): `Parsed` (exported fields),
+  `Parse(raw string)`, `(Parsed).ManifestRef()`.
+- reference.go 88 -> 33 lines: public `Reference` + unchanged doc comment + a
+  one-line delegate `func (r Reference) parse() (ociref.Parsed, error)`. Keeping
+  the delegate meant fetch.go/publish.go/reference_test.go only needed field and
+  type renames instead of call-site rewrites.
+- PR https://github.com/imgoci/go/pull/30, CI green.
+
+Two decisions recorded in the PR: a NEW package rather than `internal/registry`
+(that package is an I/O adapter bound to one repository and parses nothing, so
+hosting a pure grammar there breaks A2); and the name `ociref` rather than `ref`
+because publish.go has parameters named `ref` that would shadow it.
+
+Only genuine risk in this slice was the `%q` operand changing static type from
+`Reference` to `string`. Settled empirically by the reviewer: probe run against a
+`git archive` of master and against the branch produced byte-identical error text
+(same md5) for three malformed references and one sha512 digest.
+
+Reviewer found one real defect I would have missed: `[ManifestRef]` in the new
+package comment does not resolve as a doc link, because doc links address
+package-level symbols and ManifestRef is a method on Parsed. It proved this by
+walking the `go/doc` comment tree, then I fixed it to `[Parsed.ManifestRef]`.
+Worth remembering for every new package comment in the remaining slices.
+
+Two process notes: (1) single programmer agent this time (44 lines) instead of
+fanning out — fan-out would have been padding; the mid-flight main-checkout check
+came back clean, first slice where no agent leaked edits. (2) `gofmt -l` caught a
+trailing blank line the agent left in reference.go, and the stale golangci-lint
+cache again reported findings from the deleted slice-2 worktree until
+`golangci-lint cache clean`. Both are now standing steps in my integration
+routine.
+
+Remaining: slice 4 (fetchfiles preflight + dest mapping + error classification),
+slice 5 (publish producer validation), slice 6 (list/resolve engines).
