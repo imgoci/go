@@ -485,11 +485,6 @@ func isReleaseVersion(s string) bool {
 	return true
 }
 
-// IsBasicToken reports whether s matches the spec §5.3 basic-token grammar.
-func IsBasicToken(s string) bool {
-	return isBasicToken(s)
-}
-
 // isBasicToken reports whether s matches the spec §5.3 basic-token grammar.
 func isBasicToken(s string) bool {
 	if len(s) < 1 || len(s) > maxBasicTokenBytes {

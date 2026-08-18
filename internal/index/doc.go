@@ -1,5 +1,5 @@
-// Package index implements the imgoci v1 release-index codec and the ten
-// consumer-validation rules in spec §6.
+// Package index implements the imgoci v1 release-index codec, the ten
+// consumer-validation rules in spec §6, and the two query engines in spec §7.
 //
 // Three seams exist because the spec conformance corpus is parsed-value-only:
 // it can accept or reject a decoded index, but it cannot inspect the original
@@ -26,4 +26,12 @@
 // 8785-canonical bytes with [github.com/imgoci/go/internal/jcs.Encode]. Spec §6
 // and §12 require a consumer to accept producer-only violations, so [Validate]
 // does not apply those rules.
+//
+// [EntriesOf] materializes a validated [Value] into []Entry, so a query reads
+// selector fields instead of re-deriving them from the annotation map on every
+// access. [List] implements spec §7.2 and [Resolve] implements spec §7.3, each
+// validating the §7.1 query grammar before it inspects an entry. A capability
+// filter failure is reported as a [CapabilityError]; naming that failure with a
+// matchable public sentinel, and mapping these internal values onto public
+// types, is the root package's job.
 package index
