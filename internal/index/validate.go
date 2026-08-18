@@ -422,6 +422,17 @@ func EqualMediaType(a, b string) bool {
 	return equalMediaType(a, b)
 }
 
+// SupportsMediaType reports whether mediaType is in types under spec section 4
+// comparison.
+func SupportsMediaType(types []string, mediaType string) bool {
+	for _, candidate := range types {
+		if equalMediaType(candidate, mediaType) {
+			return true
+		}
+	}
+	return false
+}
+
 // equalMediaType compares media or artifact types ASCII case-insensitively.
 // Comparison folds only 'A'..'Z' so Unicode look-alikes such as U+017F and
 // U+212A do not match ASCII letters.

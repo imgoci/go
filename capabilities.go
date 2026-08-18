@@ -75,15 +75,5 @@ func (c Capabilities) effective() Capabilities {
 // supports reports whether mediaType is in the effective capability set under
 // spec section 4 comparison.
 func (c Capabilities) supports(mediaType string) bool {
-	return supportsType(c.effective().types, mediaType)
-}
-
-// supportsType reports whether mediaType is in types under [EqualMediaType].
-func supportsType(types []string, mediaType string) bool {
-	for _, candidate := range types {
-		if EqualMediaType(candidate, mediaType) {
-			return true
-		}
-	}
-	return false
+	return index.SupportsMediaType(c.effective().types, mediaType)
 }

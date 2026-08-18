@@ -5,8 +5,6 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/imgoci/go/internal/decomp"
-	"github.com/imgoci/go/internal/file"
 	"github.com/imgoci/go/internal/transfer"
 )
 
@@ -222,37 +220,37 @@ func transferEntries(entries []FileEntry) []transfer.Entry {
 // stored digest/size mismatches as [transfer.ErrDigestMismatch]. A nil
 // Multipart wiring error is not a sentinel and is returned unchanged.
 //
-// [decomp.ErrSizeExceeded] (a stored file longer than the layer descriptor
-// declares) and [decomp.ErrSizeMismatch] (one shorter) are integrity failures,
-// not decode failures, and are matched ahead of [decomp.ErrDecode] so a size
+// decomp.ErrSizeExceeded (a stored file longer than the layer descriptor
+// declares) and decomp.ErrSizeMismatch (one shorter) are integrity failures,
+// not decode failures, and are matched ahead of decomp.ErrDecode so a size
 // verdict is not reported as a codec verdict.
 func mapFetchError(err error) error {
 	if err == nil {
 		return nil
 	}
 
-	var commit *file.CommitError
-	if errors.As(err, &commit) {
+	switch transfer.Classify(err) {
+	case transfer.FaultNone:
+		return nil
+	case transfer.FaultUnknown:
+		return err
+	case transfer.FaultCommit:
+		committed, role, _ := transfer.CommitFault(err)
 		return fmt.Errorf(
 			"commit failed; committed roles %v; failing role %q: %w",
-			commit.Committed, commit.Role, err,
+			committed, role, err,
 		)
-	}
-
-	switch {
-	case errors.Is(err, file.ErrInvalidPlan):
+	case transfer.FaultInvalidPlan:
 		return fmt.Errorf("%w: %w", ErrInvalidDest, err)
-	case errors.Is(err, transfer.ErrInvalidDocument):
+	case transfer.FaultInvalidDocument:
 		return fmt.Errorf("%w: %w", ErrInvalidIndex, err)
-	case errors.Is(err, decomp.ErrSizeExceeded),
-		errors.Is(err, decomp.ErrSizeMismatch),
-		errors.Is(err, transfer.ErrDigestMismatch):
+	case transfer.FaultDigestMismatch:
 		return fmt.Errorf("%w: %w", ErrDigestMismatch, err)
-	case errors.Is(err, decomp.ErrDecode):
+	case transfer.FaultDecode:
 		return fmt.Errorf("%w: %w", ErrDecode, err)
-	case errors.Is(err, transfer.ErrNotFound):
+	case transfer.FaultNotFound:
 		return fmt.Errorf("%w: %w", ErrNotFound, err)
-	case errors.Is(err, transfer.ErrUnauthorized):
+	case transfer.FaultUnauthorized:
 		return fmt.Errorf("%w: %w", ErrUnauthorized, err)
 	default:
 		return err
