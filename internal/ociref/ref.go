@@ -62,3 +62,27 @@ func (p Parsed) ManifestRef() string {
 
 	return p.Tag
 }
+
+// RequireTagOnly enforces the tag-only publish contract. display is the
+// reference as the caller wrote it, used in the error text.
+func RequireTagOnly(display string, p Parsed) error {
+	switch {
+	case p.Tag != "" && p.Digest == "":
+		return nil
+	case p.Tag == "" && p.Digest != "":
+		return fmt.Errorf(
+			"digest-only reference %q cannot name a published index",
+			display,
+		)
+	case p.Tag != "" && p.Digest != "":
+		return fmt.Errorf(
+			"tag+digest reference %q has no defined write meaning",
+			display,
+		)
+	default:
+		return fmt.Errorf(
+			"publish reference %q must be tag-only",
+			display,
+		)
+	}
+}
