@@ -5,20 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"strconv"
-	"strings"
-	"unicode/utf8"
 
 	"github.com/opencontainers/go-digest"
 
 	"github.com/imgoci/go/internal/index"
 	"github.com/imgoci/go/internal/ociref"
 	"github.com/imgoci/go/internal/transfer"
-)
-
-const (
-	// reservedAnnotationPrefix is the spec-reserved annotation namespace.
-	reservedAnnotationPrefix = "io.imgoci."
 )
 
 // ReleaseSpec is the producer input to [Client.Publish].
@@ -136,8 +128,8 @@ func preparePublish(ref Reference, spec ReleaseSpec, opts []PublishOption) (publ
 	if err != nil {
 		return publishSettings{}, ociref.Parsed{}, err
 	}
-	if err := checkPublishRef(ref, parsed); err != nil {
-		return publishSettings{}, ociref.Parsed{}, err
+	if err := ociref.RequireTagOnly(string(ref), parsed); err != nil {
+		return publishSettings{}, ociref.Parsed{}, fmt.Errorf("%w: %w", ErrInvalidSpec, err)
 	}
 	if err := validateReleaseSpec(spec); err != nil {
 		return publishSettings{}, ociref.Parsed{}, err
@@ -159,199 +151,55 @@ func applyPublishOptions(settings *publishSettings, opts []PublishOption) error 
 	return nil
 }
 
-// checkPublishRef enforces the tag-only publish contract.
-func checkPublishRef(ref Reference, parsed ociref.Parsed) error {
-	switch {
-	case parsed.Tag != "" && parsed.Digest == "":
-		return nil
-	case parsed.Tag == "" && parsed.Digest != "":
-		return fmt.Errorf(
-			"%w: digest-only reference %q cannot name a published index",
-			ErrInvalidSpec, ref,
-		)
-	case parsed.Tag != "" && parsed.Digest != "":
-		return fmt.Errorf(
-			"%w: tag+digest reference %q has no defined write meaning",
-			ErrInvalidSpec, ref,
-		)
-	default:
-		return fmt.Errorf(
-			"%w: publish reference %q must be tag-only",
-			ErrInvalidSpec, ref,
-		)
-	}
-}
-
 // validateReleaseSpec applies producer rules 1–8 before any network I/O.
 func validateReleaseSpec(spec ReleaseSpec) error {
-	if spec.Name == "" {
-		return fmt.Errorf("%w: name is empty", ErrInvalidSpec)
+	in := toProducerInput(spec)
+	sources := toPublishSources(spec)
+	if err := index.ValidateProducerFields(&in); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidSpec, err)
 	}
-	if spec.Version == "" {
-		return fmt.Errorf("%w: version is empty", ErrInvalidSpec)
+	if err := transfer.ValidatePublishSources(sources); err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidSpec, err)
 	}
-	if err := checkUTF8Spec(spec); err != nil {
-		return err
-	}
-	if err := checkReservedAnnotations(spec); err != nil {
-		return err
-	}
-	if err := checkMultipartAndSources(spec); err != nil {
-		return err
-	}
-	if err := checkProducerRules(spec); err != nil {
-		return err
-	}
-	return nil
-}
-
-// checkUTF8Spec requires [utf8.ValidString] on every caller string.
-func checkUTF8Spec(spec ReleaseSpec) error {
-	if err := requireUTF8("name", spec.Name); err != nil {
-		return err
-	}
-	if err := requireUTF8("version", spec.Version); err != nil {
-		return err
-	}
-	if err := checkUTF8Map("root annotation", spec.Annotations); err != nil {
-		return err
-	}
-	for i, file := range spec.Files {
-		prefix := fmt.Sprintf("files[%d]", i)
-		if err := requireUTF8(prefix+" filename", file.Filename); err != nil {
-			return err
-		}
-		if err := requireUTF8(prefix+" architecture", file.Selector.Architecture); err != nil {
-			return err
-		}
-		if err := requireUTF8(prefix+" target", file.Selector.Target); err != nil {
-			return err
-		}
-		if err := requireUTF8(prefix+" representation", file.Selector.Representation); err != nil {
-			return err
-		}
-		if err := requireUTF8(prefix+" role", file.Selector.Role); err != nil {
-			return err
-		}
-		if err := requireUTF8(prefix+" compression", file.Selector.Compression); err != nil {
-			return err
-		}
-		if err := checkUTF8Map(prefix+" annotation", file.Annotations); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// checkUTF8Map requires UTF-8 keys and values.
-func checkUTF8Map(label string, m map[string]string) error {
-	for k, v := range m {
-		if err := requireUTF8(label+" key", k); err != nil {
-			return err
-		}
-		if err := requireUTF8(label+" value", v); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// requireUTF8 reports [ErrInvalidSpec] when s is not valid UTF-8.
-func requireUTF8(field, s string) error {
-	if !utf8.ValidString(s) {
-		return fmt.Errorf("%w: %s is not valid UTF-8", ErrInvalidSpec, field)
-	}
-	return nil
-}
-
-// checkReservedAnnotations rejects io.imgoci.* keys in caller maps.
-func checkReservedAnnotations(spec ReleaseSpec) error {
-	for k := range spec.Annotations {
-		if strings.HasPrefix(k, reservedAnnotationPrefix) {
-			return fmt.Errorf("%w: reserved annotation %q", ErrInvalidSpec, k)
-		}
-	}
-	for i, file := range spec.Files {
-		for k := range file.Annotations {
-			if strings.HasPrefix(k, reservedAnnotationPrefix) {
-				return fmt.Errorf("%w: files[%d] reserved annotation %q", ErrInvalidSpec, i, k)
-			}
-		}
-	}
-	return nil
-}
-
-// checkMultipartAndSources rejects a negative MultipartSpec.PartSize and
-// inconsistent shared sources.
-func checkMultipartAndSources(spec ReleaseSpec) error {
-	byPath := make(map[string]string)
-	for i, file := range spec.Files {
-		if file.Multipart != nil && file.Multipart.PartSize < 0 {
-			return fmt.Errorf("%w: files[%d]: multipart part size must be >= 0", ErrInvalidSpec, i)
-		}
-		path := file.Source.path
-		if path == "" {
-			return fmt.Errorf("%w: files[%d]: empty source", ErrInvalidSpec, i)
-		}
-		if prev, ok := byPath[path]; ok && prev != file.Selector.Compression {
-			return fmt.Errorf(
-				"%w: shared source %q has conflicting compression %q and %q",
-				ErrInvalidSpec, path, prev, file.Selector.Compression,
-			)
-		}
-		byPath[path] = file.Selector.Compression
-	}
-	return nil
-}
-
-// checkProducerRules runs [index.Build] on a placeholder model so selector
-// grammar, required roles, duplicate six-field tuples, incus-vm→incus, filename
-// collisions, and rule 6's filename agreement surface as [ErrInvalidSpec]
-// rather than [ErrInvalidIndex].
-//
-// Placeholder content digest and size are identical for every entry that
-// shares (architecture, target, representation, usage, role). That lets
-// [index.Build] enforce rule 6's filename component without pretending to
-// know content identity. Real content digest and size are checked after
-// pass-1 hashing, before any network write.
-func checkProducerRules(spec ReleaseSpec) error {
-	entries := make([]index.ModelEntry, len(spec.Files))
-	for i, file := range spec.Files {
-		identityKey := placeholderIdentityKey(file.Selector)
-		entries[i] = index.ModelEntry{
-			Digest:        digest.FromBytes([]byte("manifest:" + strconv.Itoa(i))),
-			Size:          1,
-			Selector:      toIndexSelector(file.Selector),
-			ContentDigest: digest.FromBytes([]byte("content:" + identityKey)),
-			ContentSize:   0,
-			Filename:      file.Filename,
-			Annotations:   file.Annotations,
-		}
-	}
-	_, err := index.Build(&index.Model{
-		Name:        spec.Name,
-		Version:     spec.Version,
-		Annotations: spec.Annotations,
-		Entries:     entries,
-	})
-	if err != nil {
+	if err := index.ValidateProducerRules(&in); err != nil {
 		return fmt.Errorf("%w: %w", ErrInvalidSpec, err)
 	}
 	return nil
 }
 
-// placeholderIdentityKey is the spec §2 file key used to share placeholder
-// content identity across transport alternatives during [checkProducerRules].
-// Fields are joined with "/" so a comma-separated usage set cannot collide
-// with a neighboring field.
-func placeholderIdentityKey(s Selector) string {
-	return strings.Join([]string{
-		s.Architecture,
-		s.Target,
-		s.Representation,
-		s.Usage.String(),
-		s.Role,
-	}, "/")
+// toProducerInput maps a public release spec onto the index producer input.
+func toProducerInput(spec ReleaseSpec) index.ProducerInput {
+	files := make([]index.ProducerFile, len(spec.Files))
+	for i, file := range spec.Files {
+		files[i] = index.ProducerFile{
+			Selector:    toIndexSelector(file.Selector),
+			Filename:    file.Filename,
+			Annotations: file.Annotations,
+		}
+	}
+	return index.ProducerInput{
+		Name:        spec.Name,
+		Version:     spec.Version,
+		Annotations: spec.Annotations,
+		Files:       files,
+	}
+}
+
+// toPublishSources maps the spec's files onto the transfer source-validation view.
+func toPublishSources(spec ReleaseSpec) []transfer.PublishSource {
+	sources := make([]transfer.PublishSource, len(spec.Files))
+	for i, file := range spec.Files {
+		src := transfer.PublishSource{
+			Path:        file.Source.path,
+			Compression: file.Selector.Compression,
+		}
+		if file.Multipart != nil {
+			src.PartSize = file.Multipart.PartSize
+			src.Multipart = true
+		}
+		sources[i] = src
+	}
+	return sources
 }
 
 // toIndexSelector copies a public selector onto the index model type.
