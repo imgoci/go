@@ -340,3 +340,53 @@ loses a link, name a symbol that IS reachable rather than paraphrasing the
 sentence into a tautology.
 
 Main checkout stayed clean this slice (mid-flight check at ~110s).
+
+## 2026-08-17 22:20 — Slice 4 merged; slice 5 implemented, reviewed, PR #32 open
+Slice 4 merged as `873ab4f` (#31).
+
+Slice 5 = producer validation out of publish.go (422 -> 270 lines):
+- `internal/index/producer_input.go`: `ProducerInput`, `ProducerFile`,
+  `ValidateProducerFields` (empty checks + UTF-8 walk + reserved annotations),
+  `ValidateProducerRules` (placeholder `Build`), unexported `placeholderIdentityKey`.
+- `internal/transfer/publishsources.go`: `PublishSource`, `ValidatePublishSources`.
+- `internal/ociref.RequireTagOnly` (moved `checkPublishRef`).
+- Nine root declarations deleted; `internal/index.requireUTF8` now reused, which
+  retires the last duplicate from the boundary audit.
+- One test moved: `TestPlaceholderIdentityKeyIncludesUsage` -> internal/index.
+- PR https://github.com/imgoci/go/pull/32, CI green.
+
+TWO INVARIANTS BEYOND TEXT that shaped the contract:
+1. ORDER. Today's sequence is fields -> sources -> index rules, and the source
+   check lives in a DIFFERENT package from the two index concerns. That is why
+   internal/index exposes TWO functions instead of one: fusing them would change
+   which error a caller sees when a spec breaks several rules at once. Reviewer
+   proved order preservation with 21 multi-violation specs.
+2. The placeholder construction byte for byte (`Size: 1`, `ContentSize: 0`,
+   ContentDigest from the five-field identity key). Sharing content identity per
+   selector key is what makes §6 rule 6 checkable before any bytes exist. Rule 6
+   firing on filename disagreement is the test that proves it survived.
+
+ERRORS.UNWRAP ARITY, worth remembering: switching a single-wrap
+`fmt.Errorf("%w: name is empty", ErrInvalidSpec)` to the detail-only split
+`fmt.Errorf("%w: %w", ErrInvalidSpec, err)` changes `errors.Unwrap(err)` from
+returning the sentinel to returning nil (the error exposes `Unwrap() []error`
+instead). The reviewer caught it; I checked whether the single-wrap alternative
+`%w: %s` was possible and it is NOT — `errorlint` rejects a non-wrapping verb for
+an error, so multi-wrap is the only lint-clean way to keep the text identical.
+Accepted consciously: `errors.Is` is unaffected, master was already multi-wrap on
+the index-rules path, and no consumer in repo/docs/cli walks `errors.Unwrap` on
+these paths. Same tradeoff will appear in slice 6.
+
+Reviewer's other finding was again doc drift, and again in a package doc I wrote:
+`internal/ociref/doc.go` claimed the package "does not decide whether a missing
+tag or digest is an error", which `RequireTagOnly` now does. Fixed. Third slice in
+a row where the only real defects were doc comments describing a boundary that
+moved — when adding an exported symbol to an existing internal package, re-read
+that package's doc.go.
+
+Two lint fixes during integration: `perfsprint` wanted `errors.New` for the two
+constant messages (needed an `errors` import), and gofmt caught a trailing blank
+line left by the test deletion.
+
+Remaining: slice 6 (list/resolve engines, ~500 lines, the representation-change
+risk noted in the audit).
