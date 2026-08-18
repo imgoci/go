@@ -295,3 +295,48 @@ routine.
 
 Remaining: slice 4 (fetchfiles preflight + dest mapping + error classification),
 slice 5 (publish producer validation), slice 6 (list/resolve engines).
+
+## 2026-08-17 21:15 — Slice 3 merged; slice 4 implemented, reviewed, PR #31 open
+Slice 3 merged as `cb4d5a7` (#30).
+
+Slice 4 = three moves out of root:
+- `internal/file/dest.go` (new): `Destination`, `NewDir`, `NewFiles`, `RoleFile`,
+  `Map`, `ErrUnsetDestination` — the moved `Dest.mapByRole` + `mapToFiles`.
+- `internal/transfer/classify.go` (new): `Fault` + constants, `Classify`,
+  `CommitFault` — the moved decision tree of `mapFetchError`.
+- `internal/index.SupportsMediaType` — the moved `supportsType` loop.
+- Root: dest.go 97->54, capabilities.go 89->79, fetchfiles.go sheds the
+  internal/file and internal/decomp imports entirely, resolve.go one line.
+- PR https://github.com/imgoci/go/pull/31, CI green.
+
+THE DESIGN INSIGHT WORTH KEEPING: root error messages interleave public sentinels
+with detail text, and an internal package cannot import a root sentinel. Two
+different resolutions, chosen per case:
+1. Where the sentinel is the SUFFIX (`destination missing role %q: %w`), internal
+   returns a DETAIL-ONLY error whose text is exactly today's prefix, and root
+   appends with `fmt.Errorf("%w: %w", err, ErrInvalidDest)`. Byte-identical text
+   AND both errors stay in the chain. No enum needed.
+2. Where the sentinel is the PREFIX and the choice of sentinel varies
+   (`mapFetchError`), internal returns a CATEGORY (`transfer.Fault`) and root
+   owns the sentinel choice and wording.
+That pattern generalizes to slices 5 and 6, which have the same problem with
+`ErrInvalidSpec` and `ErrUnsupportedType`.
+
+No test file needed to change, which was a design goal and held. Two independent
+differential probes (mine 20 lines, reviewer's 818 lines) came back byte-identical
+vs master, including the two load-bearing precedences proven with errors that
+satisfy two sentinels at once: a `*file.CommitError` that also wraps another
+sentinel (commit wins) and an error wrapping both `decomp.ErrDecode` and
+`decomp.ErrSizeMismatch` (size wins, so a size verdict is never reported as a
+codec verdict). `go doc -all .` byte-identical.
+
+Two integration fixes I made myself: `CommitFault` had named returns
+(`nonamedreturns` lint), and a moved doc sentence went tautological when the
+unreachable `[Client.FetchFiles]`/`[ErrInvalidDest]` links were substituted out
+("is invalid and is not a valid destination"). Reviewer caught the latter; that is
+the second slice in a row where the only real finding was a doc comment damaged by
+link adaptation. Standing instruction for slices 5-6: when a moved doc comment
+loses a link, name a symbol that IS reachable rather than paraphrasing the
+sentence into a tautology.
+
+Main checkout stayed clean this slice (mid-flight check at ~110s).
