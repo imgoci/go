@@ -444,3 +444,33 @@ Campaign summary (6 slices, 6 PRs, all reviewer-approved, all CI green):
 #28 duplicate spec grammar (-122 root lines), #29 internal/adapters (-109),
 #30 internal/ociref (-55), #31 dest+classify (-53 root, 2 internal packages
 gained policy), #32 producer validation (-152), #33 query engines (-450).
+
+## 2026-08-18 00:20 — Close
+Slice 6 merged as `7a3c419` (#33). `moon run root:check` on merged `master`: 17
+tasks, exit 0, including the Docker-gated `root:test-e2e`.
+
+Merged this session, in order: #27 `686d4f3` (e2e suite -> internal/e2e), #28
+`0ed6081` (duplicate spec grammar), #29 `7cc1737` (internal/adapters +
+auth.NewDockerCredentials), #30 `cb4d5a7` (internal/ociref), #31 `873ab4f`
+(internal/file destination + internal/transfer classification), #32 `ea55aff`
+(producer validation), #33 `7a3c419` (§7.2/§7.3 query engines).
+
+Hand-off state: root package 19 files / 1794 production lines, down from 44 /
+10050. `go doc -all .` on the root package is byte-identical to the session's
+start — zero public API change across all seven PRs. `internal/` holds 13
+packages; `e2e`, `adapters`, and `ociref` are new. Main checkout clean and
+fast-forwarded to `7a3c419`; every implementation worktree removed; only `master`
+and `journal/jmgilman` remain. No open PR from this session (#9, the Release
+Please `0.1.0` proposal, predates it and is untouched).
+
+Closeout artifacts: `SUMMARY.md` written for 009, `INDEX.md` row set to complete,
+and `TECH_NOTES.md` updated with four durable items — the root-is-a-facade rule
+plus the per-package ownership map, the two internal-to-public error-wrapping
+shapes and why `errorlint` forces multi-wrap, the
+`Descriptor.Selector()`/`EntriesOf` performance trap, and a refreshed
+implementation-state line (master `7a3c419`, spec pin `8083159`).
+
+Next agent's best starting points from here: the `internal/query` package split
+recorded in SUMMARY.md Open Threads, and committing benchmarks for `List` and
+`Resolve` so the allocation profile this session measured by hand is defended by
+CI.
