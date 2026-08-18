@@ -390,3 +390,57 @@ line left by the test deletion.
 
 Remaining: slice 6 (list/resolve engines, ~500 lines, the representation-change
 risk noted in the audit).
+
+## 2026-08-17 23:55 — Slice 5 merged; slice 6 implemented, reviewed, PR #33 open (campaign complete pending merge)
+Slice 5 merged as `ea55aff` (#32).
+
+Slice 6 = both spec §7 query engines out of the root.
+- `internal/index/list.go` (§7.2 engine + `Listed`/`ListedRole`/`Alternative`),
+  `internal/index/resolve.go` (§7.3 engine + `ValidateResolveQuery` +
+  `CapabilityError`), `internal/index/query.go` (shared §7.1 validation +
+  query usage canonicalization), `internal/index/entry.go` (`Entry`, `EntriesOf`).
+- list.go 338->145, resolve.go 364->104, usage.go 92->65. Root's 12
+  representation/role/compression constants and its `deliverableKey` deleted in
+  favor of the internal ones; `IsBasicToken` (added slice 1) deleted as dead.
+- ROOT PACKAGE NOW: 19 files, 1794 production lines (campaign start: 44 files,
+  10050 lines).
+- PR https://github.com/imgoci/go/pull/33, CI green.
+
+THE PERFORMANCE STORY, the most valuable thing in this slice:
+- `Index` had to stop storing `[]FileEntry` so an internal engine could read it.
+  First cut stored `[]index.Descriptor` — but `Descriptor.Selector()` re-derives
+  the six-field selector from the ANNOTATION MAP on every call. Master had
+  materialized selectors once at parse time. Result at 400 entries: List
+  818->1019 allocs and +42% ns; Resolve 3.07us -> 23.3us, **+590%**.
+- Fix: `index.Entry` + `EntriesOf`, materializing selector and the three
+  annotation-derived accessors once at parse time. Restored Resolve; List still
+  carried +201 allocs from building an internal tree and then a public tree.
+- I called that irreducible. The REVIEWER REFUTED IT with a working
+  implementation: cut all role/alternative slices from one backing array each,
+  sized by a non-allocating pre-pass, with full slice expressions so cap==len
+  (safer than master's `slices.Clone`, which could return cap>len). It measured
+  1019->821 allocs itself before recommending. Applied.
+- Final: List 65.8us/821 allocs vs master 61.8us/818; Resolve 3.27us/19 vs
+  3.07us/18. +6.5% ns, constant +3/+1 allocs = the cost of one type-mapping
+  boundary that did not exist before.
+LESSON: benchmark a representation change before believing it is free, and when
+a reviewer says a perf claim is wrong, ask for numbers — this one brought them.
+
+Reviewer also caught doc drift for the FOURTH consecutive slice:
+`internal/index/doc.go` still scoped the package to the codec plus §6 rules while
+it had just gained 11 exported query declarations. Fixed. (Watch the blank-line
+trap when appending to a package comment: a bare blank line splits it into two
+comment blocks and detaches the first from `package`.)
+
+RECORDED FOLLOW-UP (not done, deliberately): `internal/index` now spans five
+concerns — decode, §6 validation, canonical verification, producer Build, query
+selection. Reviewer argues for a future `internal/query` package and notes the
+coupling is nearly a file move: only `isBasicToken` and `deliverableKey` are
+unexported among what the engines need. I agree it is the right next step, but it
+is a boundary re-cut, not a move, so it does not belong in a slice whose contract
+is move-not-rewrite.
+
+Campaign summary (6 slices, 6 PRs, all reviewer-approved, all CI green):
+#28 duplicate spec grammar (-122 root lines), #29 internal/adapters (-109),
+#30 internal/ociref (-55), #31 dest+classify (-53 root, 2 internal packages
+gained policy), #32 producer validation (-152), #33 query engines (-450).
